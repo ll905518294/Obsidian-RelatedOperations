@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-sample-plugin",
+	"name": "related-operations",
 	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"description": "Find directly related notes and move selected notes into a target folder.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

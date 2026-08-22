@@ -1,114 +1,122 @@
-import {
-	Editor,
-	MarkdownView,
-	MarkdownFileInfo,
-	Modal,
-	Notice,
-	Plugin,
-} from 'obsidian';
-import {
-	DEFAULT_SETTINGS,
-	MyPluginSettings,
-	SampleSettingTab,
-} from './settings';
+import { Notice, Platform, Plugin, TAbstractFile, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
+import { RelatedNotesModal } from './related-notes-modal';
+import { getRelatedNotesForFiles } from './related-notes';
+import { RELATED_NOTES_VIEW_TYPE, RelatedNotesView } from './related-notes-view';
 
-// Remember to rename these classes and interfaces!
-
-export default class MyPlugin extends Plugin {
-	settings!: MyPluginSettings;
+export default class RelatedOperationsPlugin extends Plugin {
+	private relatedLeaf?: WorkspaceLeaf;
 
 	async onload() {
-		await this.loadSettings();
-
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
+		this.registerView(RELATED_NOTES_VIEW_TYPE, (leaf) => new RelatedNotesView(leaf));
 		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			},
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
+			id: 'move-related-notes',
+			name: '移动关联笔记',
+			checkCallback: (checking) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!file || file.extension !== 'md') return false;
+				if (!checking) void this.openRelatedNotesWindow([file]);
+				return true;
 			},
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
+		this.addRibbonIcon('move', '移动关联笔记', () => {
+			const file = this.app.workspace.getActiveFile();
+			if (!file || file.extension !== 'md') {
+				new Notice('请先打开 Markdown 笔记。');
+				return;
+			}
+			void this.openRelatedNotesWindow([file]);
 		});
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
+		this.registerEvent(
+			this.app.workspace.on('file-menu', (menu, file) => {
+				const sourceFiles = this.getSourceFiles(file);
+				if (sourceFiles.length === 0) return;
+				menu.addItem((item) =>
+					item
+						.setTitle(file instanceof TFolder ? '移动文件夹内关联笔记' : '移动关联笔记')
+						.setIcon('move')
+						.onClick(() => void this.openRelatedNotesWindow(sourceFiles)),
+				);
+			}),
+		);
+
+		this.registerEvent(
+			this.app.workspace.on('files-menu', (menu, files) => {
+				const sourceFiles = files.flatMap((file) => this.getSourceFiles(file));
+				const uniqueFiles = this.uniqueFiles(sourceFiles);
+				if (uniqueFiles.length < 2) return;
+				menu.addItem((item) =>
+					item
+						.setTitle('移动多个笔记的关联笔记')
+						.setIcon('move')
+						.onClick(() => void this.openRelatedNotesWindow(uniqueFiles)),
+				);
+			}),
 		);
 	}
 
-	onunload() {}
-
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
-		);
+	private async openRelatedNotesWindow(sourceFiles: TFile[]) {
+		const orderedFiles = this.uniqueFiles(sourceFiles).sort((a, b) => a.path.localeCompare(b.path));
+		if (orderedFiles.length === 0) {
+			new Notice('没有可处理的 Markdown 笔记。');
+			return;
+		}
+		const primarySource = orderedFiles.at(0);
+		if (!primarySource) return;
+		if (orderedFiles.some((file) => !this.app.metadataCache.getFileCache(file))) {
+			new Notice('正在解析关联笔记…');
+			await this.waitForMetadataResolution();
+		}
+		const relatedNotes = getRelatedNotesForFiles(this.app, orderedFiles);
+		const sourceLabel = orderedFiles.length === 1 ? primarySource.basename : `${orderedFiles.length} 篇源笔记`;
+		if (Platform.isMobile) {
+			new RelatedNotesModal(this.app, primarySource, relatedNotes, sourceLabel, orderedFiles.length).open();
+			return;
+		}
+		try {
+			const leaf = this.relatedLeaf ?? this.app.workspace.openPopoutLeaf();
+			this.relatedLeaf = leaf;
+			await leaf.setViewState({
+				type: RELATED_NOTES_VIEW_TYPE,
+				active: true,
+				state: { sourcePaths: orderedFiles.map((file) => file.path) },
+			});
+		} catch {
+			this.relatedLeaf = undefined;
+			new RelatedNotesModal(this.app, primarySource, relatedNotes, sourceLabel, orderedFiles.length).open();
+		}
 	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
+	private async waitForMetadataResolution() {
+		await new Promise<void>((resolve) => {
+			let settled = false;
+			const ref = this.app.metadataCache.on('resolved', () => {
+				if (settled) return;
+				settled = true;
+				this.app.metadataCache.offref(ref);
+				resolve();
+			});
+			window.setTimeout(() => {
+				if (settled) return;
+				settled = true;
+				this.app.metadataCache.offref(ref);
+				resolve();
+			}, 2000);
+		});
 	}
-}
 
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
+	private getSourceFiles(file: TAbstractFile): TFile[] {
+		if (file instanceof TFile && file.extension.toLowerCase() === 'md') return [file];
+		if (file instanceof TFolder) {
+			return this.app.vault
+				.getMarkdownFiles()
+				.filter((candidate) => candidate.path.startsWith(`${file.path}/`));
+		}
+		return [];
 	}
 
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+	private uniqueFiles(files: TFile[]): TFile[] {
+		return [...new Map(files.map((file) => [file.path, file])).values()];
 	}
 }

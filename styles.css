@@ -1,8 +1,234 @@
-/*
+.related-operations-panel {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	padding: 1.25rem;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.related-operations-description {
+	color: var(--text-muted);
+}
 
-If your plugin does not need CSS, delete this file.
+.related-operations-target-grid {
+	display: grid;
+	grid-template-columns: minmax(280px, 1fr) minmax(240px, 0.8fr);
+	gap: 0.75rem;
+	align-items: end;
+	margin-bottom: 1rem;
+}
 
-*/
+.related-operations-folder-field {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+}
+
+.related-operations-folder-field label,
+.related-operations-final-target strong {
+	font-weight: 600;
+}
+
+.related-operations-folder-field input {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.related-operations-folder-suggestions {
+	display: none;
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 100%;
+	max-height: 220px;
+	overflow-y: auto;
+	z-index: 20;
+	padding: 0.25rem;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+}
+
+.related-operations-folder-suggestions.is-visible {
+	display: block;
+}
+
+.related-operations-folder-suggestion {
+	display: block;
+	width: 100%;
+	padding: 0.35rem 0.5rem;
+	text-align: left;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.related-operations-final-target {
+	grid-column: 1 / -1;
+	padding: 0.6rem 0.75rem;
+	background: var(--background-secondary);
+	border-radius: var(--radius-s);
+}
+
+.related-operations-final-target-text {
+	margin-left: 0.35rem;
+	color: var(--text-accent);
+	word-break: break-all;
+}
+
+.related-operations-confirm-target {
+	padding: 0.6rem 0.75rem;
+	color: var(--text-accent);
+	background: var(--background-secondary);
+	border-radius: var(--radius-s);
+	word-break: break-all;
+}
+
+.related-operations-confirm-warning {
+	color: var(--text-warning);
+}
+
+.related-operations-tabs {
+	display: flex;
+	gap: 0.35rem;
+	border-bottom: 1px solid var(--background-modifier-border);
+	margin-bottom: 0.75rem;
+}
+
+.related-operations-tab {
+	border-radius: var(--radius-s) var(--radius-s) 0 0;
+	border-bottom: 2px solid transparent;
+}
+
+.related-operations-tab.is-active {
+	color: var(--text-accent);
+	border-bottom-color: var(--interactive-accent);
+}
+
+.related-operations-list {
+	min-width: 0;
+	overflow-x: auto;
+	flex: 1 1 auto;
+}
+
+.related-operations-list-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	margin-bottom: 0.5rem;
+}
+
+.related-operations-list-toolbar input:nth-of-type(2) {
+	margin-left: 1rem;
+}
+
+.related-operations-selection-summary {
+	margin-left: auto;
+	max-width: 45%;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: help;
+}
+
+.related-operations-table {
+	width: 100%;
+	min-width: 820px;
+	border-collapse: collapse;
+	table-layout: auto;
+}
+
+.related-operations-table th,
+.related-operations-table td {
+	padding: 0.55rem 0.6rem;
+	border-bottom: 1px solid var(--background-modifier-border);
+	text-align: left;
+	vertical-align: middle;
+}
+
+.related-operations-path-group td {
+	padding-top: 0.8rem;
+	padding-bottom: 0.35rem;
+	color: var(--text-accent);
+	font-weight: 600;
+	background: var(--background-secondary);
+}
+
+.related-operations-table th:nth-child(1),
+.related-operations-table td:nth-child(1) {
+	width: 54px;
+	text-align: center;
+}
+
+.related-operations-table th:nth-child(2) { width: 24%; }
+.related-operations-table th:nth-child(3) { width: 28%; }
+.related-operations-table th:nth-child(4) { width: 12%; }
+.related-operations-table th:nth-child(5) { width: 30%; }
+
+.related-operations-panel.has-source-column .related-operations-table th:nth-child(2) { width: 18%; }
+.related-operations-panel.has-source-column .related-operations-table th:nth-child(3) { width: 22%; }
+.related-operations-panel.has-source-column .related-operations-table th:nth-child(4) { width: 24%; }
+.related-operations-panel.has-source-column .related-operations-table th:nth-child(5) { width: 10%; }
+.related-operations-panel.has-source-column .related-operations-table th:nth-child(6) { width: 26%; }
+
+.related-operations-path {
+	color: var(--text-muted);
+	word-break: break-all;
+}
+
+.related-operations-note-link {
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.related-operations-table tr.is-already-target {
+	opacity: 0.45;
+}
+
+.related-operations-table tr.is-already-target .related-operations-note-link {
+	text-decoration: line-through;
+}
+
+.related-operations-empty {
+	padding: 1.5rem 0;
+	color: var(--text-muted);
+}
+
+.related-operations-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.5rem;
+	margin-top: 1rem;
+	padding-top: 0.75rem;
+	position: sticky;
+	bottom: 0;
+	background: var(--background-primary);
+	z-index: 2;
+}
+
+.workspace-leaf-content[data-type='related-operations-view'] {
+	overflow: auto;
+}
+
+@media (max-width: 900px) {
+	.related-operations-panel {
+		min-width: 0;
+		padding: 0.75rem;
+	}
+
+	.related-operations-target-grid {
+		grid-template-columns: 1fr;
+	}
+
+	.related-operations-list {
+		min-width: 0;
+	}
+
+	.related-operations-table {
+		min-width: 720px;
+	}
+}
