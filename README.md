@@ -7,6 +7,7 @@ An Obsidian community plugin for finding and moving notes directly related to th
 - Finds resolved Markdown notes linked from the source note or linking to it.
 - Opens from the command palette, ribbon, or a Markdown file's context menu.
 - Supports multi-selecting Markdown notes and processing all Markdown notes inside a selected folder.
+- Integrates with Notebook Navigator when it is installed, including its multi-selection and folder menus.
 - Aggregates related notes across all selected source notes and de-duplicates the move list.
 - Batch views show the source note beside each related-note row; the same related note may appear for multiple sources but is moved once.
 - Uses a movable standalone popout window on desktop and a modal fallback on mobile.
@@ -17,6 +18,7 @@ An Obsidian community plugin for finding and moving notes directly related to th
 - For a batch, defaults to the parent folder of the first source note by path order.
 - Defaults the subfolder to `Pages`; it can be cleared, replaced, or extended with nested paths.
 - Allows choosing or typing a base folder and an optional nested subfolder.
+- Defaults to grouping rows by source note; grouping by current path and hiding compliant rows can be changed in the panel or plugin settings.
 - Shows a confirmation step before any batch move is executed.
 - Uses Obsidian's native file manager so link updates follow the user's Obsidian settings.
 - Does not hard-depend on Custom Attachment Location. Test with that plugin enabled to verify attachment behavior in the target vault.

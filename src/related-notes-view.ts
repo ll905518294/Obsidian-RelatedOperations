@@ -1,12 +1,21 @@
 import { ItemView, TFile } from 'obsidian';
 import { getRelatedNotesForFiles } from './related-notes';
 import { RelatedNotesPanel } from './related-notes-modal';
+import { RelatedOperationsSettings } from './settings';
 
 export const RELATED_NOTES_VIEW_TYPE = 'related-operations-view';
 
 export class RelatedNotesView extends ItemView {
 	private sourcePaths: string[] = [];
 	private panel?: RelatedNotesPanel;
+
+	constructor(
+		leaf: import('obsidian').WorkspaceLeaf,
+		private readonly settings: RelatedOperationsSettings,
+		private readonly saveSettings: () => Promise<void>,
+	) {
+		super(leaf);
+	}
 
 	getViewType() {
 		return RELATED_NOTES_VIEW_TYPE;
@@ -61,9 +70,9 @@ export class RelatedNotesView extends ItemView {
 		if (!sourceFile) return;
 		const related = getRelatedNotesForFiles(this.app, sourceFiles);
 		const sourceLabel = sourceFiles.length === 1 ? sourceFile.basename : `${sourceFiles.length} 篇源笔记`;
-		this.panel = new RelatedNotesPanel(this.app, this.contentEl, sourceFile, related, {
+		this.panel = new RelatedNotesPanel(this.app, this.contentEl, sourceFile, sourceFiles, related, {
 			close: () => this.leaf.detach(),
-		}, sourceLabel, sourceFiles.length);
+		}, sourceLabel, sourceFiles.length, this.settings, this.saveSettings);
 		this.panel.render();
 	}
 }
