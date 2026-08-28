@@ -11,7 +11,13 @@ $ErrorActionPreference = 'Stop'
 function Get-OpenVaultPath([string]$RegistryPath) {
     if (-not (Test-Path -LiteralPath $RegistryPath -PathType Leaf)) { throw "Obsidian registry not found: $RegistryPath" }
     try { $registry = [IO.File]::ReadAllText($RegistryPath, [Text.Encoding]::UTF8) | ConvertFrom-Json } catch { throw "Obsidian registry is invalid JSON: $RegistryPath" }
-    $open = @($registry.vaults.psobject.Properties | Where-Object { $_.Value.open -eq $true })
+    $open = @(
+        $registry.vaults.psobject.Properties |
+            Where-Object {
+                $openProperty = $_.Value.PSObject.Properties['open']
+                $null -ne $openProperty -and $openProperty.Value -eq $true
+            }
+    )
     if ($open.Count -eq 0) { throw 'No open=true Obsidian vault was found.' }
     if ($open.Count -gt 1) { throw "Multiple open=true vaults found ($($open.Count)); deployment stopped." }
     $path = [string]$open[0].Value.path
@@ -29,6 +35,15 @@ function Get-DeploymentArtifacts([string]$Root) {
     if (Test-Path -LiteralPath $styles -PathType Leaf) { $artifacts += $styles }
     return $artifacts
 }
+function Get-PluginId([string]$ManifestPath) {
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { throw "Manifest not found: $ManifestPath" }
+    try { $manifest = [IO.File]::ReadAllText($ManifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json } catch { throw "Manifest is invalid JSON: $ManifestPath" }
+    $idProperty = $manifest.PSObject.Properties['id']
+    $id = if ($null -ne $idProperty) { [string]$idProperty.Value } else { '' }
+    if ([string]::IsNullOrWhiteSpace($id)) { throw "Manifest is missing required 'id' property: $ManifestPath" }
+    if ($id -match '[\\/:]' -or $id -eq '.' -or $id -eq '..') { throw "Manifest 'id' contains invalid path characters: $id" }
+    return $id
+}
 function Stop-ObsidianGracefully([int]$TimeoutSeconds) {
     $processes = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 })
     foreach ($process in $processes) { [void]$process.CloseMainWindow() }
@@ -39,16 +54,30 @@ function Stop-ObsidianGracefully([int]$TimeoutSeconds) {
 }
 function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    foreach ($name in @('main.js', 'manifest.json', 'styles.css')) {
+        $target = Join-Path $Destination $name
+        if (Test-Path -LiteralPath $target -PathType Leaf) { Remove-Item -LiteralPath $target -Force }
+    }
     foreach ($artifact in $Artifacts) { Copy-Item -LiteralPath $artifact -Destination (Join-Path $Destination (Split-Path $artifact -Leaf)) -Force }
 }
+function Restore-DeploymentBackup([string]$PluginDir, [string]$BackupDir) {
+    if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) { return }
+    $pluginsRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PluginDir))
+    $resolvedPluginDir = [IO.Path]::GetFullPath($PluginDir)
+    if (-not $resolvedPluginDir.StartsWith($pluginsRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to restore: plugin directory is not under plugins root: $resolvedPluginDir"
+    }
+    if (Test-Path -LiteralPath $PluginDir) { Remove-Item -LiteralPath $PluginDir -Recurse -Force }
+    Copy-Item -LiteralPath $BackupDir -Destination $PluginDir -Recurse -Force
+}
 function Invoke-DeployAndRestart {
-    $pluginDir = $null
     Push-Location -LiteralPath $ProjectRoot
     try {
         Write-Host '[1/5] Building plugin...' -ForegroundColor Cyan
         & npm run build
         if ($LASTEXITCODE -ne 0) { throw "npm run build failed (exit code $LASTEXITCODE)." }
         $artifacts = @(Get-DeploymentArtifacts $ProjectRoot)
+        $pluginId = Get-PluginId (Join-Path $ProjectRoot 'manifest.json')
         $vault = Get-OpenVaultPath $VaultRegistryPath
         $resolvedObsidian = Get-Command $ObsidianCommand -ErrorAction SilentlyContinue
         if (-not $resolvedObsidian) { throw "Obsidian launch command not found: $ObsidianCommand" }
@@ -57,7 +86,7 @@ function Invoke-DeployAndRestart {
             $exe = Join-Path (Split-Path -Parent $launcher) 'Obsidian.exe'
             if (Test-Path -LiteralPath $exe) { $launcher = $exe }
         }
-        $pluginDir = Join-Path $vault '.obsidian\plugins\Obsidian-RelatedOperations'
+        $pluginDir = Join-Path $vault ('.obsidian\plugins\' + $pluginId)
         $backupDir = "$pluginDir.backup"
         Write-Host "[2/5] Target vault: $vault"
         Write-Host '[3/5] Preparing build artifacts...'
@@ -67,7 +96,19 @@ function Invoke-DeployAndRestart {
         }
         Write-Host '[4/5] Closing Obsidian gracefully...'
         Stop-ObsidianGracefully $ShutdownTimeoutSeconds
-        Copy-DeploymentArtifacts $artifacts $pluginDir
+        try {
+            Copy-DeploymentArtifacts $artifacts $pluginDir
+        } catch {
+            $copyError = $_
+            Write-Warning 'Deployment copy failed; attempting to restore previous version...'
+            try {
+                Restore-DeploymentBackup $pluginDir $backupDir
+                Write-Warning 'Previous plugin version restored from backup.'
+            } catch {
+                Write-Warning "Backup restore also failed: $($_.Exception.Message)"
+            }
+            throw $copyError
+        }
         Write-Host '[5/5] Restarting Obsidian...'
         $started = Start-Process -FilePath $launcher -ArgumentList @($vault) -WorkingDirectory (Split-Path -Parent $launcher) -PassThru
         Start-Sleep -Seconds 2
