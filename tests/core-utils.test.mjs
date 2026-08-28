@@ -5,6 +5,7 @@ import {
 	joinVaultPath,
 	needsRawTextSearch,
 	normalizeSettings,
+	parseExtensions,
 	pathLikeTokens,
 	pathTokenCandidates,
 } from '../src/core-utils.ts';
@@ -51,6 +52,10 @@ test('extracts path-like tokens including spaced names', () => {
 	assert.ok(tokens.includes('images/pic.png'));
 	const candidates = tokens.flatMap((token) => pathTokenCandidates(token));
 	assert.ok(candidates.includes('note.png'));
+});
+
+test('parses configurable extensions without case or leading dots', () => {
+	assert.deepEqual([...parseExtensions('PNG, .jpg JICO')].sort(), ['jico', 'jpg', 'png']);
 });
 
 test('recovers the file name from prose prefixes and folder paths', () => {

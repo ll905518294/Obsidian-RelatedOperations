@@ -435,6 +435,11 @@
 	text-align: center;
 }
 
+.orphan-cleanup-table code {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
 .orphan-cleanup-group td {
 	padding: 0.5rem;
 	color: var(--text-accent);
@@ -450,6 +455,10 @@
 
 .orphan-cleanup-link {
 	cursor: pointer;
+}
+
+.orphan-cleanup-locate {
+	white-space: nowrap;
 }
 
 .orphan-cleanup-preview {

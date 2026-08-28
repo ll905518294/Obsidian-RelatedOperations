@@ -3,7 +3,8 @@ param(
     [string]$VaultRegistryPath = (Join-Path $env:APPDATA 'obsidian\obsidian.json'),
     [string]$ProjectRoot = '',
     [string]$ObsidianCommand = 'obsidian.com',
-    [int]$ShutdownTimeoutSeconds = 20
+    [int]$ShutdownTimeoutSeconds = 20,
+    [int]$StartupTimeoutSeconds = 20
 )
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath) }
 Set-StrictMode -Version Latest
@@ -45,11 +46,18 @@ function Get-PluginId([string]$ManifestPath) {
     return $id
 }
 function Stop-ObsidianGracefully([int]$TimeoutSeconds) {
-    $processes = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 })
-    foreach ($process in $processes) { [void]$process.CloseMainWindow() }
+    $processes = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue)
     if ($processes.Count -eq 0) { return }
+    foreach ($process in ($processes | Where-Object { $_.MainWindowHandle -ne 0 })) { [void]$process.CloseMainWindow() }
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    do { Start-Sleep -Milliseconds 250; $running = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }) } while ($running.Count -gt 0 -and (Get-Date) -lt $deadline)
+    do { Start-Sleep -Milliseconds 250; $running = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue) } while ($running.Count -gt 0 -and (Get-Date) -lt $deadline)
+    if ($running.Count -eq 0) { return }
+    $windows = @($running | Where-Object { $_.MainWindowHandle -ne 0 })
+    if ($windows.Count -gt 0) { throw "Obsidian did not close within $TimeoutSeconds seconds; a window may have unsaved changes. Deployment stopped." }
+    Write-Warning "Obsidian's main window has closed, but $($running.Count) background process(es) remain; stopping them to clear the loaded plugin code."
+    foreach ($process in $running) { Stop-Process -Id $process.Id -Force }
+    $killDeadline = (Get-Date).AddSeconds(5)
+    do { Start-Sleep -Milliseconds 250; $running = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue) } while ($running.Count -gt 0 -and (Get-Date) -lt $killDeadline)
     if ($running.Count -gt 0) { throw "Obsidian did not exit within $TimeoutSeconds seconds; deployment stopped." }
 }
 function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
@@ -59,6 +67,12 @@ function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
         if (Test-Path -LiteralPath $target -PathType Leaf) { Remove-Item -LiteralPath $target -Force }
     }
     foreach ($artifact in $Artifacts) { Copy-Item -LiteralPath $artifact -Destination (Join-Path $Destination (Split-Path $artifact -Leaf)) -Force }
+    foreach ($artifact in $Artifacts) {
+        $target = Join-Path $Destination (Split-Path $artifact -Leaf)
+        if ((Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) {
+            throw "Deployment artifact verification failed: $(Split-Path $artifact -Leaf)"
+        }
+    }
 }
 function Restore-DeploymentBackup([string]$PluginDir, [string]$BackupDir) {
     if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) { return }
@@ -109,10 +123,15 @@ function Invoke-DeployAndRestart {
             }
             throw $copyError
         }
-        Write-Host '[5/5] Restarting Obsidian...'
+        Write-Host '[5/5] Restarting Obsidian and waiting for a clean plugin reload...'
         $started = Start-Process -FilePath $launcher -ArgumentList @($vault) -WorkingDirectory (Split-Path -Parent $launcher) -PassThru
-        Start-Sleep -Seconds 2
-        if ($started.HasExited -and -not (Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue)) { throw 'Obsidian failed to start after deployment.' }
+        $startupDeadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
+        do { Start-Sleep -Milliseconds 250 } while (-not $started.HasExited -and (Get-Date) -lt $startupDeadline -and $started.MainWindowHandle -eq 0)
+        if ($started.HasExited) { throw 'Obsidian failed to start after deployment.' }
+        $deployedMain = Join-Path $pluginDir 'main.js'
+        $sourceHash = (Get-FileHash -LiteralPath (Join-Path $ProjectRoot 'main.js') -Algorithm SHA256).Hash
+        $deployedHash = (Get-FileHash -LiteralPath $deployedMain -Algorithm SHA256).Hash
+        if ($sourceHash -ne $deployedHash) { throw 'The deployed main.js hash does not match the build artifact.' }
         Write-Host 'Deployment complete.' -ForegroundColor Green
     } catch {
         throw

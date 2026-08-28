@@ -15,6 +15,7 @@ try {
 	$config = Join-Path $root 'data.json'; '{"keep":true}' | Set-Content $config
 	Copy-DeploymentArtifacts (Get-DeploymentArtifacts $root) (Join-Path $root 'plugin')
 	if (-not (Test-Path $config) -or -not (Test-Path (Join-Path $root 'plugin\main.js'))) { throw 'artifact copy removed config or missed output' }
+	if ((Get-FileHash (Join-Path $root 'main.js')).Hash -ne (Get-FileHash (Join-Path $root 'plugin\main.js')).Hash) { throw 'artifact hash mismatch' }
 	@{ vaults = @{ a = @{ path = $vault } } } | ConvertTo-Json | Set-Content $registry
 	try { Get-OpenVaultPath $registry; throw 'missing open property accepted' } catch { if ($_.Exception.Message -notmatch 'No open=true') { throw } }
 	'{invalid' | Set-Content $registry

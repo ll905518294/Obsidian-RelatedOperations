@@ -40,6 +40,15 @@ export function needsRawTextSearch(basename: string): boolean {
 	return !PLAIN_PATH_BASENAME_PATTERN.test(basename.toLowerCase());
 }
 
+export function parseExtensions(value: string) {
+	return new Set(
+		value
+			.split(/[,，\s]+/)
+			.map((extension) => extension.trim().replace(/^\./, '').toLowerCase())
+			.filter((extension) => /^[a-z0-9]+$/.test(extension)),
+	);
+}
+
 export function normalizeSettings<T extends object>(
 	defaults: T,
 	raw: unknown,
