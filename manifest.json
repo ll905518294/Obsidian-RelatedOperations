@@ -1,8 +1,8 @@
 {
-	"id": "related-operations",
+	"id": "Obsidian-RelatedOperations",
 	"name": "Related Operations",
 	"version": "1.0.0",
-	"minAppVersion": "1.4.0",
+	"minAppVersion": "1.6.6",
 	"description": "Find directly related notes and move selected notes into a target folder.",
 	"isDesktopOnly": false
 }

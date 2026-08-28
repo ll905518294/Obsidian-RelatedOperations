@@ -1,0 +1,577 @@
+import { App, FileSystemAdapter, Modal, Notice, Platform, TAbstractFile, TFile, TFolder } from 'obsidian';
+
+type ImageGrouping = 'none' | 'path' | 'extension';
+
+interface CleanupCandidates {
+	images: TFile[];
+	folders: TFolder[];
+}
+
+interface CleanupResult {
+	deleted: string[];
+	failed: Array<{ path: string; reason: string }>;
+}
+
+export interface OrphanCleanupHost {
+	close(): void;
+}
+
+export class OrphanCleanupPanel {
+	private candidates: CleanupCandidates = { images: [], folders: [] };
+	private selections = new Set<string>();
+	private activeTab: string = 'images';
+	private imageGrouping: ImageGrouping = 'none';
+	private scanning = false;
+
+	constructor(
+		private readonly app: App,
+		private readonly contentEl: HTMLElement,
+		private readonly imageExtensions: string,
+		private readonly host: OrphanCleanupHost,
+	) {}
+
+	render() {
+		this.contentEl.addClass('orphan-cleanup-panel');
+		void this.scan();
+	}
+
+	private async scan() {
+		this.scanning = true;
+		this.selections.clear();
+		this.renderContents();
+		try {
+			this.candidates = await findCleanupCandidates(this.app, this.imageExtensions);
+		} catch (error) {
+			new Notice(`扫描失败：${reasonFor(error)}`);
+			this.candidates = { images: [], folders: [] };
+		} finally {
+			this.scanning = false;
+			this.renderContents();
+		}
+	}
+
+	private renderContents() {
+		this.contentEl.empty();
+		const intro = this.contentEl.createDiv({ cls: 'orphan-cleanup-intro' });
+		intro.createEl('strong', { text: this.scanning ? '正在扫描资料库…' : '先预览，再清理' });
+		intro.createSpan({
+			text: this.scanning
+				? '正在检查 Markdown 和 Canvas 中的图片引用。'
+				: '未勾选的项目不会被处理；确认后会移入 Obsidian 回收站。',
+		});
+
+		if (this.scanning) return;
+		this.renderTabs();
+		this.renderList();
+		this.renderActions();
+	}
+
+	private renderTabs() {
+		const tabs = this.contentEl.createDiv({ cls: 'orphan-cleanup-tabs' });
+		for (const [tab, label, count] of [
+			['images', '孤立图片', this.candidates.images.length],
+			['folders', '空文件夹', this.candidates.folders.length],
+		] as const) {
+			const button = tabs.createEl('button', {
+				text: `${label}（${count}）`,
+				cls: tab === this.activeTab ? 'orphan-cleanup-tab is-active' : 'orphan-cleanup-tab',
+			});
+			button.dataset.tab = tab;
+			button.addEventListener('click', () => {
+				this.activeTab = tab;
+				this.renderContents();
+			});
+		}
+	}
+
+	private renderList() {
+		const currentTab = this.activeTab;
+		const items = this.itemsForActiveTab();
+		const list = this.contentEl.createDiv({ cls: 'orphan-cleanup-list' });
+		const toolbar = list.createDiv({ cls: 'orphan-cleanup-toolbar' });
+		if (this.activeTab === 'images') this.addImageGroupingControl(toolbar);
+		const selectAll = toolbar.createEl('button', { text: '全选当前页' });
+		selectAll.disabled = items.length === 0;
+		selectAll.addEventListener('click', () => {
+			for (const item of items) this.selections.add(item.path);
+			this.renderContents();
+		});
+		const clear = toolbar.createEl('button', { text: '取消当前页选择' });
+		clear.disabled = items.length === 0;
+		clear.addEventListener('click', () => {
+			for (const item of items) this.selections.delete(item.path);
+			this.renderContents();
+		});
+
+		if (items.length === 0) {
+			list.createEl('p', {
+				text: this.activeTab === 'images' ? '没有发现孤立图片。' : '没有发现可递归清理的空文件夹。',
+				cls: 'orphan-cleanup-empty',
+			});
+			return;
+		}
+
+		if (currentTab === 'images') {
+			const imageItems = this.candidates.images;
+			this.renderImageGrid(list, imageItems);
+			return;
+		}
+
+		const table = list.createEl('table', { cls: 'orphan-cleanup-table' });
+		const header = table.createEl('thead').createEl('tr');
+		header.createEl('th', { text: '选择' });
+		if (this.activeTab === 'images') header.createEl('th', { text: '预览' });
+		header.createEl('th', { text: this.activeTab === 'images' ? '图片' : '文件夹' });
+		header.createEl('th', { text: this.activeTab === 'images' ? '大小' : '说明' });
+		const body = table.createEl('tbody');
+		for (const group of this.groupedItems(items)) {
+			if (group.label) {
+				const groupRow = body.createEl('tr', { cls: 'orphan-cleanup-group' });
+				groupRow.createEl('td', { text: `${group.label}（${group.items.length}）`, attr: { colspan: this.activeTab === 'images' ? '4' : '3' } });
+			}
+			for (const item of group.items) this.renderItemRow(body, item);
+		}
+	}
+
+	private renderImageGrid(container: HTMLElement, items: TFile[]) {
+		const grid = container.createDiv({ cls: 'orphan-cleanup-grid' });
+		for (const group of this.groupedItems(items)) {
+			if (group.label) grid.createEl('h3', { text: `${group.label}（${group.items.length}）`, cls: 'orphan-cleanup-grid-group' });
+			const cards = grid.createDiv({ cls: 'orphan-cleanup-grid-items' });
+			for (const item of group.items) {
+				if (item instanceof TFile) this.renderImageCard(cards, item, items);
+			}
+		}
+	}
+
+	private renderImageCard(container: HTMLElement, file: TFile, items: TFile[]) {
+		const card = container.createDiv({ cls: 'orphan-cleanup-image-card' });
+		card.dataset.path = file.path;
+		const header = card.createDiv({ cls: 'orphan-cleanup-image-card-header' });
+		const checkbox = header.createEl('input', { type: 'checkbox' });
+		checkbox.checked = this.selections.has(file.path);
+		checkbox.setAttribute('aria-label', `选择 ${file.name}`);
+		checkbox.addEventListener('change', () => {
+			if (checkbox.checked) this.selections.add(file.path);
+			else this.selections.delete(file.path);
+			this.updateSelectionSummary();
+		});
+		const deleteButton = header.createEl('button', { text: '删除', cls: 'orphan-cleanup-image-delete' });
+		deleteButton.type = 'button';
+		deleteButton.title = '移入回收站';
+		deleteButton.addEventListener('click', () => void this.trashSingleImage(file));
+		const preview = card.createEl('img', { attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
+		preview.src = this.app.vault.getResourcePath(file);
+		preview.title = '点击预览';
+		preview.addEventListener('click', () => new ImagePreviewModal(this.app, items, items.indexOf(file), (deletedFile) => this.removeImage(deletedFile)).open());
+		preview.addEventListener('error', () => {
+			preview.replaceWith(card.createSpan({ text: '无法预览', cls: 'orphan-cleanup-preview-failed' }));
+		});
+		card.createEl('a', { text: file.name, cls: 'orphan-cleanup-image-name' }).addEventListener('click', (event) => {
+			event.preventDefault();
+			void this.app.workspace.openLinkText(file.path, '', 'tab');
+		});
+		card.createSpan({ text: formatBytes(file.stat.size), cls: 'orphan-cleanup-image-size' });
+	}
+
+	private async trashSingleImage(file: TFile) {
+		if (!this.app.vault.getAbstractFileByPath(file.path)) return;
+		try {
+			await this.app.fileManager.trashFile(file);
+			this.removeImage(file);
+			new Notice(`已移入回收站：${file.name}`);
+		} catch (error) {
+			new Notice(`删除失败：${reasonFor(error)}`);
+		}
+	}
+
+	private removeImage(file: TFile) {
+		this.candidates.images = this.candidates.images.filter((item) => item.path !== file.path);
+		this.candidates.folders = findRecursivelyEmptyFolders(this.app.vault.getRoot()).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
+		this.selections.delete(file.path);
+		for (const card of Array.from(this.contentEl.querySelectorAll<HTMLElement>('.orphan-cleanup-image-card'))) {
+			if (card.dataset.path === file.path) card.remove();
+		}
+		this.updateImageGroupCounts();
+		this.updateTabCounts();
+		this.updateSelectionSummary();
+		if (this.candidates.images.length === 0) this.renderContents();
+	}
+
+	private updateTabCounts() {
+		for (const [tab, label, count] of [
+			['images', '孤立图片', this.candidates.images.length],
+			['folders', '空文件夹', this.candidates.folders.length],
+		] as const) {
+			this.contentEl.querySelector<HTMLElement>(`.orphan-cleanup-tab[data-tab="${tab}"]`)?.setText(`${label}（${count}）`);
+		}
+	}
+
+	private updateImageGroupCounts() {
+		for (const cards of Array.from(this.contentEl.querySelectorAll<HTMLElement>('.orphan-cleanup-grid-items'))) {
+			const heading = cards.previousElementSibling;
+			if (!(heading instanceof HTMLElement) || !heading.matches('.orphan-cleanup-grid-group')) continue;
+			if (cards.children.length === 0) {
+				heading.remove();
+				cards.remove();
+			} else {
+				heading.setText(`${heading.textContent?.replace(/（\d+）$/, '')}（${cards.children.length}）`);
+			}
+		}
+	}
+
+	private addImageGroupingControl(container: HTMLElement) {
+		const label = container.createEl('label', { cls: 'orphan-cleanup-grouping' });
+		label.createSpan({ text: '分组：' });
+		const select = label.createEl('select');
+		for (const [value, text] of [
+			['none', '不分组'],
+			['path', '按路径'],
+			['extension', '按格式'],
+		] as const) {
+			const option = select.createEl('option', { text, value });
+			option.selected = value === this.imageGrouping;
+		}
+		select.addEventListener('change', () => {
+			this.imageGrouping = select.value as ImageGrouping;
+			this.renderContents();
+		});
+	}
+
+	private groupedItems(items: TAbstractFile[]) {
+		if (this.activeTab !== 'images' || this.imageGrouping === 'none') return [{ label: '', items }];
+		const groups = new Map<string, TAbstractFile[]>();
+		for (const item of items) {
+			if (!(item instanceof TFile)) continue;
+			const label = this.imageGrouping === 'path' ? parentFolder(item.path) || '根目录' : `.${item.extension.toUpperCase()}`;
+			const group = groups.get(label) ?? [];
+			group.push(item);
+			groups.set(label, group);
+		}
+		return [...groups.entries()]
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([label, grouped]) => ({ label, items: grouped.sort(byPath) }));
+	}
+
+	private renderItemRow(body: HTMLElement, item: TAbstractFile) {
+		const row = body.createEl('tr');
+		const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
+		checkbox.checked = this.selections.has(item.path);
+		checkbox.addEventListener('change', () => {
+			if (checkbox.checked) this.selections.add(item.path);
+			else this.selections.delete(item.path);
+			this.updateSelectionSummary();
+		});
+		if (item instanceof TFile) this.addImagePreview(row, item);
+		const pathCell = row.createEl('td', { cls: 'orphan-cleanup-path' });
+		const link = pathCell.createEl('a', { text: item.path, cls: 'orphan-cleanup-link' });
+		link.addEventListener('click', (event) => {
+			event.preventDefault();
+			void this.app.workspace.openLinkText(item.path, '', 'tab');
+		});
+		row.createEl('td', {
+			text: item instanceof TFile ? formatBytes(item.stat.size) : '仅包含空子文件夹或没有子项',
+			cls: 'orphan-cleanup-detail',
+		});
+	}
+
+	private addImagePreview(row: HTMLElement, file: TFile) {
+		const cell = row.createEl('td', { cls: 'orphan-cleanup-preview' });
+		const preview = cell.createEl('img', { attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
+		preview.src = this.app.vault.getResourcePath(file);
+		preview.title = '点击放大预览';
+		preview.addEventListener('click', () => new ImagePreviewModal(this.app, [file], 0).open());
+		preview.addEventListener('error', () => {
+			preview.replaceWith(cell.createSpan({ text: '无法预览', cls: 'orphan-cleanup-preview-failed' }));
+		});
+	}
+
+	private renderActions() {
+		const actions = this.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });
+		const summary = actions.createSpan({ cls: 'orphan-cleanup-summary' });
+		summary.setAttribute('aria-live', 'polite');
+		this.updateSelectionSummary(summary);
+		const rescan = actions.createEl('button', { text: '重新扫描' });
+		rescan.addEventListener('click', () => void this.scan());
+		const cleanup = actions.createEl('button', { text: '移入回收站', cls: 'mod-cta' });
+		cleanup.disabled = this.selections.size === 0;
+		cleanup.addEventListener('click', () => void this.confirmCleanup());
+	}
+
+	private updateSelectionSummary(summary?: HTMLElement) {
+		const target = summary ?? this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-summary');
+		if (!target) return;
+		const images = this.candidates.images.filter((item) => this.selections.has(item.path)).length;
+		const folders = this.candidates.folders.filter((item) => this.selections.has(item.path)).length;
+		target.setText(`已选：${images} 张图片，${folders} 个文件夹`);
+	}
+
+	private itemsForActiveTab(): TAbstractFile[] {
+		return this.activeTab === 'images' ? this.candidates.images : this.candidates.folders;
+	}
+
+	private async confirmCleanup() {
+		const selectedImages = this.candidates.images.filter((item) => this.selections.has(item.path));
+		const selectedFolders = this.candidates.folders.filter((item) => this.selections.has(item.path));
+		if (selectedImages.length + selectedFolders.length === 0) return;
+		const confirmed = await new CleanupConfirmationModal(this.app, selectedImages.length, selectedFolders.length).waitForConfirmation();
+		if (!confirmed) return;
+		const result = await trashSelected(this.app, selectedImages, selectedFolders);
+		const message = [`已移入回收站：${result.deleted.length}`, `失败：${result.failed.length}`];
+		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
+		new Notice(message.join('\n'));
+		await this.scan();
+	}
+}
+
+export class OrphanCleanupModal extends Modal {
+	private panel?: OrphanCleanupPanel;
+
+	constructor(app: App, private readonly imageExtensions: string) {
+		super(app);
+	}
+
+	onOpen() {
+		this.titleEl.setText('清理孤立资源');
+		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.imageExtensions, this);
+		this.panel.render();
+	}
+
+	onClose() {
+		this.panel = undefined;
+		this.contentEl.empty();
+	}
+}
+
+async function findCleanupCandidates(app: App, imageExtensions: string): Promise<CleanupCandidates> {
+	const extensions = parseExtensions(imageExtensions);
+	const images = app.vault.getFiles().filter((file) => extensions.has(file.extension.toLowerCase()));
+	const referenced = new Set<string>();
+	for (const [sourcePath, destinations] of Object.entries(app.metadataCache.resolvedLinks)) {
+		if (!sourcePath.toLowerCase().endsWith('.md')) continue;
+		for (const path of Object.keys(destinations)) referenced.add(path);
+	}
+	for (const canvas of app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas')) {
+		for (const path of await referencedByCanvas(app, canvas)) referenced.add(path);
+	}
+	return {
+		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
+		folders: findRecursivelyEmptyFolders(app.vault.getRoot()).sort((a, b) => b.path.length - a.path.length || byPath(a, b)),
+	};
+}
+
+function parseExtensions(value: string) {
+	return new Set(
+		value
+			.split(/[,，\s]+/)
+			.map((extension) => extension.trim().replace(/^\./, '').toLowerCase())
+			.filter((extension) => /^[a-z0-9]+$/.test(extension)),
+	);
+}
+
+async function referencedByCanvas(app: App, canvas: TFile): Promise<string[]> {
+	try {
+		const content = JSON.parse(await app.vault.read(canvas)) as { nodes?: Array<{ file?: unknown }> };
+		return (content.nodes ?? []).flatMap((node) => {
+			if (typeof node.file !== 'string') return [];
+			const file = app.metadataCache.getFirstLinkpathDest(node.file, canvas.path);
+			return file instanceof TFile ? [file.path] : [];
+		});
+	} catch {
+		return [];
+	}
+}
+
+function findRecursivelyEmptyFolders(folder: TFolder): TFolder[] {
+	const candidates: TFolder[] = [];
+	const visit = (current: TFolder): boolean => {
+		let onlyEmptyFolders = true;
+		for (const child of current.children) {
+			if (child instanceof TFolder) {
+				if (!visit(child)) onlyEmptyFolders = false;
+			} else {
+				onlyEmptyFolders = false;
+			}
+		}
+		if (onlyEmptyFolders && current.path) candidates.push(current);
+		return onlyEmptyFolders;
+	};
+	visit(folder);
+	return candidates;
+}
+
+async function trashSelected(app: App, images: TFile[], folders: TFolder[]): Promise<CleanupResult> {
+	const result: CleanupResult = { deleted: [], failed: [] };
+	const moveToLocalTrash = app.fileManager.trashFile.bind(app.fileManager);
+	for (const item of [...images, ...folders.sort((a, b) => b.path.length - a.path.length)]) {
+		if (!app.vault.getAbstractFileByPath(item.path)) continue;
+		try {
+			await moveToLocalTrash(item);
+			result.deleted.push(item.path);
+		} catch (error) {
+			result.failed.push({ path: item.path, reason: reasonFor(error) });
+		}
+	}
+	return result;
+}
+
+function byPath(a: TAbstractFile, b: TAbstractFile) {
+	return a.path.localeCompare(b.path);
+}
+
+function parentFolder(path: string) {
+	const slash = path.lastIndexOf('/');
+	return slash < 0 ? '' : path.slice(0, slash);
+}
+
+function formatBytes(bytes: number) {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function reasonFor(error: unknown) {
+	return error instanceof Error ? error.message : '未知错误';
+}
+
+class CleanupConfirmationModal extends Modal {
+	private resolver?: (confirmed: boolean) => void;
+	private settled = false;
+
+	constructor(app: App, private readonly imageCount: number, private readonly folderCount: number) {
+		super(app);
+	}
+
+	waitForConfirmation(): Promise<boolean> {
+		return new Promise((resolve) => {
+			this.resolver = resolve;
+			this.open();
+		});
+	}
+
+	onOpen() {
+		this.titleEl.setText('确认移入回收站');
+		this.contentEl.createEl('p', { text: `即将移入 Obsidian 回收站：${this.imageCount} 张图片、${this.folderCount} 个文件夹。` });
+		this.contentEl.createEl('p', { text: '这不会永久删除文件，可在 Obsidian 回收站中恢复。', cls: 'orphan-cleanup-warning' });
+		const actions = this.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });
+		const confirm = actions.createEl('button', { text: '确认移入回收站', cls: 'mod-cta' });
+		confirm.addEventListener('click', () => this.finish(true));
+		const cancel = actions.createEl('button', { text: '取消' });
+		cancel.addEventListener('click', () => this.finish(false));
+	}
+
+	onClose() {
+		this.contentEl.empty();
+		if (!this.settled) {
+			this.settled = true;
+			this.resolver?.(false);
+		}
+	}
+
+	private finish(confirmed: boolean) {
+		if (this.settled) return;
+		this.settled = true;
+		this.resolver?.(confirmed);
+		this.close();
+	}
+}
+
+class ImagePreviewModal extends Modal {
+	private index: number;
+	private imageEl!: HTMLImageElement;
+	private pathEl!: HTMLElement;
+	private previousButton!: HTMLButtonElement;
+	private nextButton!: HTMLButtonElement;
+
+	constructor(
+		app: App,
+		private readonly files: TFile[],
+		index: number,
+		private readonly onDeleted?: (file: TFile) => void,
+	) {
+		super(app);
+		this.index = index;
+	}
+
+	onOpen() {
+		this.modalEl.addClass('orphan-cleanup-preview-dialog');
+		this.contentEl.addClass('orphan-cleanup-preview-modal');
+		const frame = this.contentEl.createDiv({ cls: 'orphan-cleanup-preview-frame' });
+		this.imageEl = frame.createEl('img', { cls: 'orphan-cleanup-full-preview is-auto-fit' });
+		this.imageEl.addEventListener('error', () => frame.addClass('is-error'));
+		this.pathEl = this.contentEl.createEl('p', { cls: 'orphan-cleanup-preview-path' });
+		const actions = this.contentEl.createDiv({ cls: 'orphan-cleanup-preview-actions' });
+		this.previousButton = actions.createEl('button', { text: '上一张' });
+		this.previousButton.addEventListener('click', () => this.navigate(-1));
+		this.nextButton = actions.createEl('button', { text: '下一张' });
+		this.nextButton.addEventListener('click', () => this.navigate(1));
+		const open = actions.createEl('button', { text: '打开文件' });
+		open.addEventListener('click', () => void this.openCurrentFile());
+		const openFolder = actions.createEl('button', { text: '打开所在文件夹' });
+		openFolder.addEventListener('click', () => this.openCurrentFolder());
+		const remove = actions.createEl('button', { text: '删除', cls: 'mod-warning' });
+		remove.addEventListener('click', () => {
+			const file = this.files[this.index];
+			if (file) void this.trashCurrent(file);
+		});
+		this.scope.register(null, 'ArrowLeft', () => { this.navigate(-1); return false; });
+		this.scope.register(null, 'ArrowRight', () => { this.navigate(1); return false; });
+		this.updatePreview();
+	}
+
+	onClose() {
+		this.contentEl.empty();
+	}
+
+	private navigate(offset: number) {
+		const nextIndex = this.index + offset;
+		if (nextIndex < 0 || nextIndex >= this.files.length) return;
+		this.index = nextIndex;
+		this.updatePreview();
+	}
+
+	private updatePreview() {
+		const file = this.files[this.index];
+		if (!file) return this.close();
+		this.titleEl.setText(`${file.name}（${this.index + 1}/${this.files.length}）`);
+		this.imageEl.alt = file.name;
+		this.imageEl.parentElement?.removeClass('is-error');
+		this.imageEl.src = this.app.vault.getResourcePath(file);
+		this.pathEl.setText(file.path);
+		this.previousButton.disabled = this.index === 0;
+		this.nextButton.disabled = this.index === this.files.length - 1;
+	}
+
+	private async openCurrentFile() {
+		const file = this.files[this.index];
+		if (file) await this.app.workspace.openLinkText(file.path, '', 'tab');
+	}
+
+	private openCurrentFolder() {
+		const file = this.files[this.index];
+		if (!file) return;
+		if (!Platform.isDesktopApp || !(this.app.vault.adapter instanceof FileSystemAdapter)) {
+			new Notice('仅桌面端的本地资料库支持打开所在文件夹。');
+			return;
+		}
+		const electron = (window as Window & {
+			require?: (module: string) => { shell?: { showItemInFolder(path: string): void } };
+		}).require?.('electron');
+		if (!electron?.shell) {
+			new Notice('当前环境无法打开系统文件夹。');
+			return;
+		}
+		electron.shell.showItemInFolder(`${this.app.vault.adapter.getBasePath()}/${file.path}`);
+	}
+
+	private async trashCurrent(file: TFile) {
+		try {
+			await this.app.fileManager.trashFile(file);
+			new Notice(`已移入回收站：${file.name}`);
+			this.onDeleted?.(file);
+			this.close();
+		} catch (error) {
+			new Notice(`删除失败：${reasonFor(error)}`);
+		}
+	}
+}

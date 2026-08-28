@@ -1,6 +1,7 @@
 import { App, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { RelatedNote, relationLabel } from './related-notes';
 import { RelatedOperationsSettings } from './settings';
+import { joinVaultPath } from './core-utils';
 
 export interface RelatedNotesHost {
 	close(): void;
@@ -40,15 +41,9 @@ export class RelatedNotesPanel {
 		this.groupByPath = settings?.groupByPath ?? false;
 		this.hideCompliant = settings?.hideCompliant ?? true;
 		this.groups = {
-			outgoing: relatedNotes
-				.filter((note) => note.relation === 'outgoing' || note.relation === 'both')
-				.sort((a, b) => this.sortNotes(a, b)),
-			incoming: relatedNotes
-				.filter((note) => note.relation === 'incoming' || note.relation === 'both')
-				.sort((a, b) => this.sortNotes(a, b)),
-			both: relatedNotes
-				.filter((note) => note.relation === 'both')
-				.sort((a, b) => this.sortNotes(a, b)),
+			outgoing: relatedNotes.filter((note) => note.relation === 'outgoing' || note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
+			incoming: relatedNotes.filter((note) => note.relation === 'incoming' || note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
+			both: relatedNotes.filter((note) => note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
 		};
 	}
 
@@ -58,32 +53,43 @@ export class RelatedNotesPanel {
 		this.containerEl.toggleClass('has-source-column', this.showSourceColumn);
 		this.baseFolder = this.parentFolder(this.sourceFile.path);
 		this.subfolder = 'Pages';
-
-		this.containerEl.createEl('p', {
-			text: '选择要移动的关联笔记。移动使用 Obsidian 原生文件管理器。',
+		const header = this.containerEl.createDiv({ cls: 'related-operations-header' });
+		const heading = header.createDiv({ cls: 'related-operations-heading' });
+		heading.createEl('strong', { text: '移动关联笔记' });
+		heading.createSpan({
+			text: '选择关联笔记并移动到目标文件夹',
 			cls: 'related-operations-description',
 		});
-		this.renderSelectedSourceSummary();
-		this.renderTargetControls();
+		this.renderSelectedSourceSummary(header);
+		this.renderTargetControls(header);
 		this.renderTabs();
 		this.renderList();
 		this.renderActions();
 	}
 
-	private renderSelectedSourceSummary() {
-		if (this.sourceCount <= 1) return;
-		const selectedSources = this.containerEl.createEl('details', { cls: 'related-operations-selected-sources' });
+	private renderSelectedSourceSummary(container: HTMLElement) {
+		if (this.sourceCount === 1) {
+			const selectedSource = container.createDiv({ cls: 'related-operations-selected-sources is-single' });
+			selectedSource.createSpan({ text: '源笔记：' });
+			this.addSourceLink(selectedSource, this.sourceFiles[0] ?? this.sourceFile);
+			return;
+		}
+		const selectedSources = container.createEl('details', { cls: 'related-operations-selected-sources' });
 		const summary = selectedSources.createEl('summary');
 		summary.setText(`已选择源笔记（${this.sourceFiles.length}）`);
 		const sourceList = selectedSources.createDiv({ cls: 'related-operations-selected-source-list' });
 		for (const source of this.sourceFiles) {
-			const link = sourceList.createEl('a', { text: source.path, cls: 'related-operations-source-link' });
-			link.title = source.path;
-			link.addEventListener('click', (event) => {
-				event.preventDefault();
-				void this.app.workspace.openLinkText(source.path, this.sourceFile.path, 'tab');
-			});
+			this.addSourceLink(sourceList, source);
 		}
+	}
+
+	private addSourceLink(container: HTMLElement, source: TFile) {
+		const link = container.createEl('a', { text: source.path, cls: 'related-operations-source-link' });
+		link.title = source.path;
+		link.addEventListener('click', (event) => {
+			event.preventDefault();
+			void this.app.workspace.openLinkText(source.path, this.sourceFile.path, 'tab');
+		});
 	}
 
 	private parentFolder(path: string) {
@@ -97,8 +103,8 @@ export class RelatedNotesPanel {
 		return folderCompare || sourceCompare || a.file.path.localeCompare(b.file.path);
 	}
 
-	private renderTargetControls() {
-		const target = this.containerEl.createDiv({ cls: 'related-operations-target-grid' });
+	private renderTargetControls(container: HTMLElement) {
+		const target = container.createDiv({ cls: 'related-operations-target-row' });
 		this.addFolderInput(target, '基础目标文件夹', this.baseFolder, 'related-operations-base-folder', (value) => {
 			this.baseFolder = value;
 			this.updateSubfolderSuggestions();
@@ -108,8 +114,9 @@ export class RelatedNotesPanel {
 			this.subfolder = value;
 			this.updatePreviews();
 		});
-		const preview = target.createDiv({ cls: 'related-operations-final-target' });
-		preview.createEl('strong', { text: '最终目标：' });
+		target.createSpan({ text: '→', cls: 'related-operations-target-arrow' });
+		const preview = target.createDiv({ cls: 'related-operations-final-target-inline' });
+		preview.createEl('strong', { text: '目标：' });
 		preview.createSpan({ cls: 'related-operations-final-target-text' });
 		this.updatePreviews();
 	}
@@ -176,46 +183,39 @@ export class RelatedNotesPanel {
 		this.containerEl.insertBefore(wrapper, actions ?? null);
 		const currentGroup = this.groups[this.activeGroup];
 		const toolbar = wrapper.createDiv({ cls: 'related-operations-list-toolbar' });
-		const sourceToggle = toolbar.createEl('input', { type: 'checkbox', cls: 'related-operations-source-toggle' });
-		sourceToggle.checked = this.groupBySource;
-		sourceToggle.addEventListener('change', () => {
-			this.groupBySource = sourceToggle.checked;
-			if (this.settings) this.settings.groupBySource = sourceToggle.checked;
+		const displayOptions = toolbar.createEl('details', { cls: 'related-operations-display-options' });
+		displayOptions.createEl('summary', { text: '显示选项' });
+		const displayOptionsBody = displayOptions.createDiv({ cls: 'related-operations-display-options-body' });
+		this.addToggle(displayOptionsBody, '按源笔记分组', 'related-operations-source-toggle', this.groupBySource, (checked) => {
+			this.groupBySource = checked;
+			if (this.settings) this.settings.groupBySource = checked;
 			void this.saveSettings?.();
 			this.renderList();
 		});
-		toolbar.createSpan({ text: '按源笔记分组' });
-		const pathToggle = toolbar.createEl('input', { type: 'checkbox', cls: 'related-operations-path-toggle' });
-		pathToggle.checked = this.groupByPath;
+		const pathToggle = this.addToggle(displayOptionsBody, '按当前路径分组', 'related-operations-path-toggle', this.groupByPath, (checked) => {
+			this.groupByPath = checked;
+			if (this.settings) this.settings.groupByPath = checked;
+			void this.saveSettings?.();
+			this.renderList();
+		});
 		pathToggle.disabled = this.groupBySource;
-		pathToggle.addEventListener('change', () => {
-			this.groupByPath = pathToggle.checked;
-			if (this.settings) this.settings.groupByPath = pathToggle.checked;
+		this.addToggle(displayOptionsBody, '隐藏符合目标的条目', 'related-operations-hide-toggle', this.hideCompliant, (checked) => {
+			this.hideCompliant = checked;
+			if (this.settings) this.settings.hideCompliant = checked;
 			void this.saveSettings?.();
 			this.renderList();
 		});
-		toolbar.createSpan({ text: '按当前路径分组' });
-		const hideToggle = toolbar.createEl('input', { type: 'checkbox', cls: 'related-operations-hide-toggle' });
-		hideToggle.checked = this.hideCompliant;
-		hideToggle.addEventListener('change', () => {
-			this.hideCompliant = hideToggle.checked;
-			if (this.settings) this.settings.hideCompliant = hideToggle.checked;
-			void this.saveSettings?.();
-			this.renderList();
-		});
-		toolbar.createSpan({ text: '隐藏符合目标的条目' });
 		const hiddenCount = this.uniqueCount(currentGroup.filter((note) => this.isAlreadyAtTarget(note.file)));
-		if (hiddenCount > 0) toolbar.createSpan({ text: `已隐藏 ${hiddenCount} 条`, cls: 'related-operations-hidden-count' });
-		const selectAll = toolbar.createEl('input', { type: 'checkbox', cls: 'related-operations-select-all' });
-		selectAll.addClass('related-operations-select-all');
-		selectAll.addEventListener('change', () => {
+		if (hiddenCount > 0) toolbar.createSpan({ text: `符合目标：${hiddenCount} 条`, cls: 'related-operations-hidden-count' });
+		const selectAll = this.addToggle(toolbar, '全选当前分组', 'related-operations-select-all', false, (checked) => {
 			for (const note of currentGroup) {
-				if (!this.isAlreadyAtTarget(note.file)) this.selections.set(note.file.path, selectAll.checked);
+				if (!this.isAlreadyAtTarget(note.file)) this.selections.set(note.file.path, checked);
 			}
+			this.syncRowCheckboxes(currentGroup);
 			this.updateSelectAllState(selectAll, currentGroup);
 			this.updateSelectionSummary();
 		});
-		toolbar.createSpan({ text: '全选当前分组' });
+		selectAll.addClass('related-operations-select-all');
 		const selectionSummary = toolbar.createSpan({ cls: 'related-operations-selection-summary' });
 		selectionSummary.setAttribute('aria-live', 'polite');
 		this.updateSelectAllState(selectAll, currentGroup);
@@ -234,24 +234,29 @@ export class RelatedNotesPanel {
 		}
 
 		const table = wrapper.createEl('table', { cls: 'related-operations-table' });
-		const header = table.createEl('tr');
+		const thead = table.createEl('thead');
+		const header = thead.createEl('tr');
 		const headers = this.showSourceColumn
 			? ['选择', '源笔记', '关联笔记', '当前路径', '关系', '目标路径预览']
 			: ['选择', '笔记名称', '当前路径', '关系', '目标路径预览'];
 		for (const title of headers) header.createEl('th', { text: title });
+		const tbody = table.createEl('tbody');
 		let previousFolder = '';
-		for (const note of displayGroup) {
+		let previousSource = '';
+		for (let index = 0; index < displayGroup.length; index++) {
+			const note = displayGroup[index];
+			if (!note) continue;
 			const groupLabel = this.groupBySource
 				? note.sourceFile.path
 				: this.groupByPath
 					? this.parentFolder(note.file.path) || '根目录'
 					: '';
 			if (groupLabel && groupLabel !== previousFolder) {
-				const groupRow = table.createEl('tr', { cls: 'related-operations-path-group' });
+				const groupRow = tbody.createEl('tr', { cls: 'related-operations-path-group' });
 				groupRow.createEl('td', { text: groupLabel, attr: { colspan: this.showSourceColumn ? '6' : '5' } });
 				previousFolder = groupLabel;
 			}
-			const row = table.createEl('tr');
+			const row = tbody.createEl('tr');
 			row.dataset.relatedPath = note.file.path;
 			row.dataset.relatedKey = this.relatedKey(note);
 			const alreadyAtTarget = this.isAlreadyAtTarget(note.file);
@@ -267,16 +272,22 @@ export class RelatedNotesPanel {
 				this.updateSelectionSummary();
 			});
 			if (this.showSourceColumn) {
-				const sourceCell = row.createEl('td');
-				const sourceLink = sourceCell.createEl('a', {
-					text: note.sourceFile?.basename ?? this.sourceLabel,
-					cls: 'related-operations-note-link',
-				});
-				sourceLink.title = note.sourceFile.path;
-				sourceLink.addEventListener('click', (event) => {
-					event.preventDefault();
-					if (note.sourceFile) void this.app.workspace.openLinkText(note.sourceFile.path, this.sourceFile.path, 'tab');
-				});
+				if (note.sourceFile.path !== previousSource) {
+					const sourceCell = row.createEl('td');
+					let rowSpan = 1;
+					while (displayGroup[index + rowSpan]?.sourceFile.path === note.sourceFile.path) rowSpan++;
+					sourceCell.rowSpan = rowSpan;
+					const sourceLink = sourceCell.createEl('a', {
+						text: note.sourceFile.basename,
+						cls: 'related-operations-note-link',
+					});
+					sourceLink.title = note.sourceFile.path;
+					sourceLink.addEventListener('click', (event) => {
+						event.preventDefault();
+						void this.app.workspace.openLinkText(note.sourceFile.path, this.sourceFile.path, 'tab');
+					});
+				}
+				previousSource = note.sourceFile.path;
 			}
 			const nameCell = row.createEl('td');
 			const link = nameCell.createEl('a', { text: note.file.basename, cls: 'related-operations-note-link' });
@@ -289,6 +300,21 @@ export class RelatedNotesPanel {
 			row.createEl('td', { text: relationLabel(note.relation) });
 			row.createEl('td', { text: this.destinationFor(note.file), cls: 'related-operations-path' });
 		}
+	}
+
+	private addToggle(
+		container: HTMLElement,
+		text: string,
+		className: string,
+		checked: boolean,
+		onChange: (checked: boolean) => void,
+	) {
+		const label = container.createEl('label', { cls: 'related-operations-toggle' });
+		const input = label.createEl('input', { type: 'checkbox', cls: className });
+		input.checked = checked;
+		input.addEventListener('change', () => onChange(input.checked));
+		label.createSpan({ text });
+		return input;
 	}
 
 	private renderActions() {
@@ -306,6 +332,15 @@ export class RelatedNotesPanel {
 	private refreshSelectAll() {
 		const checkbox = this.containerEl.querySelector<HTMLInputElement>('.related-operations-select-all');
 		if (checkbox) this.updateSelectAllState(checkbox, this.groups[this.activeGroup]);
+	}
+
+	private syncRowCheckboxes(group: RelatedNote[]) {
+		const paths = new Set(group.map((note) => note.file.path));
+		this.containerEl.querySelectorAll<HTMLInputElement>('tr[data-related-path] input[type="checkbox"]').forEach((checkbox) => {
+			const row = checkbox.closest<HTMLElement>('tr[data-related-path]');
+			const path = row?.dataset.relatedPath;
+			if (path && paths.has(path)) checkbox.checked = this.selections.get(path) === true;
+		});
 	}
 
 	private updateSelectionSummary() {
@@ -379,7 +414,7 @@ export class RelatedNotesPanel {
 	private finalTarget() {
 		const base = normalizePath(this.baseFolder.trim()).replace(/\/$/, '');
 		const sub = normalizePath(this.subfolder.trim()).replace(/^\//, '').replace(/\/$/, '');
-		return sub ? `${base}/${sub}` : base;
+		return joinVaultPath(base, sub);
 	}
 
 	private destinationFor(file: TFile) {

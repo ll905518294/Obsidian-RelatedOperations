@@ -7,6 +7,8 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"test": "node --test --experimental-strip-types tests/**/*.test.mjs",
+		"test:deploy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-and-restart.tests.ps1",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint ."
 	},

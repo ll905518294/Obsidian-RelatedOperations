@@ -4,13 +4,33 @@ import { getRelatedNotesForFiles } from './related-notes';
 import { RELATED_NOTES_VIEW_TYPE, RelatedNotesView } from './related-notes-view';
 import { NotebookNavigatorApi } from './notebook-navigator-api';
 import { DEFAULT_SETTINGS, RelatedOperationsSettingTab, RelatedOperationsSettings } from './settings';
+import { LinkStatsPropertyNames, migrateLinkStatsProperties, updateLinkStats } from './link-stats';
+import { OrphanCleanupModal } from './orphan-cleanup';
+import { ORPHAN_CLEANUP_VIEW_TYPE, OrphanCleanupView } from './orphan-cleanup-view';
+import { normalizeSettings } from './core-utils';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
+	private linkStatsUpdaterStarted = false;
+	private linkStatsUpdate?: Promise<number>;
 	settings!: RelatedOperationsSettings;
 	async onload() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<RelatedOperationsSettings>);
+		const propertyName = (value: unknown) => typeof value === 'string' && value.trim().length > 0 && !/[\r\n]/.test(value);
+		const loaded = normalizeSettings(DEFAULT_SETTINGS, await this.loadData(), {
+			incomingProperty: propertyName,
+			outgoingProperty: propertyName,
+			bidirectionalProperty: propertyName,
+		});
+		const propertyNames = [loaded.incomingProperty, loaded.outgoingProperty, loaded.bidirectionalProperty];
+		if (new Set(propertyNames).size !== propertyNames.length) {
+			loaded.incomingProperty = DEFAULT_SETTINGS.incomingProperty;
+			loaded.outgoingProperty = DEFAULT_SETTINGS.outgoingProperty;
+			loaded.bidirectionalProperty = DEFAULT_SETTINGS.bidirectionalProperty;
+		}
+		this.settings = loaded;
+		this.registerLinkStatsUpdater();
 		this.registerView(RELATED_NOTES_VIEW_TYPE, (leaf) => new RelatedNotesView(leaf, this.settings, () => this.saveSettings()));
+		this.registerView(ORPHAN_CLEANUP_VIEW_TYPE, (leaf) => new OrphanCleanupView(leaf, this.settings.orphanImageExtensions));
 		this.addSettingTab(new RelatedOperationsSettingTab(this.app, this));
 		this.registerNotebookNavigatorMenus();
 		this.app.workspace.onLayoutReady(() => this.retryNotebookNavigatorRegistration());
@@ -25,6 +45,23 @@ export default class RelatedOperationsPlugin extends Plugin {
 				return true;
 			},
 		});
+		this.addCommand({
+			id: 'refresh-related-link-properties',
+			name: '刷新全库关联数量属性',
+			callback: async () => {
+				if (!this.settings.enabled) {
+					new Notice('请先在设置中启用关联数量属性。');
+					return;
+				}
+				const count = await this.updateAllLinkStats();
+				new Notice(`已更新 ${count} 篇笔记的关联数量属性。`);
+			},
+		});
+		this.addCommand({
+			id: 'scan-and-clean-orphan-resources',
+			name: '扫描并清理孤立资源',
+			callback: () => void this.openOrphanCleanupWindow(),
+		});
 
 		this.addRibbonIcon('move', '移动关联笔记', () => {
 			const file = this.app.workspace.getActiveFile();
@@ -35,6 +72,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			}
 			void this.openRelatedNotesWindow(sourceFiles);
 		});
+		this.addRibbonIcon('trash-2', '扫描并清理孤立资源', () => void this.openOrphanCleanupWindow());
 
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
@@ -94,6 +132,22 @@ export default class RelatedOperationsPlugin extends Plugin {
 		}
 	}
 
+	private async openOrphanCleanupWindow() {
+		if (Platform.isMobile) {
+			new OrphanCleanupModal(this.app, this.settings.orphanImageExtensions).open();
+			return;
+		}
+		try {
+			const leaf = this.app.workspace.openPopoutLeaf();
+			await leaf.setViewState({
+				type: ORPHAN_CLEANUP_VIEW_TYPE,
+				active: true,
+			});
+		} catch {
+			new OrphanCleanupModal(this.app, this.settings.orphanImageExtensions).open();
+		}
+	}
+
 	private async waitForMetadataResolution() {
 		await new Promise<void>((resolve) => {
 			let settled = false;
@@ -126,7 +180,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		const api = this.getNotebookNavigatorApi();
 		const selected = api?.selection.getCurrent().files ?? [];
 		const selectedFiles = this.uniqueFiles([...selected]).filter((file) => file.extension.toLowerCase() === 'md');
-		if (selectedFiles.length > 1) return selectedFiles;
+		if (selectedFiles.length > 0) return selectedFiles;
 		return activeFile && activeFile.extension.toLowerCase() === 'md' ? [activeFile] : [];
 	}
 
@@ -190,5 +244,53 @@ export default class RelatedOperationsPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	async applyLinkStatsPropertyNames(nextNames: LinkStatsPropertyNames): Promise<{ migrated: number; updated: number }> {
+		const oldNames: LinkStatsPropertyNames = {
+			incomingProperty: this.settings.incomingProperty,
+			outgoingProperty: this.settings.outgoingProperty,
+			bidirectionalProperty: this.settings.bidirectionalProperty,
+		};
+		const files = this.app.vault.getMarkdownFiles();
+		const migrated = await migrateLinkStatsProperties(this.app, files, oldNames, nextNames);
+		Object.assign(this.settings, nextNames);
+		await this.saveSettings();
+		const updated = this.settings.enabled ? await this.updateAllLinkStats() : 0;
+		return { migrated, updated };
+	}
+
+	private registerLinkStatsUpdater() {
+		if (!this.settings.enabled || this.linkStatsUpdaterStarted) return;
+		this.linkStatsUpdaterStarted = true;
+		let timer = 0;
+		const schedule = () => {
+			if (!this.settings.autoUpdate) return;
+			window.clearTimeout(timer);
+			timer = window.setTimeout(() => void this.updateAllLinkStats(), 800);
+		};
+		this.registerEvent(this.app.vault.on('modify', (file) => {
+			if (file instanceof TFile && file.extension.toLowerCase() === 'md') schedule();
+		}));
+		this.registerEvent(this.app.vault.on('create', schedule));
+		this.registerEvent(this.app.vault.on('delete', schedule));
+		this.registerEvent(this.app.vault.on('rename', schedule));
+		this.registerInterval(window.setInterval(() => {
+			if (this.settings.autoUpdate) void this.updateAllLinkStats();
+		}, 60_000));
+		this.register(() => window.clearTimeout(timer));
+		void this.updateAllLinkStats();
+	}
+
+	refreshLinkStatsUpdater() {
+		this.registerLinkStatsUpdater();
+	}
+
+	private async updateAllLinkStats() {
+		if (!this.settings.enabled) return 0;
+		if (this.linkStatsUpdate) return this.linkStatsUpdate;
+		this.linkStatsUpdate = updateLinkStats(this.app, this.app.vault.getMarkdownFiles(), this.settings)
+			.finally(() => { this.linkStatsUpdate = undefined; });
+		return this.linkStatsUpdate;
 	}
 }

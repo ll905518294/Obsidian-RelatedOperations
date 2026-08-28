@@ -64,7 +64,7 @@ export class RelatedNotesView extends ItemView {
 	private renderPanel() {
 		const sourceFiles = this.sourcePaths
 			.map((path) => this.app.vault.getAbstractFileByPath(path))
-			.filter((file): file is TFile => file instanceof TFile && file.extension === 'md')
+			.filter((file): file is TFile => file instanceof TFile && file.extension.toLowerCase() === 'md')
 			.sort((a, b) => a.path.localeCompare(b.path));
 		const sourceFile = sourceFiles[0];
 		if (!sourceFile) return;
