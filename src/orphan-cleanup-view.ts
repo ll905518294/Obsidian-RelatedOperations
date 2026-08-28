@@ -1,12 +1,16 @@
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import { OrphanCleanupPanel } from './orphan-cleanup';
+import { RelatedOperationsSettings } from './settings';
 
 export const ORPHAN_CLEANUP_VIEW_TYPE = 'related-operations-orphan-cleanup-view';
 
 export class OrphanCleanupView extends ItemView {
 	private panel?: OrphanCleanupPanel;
 
-	constructor(leaf: WorkspaceLeaf, private readonly imageExtensions: string) {
+	constructor(
+		leaf: WorkspaceLeaf,
+		private readonly settings: RelatedOperationsSettings,
+	) {
 		super(leaf);
 	}
 
@@ -23,7 +27,7 @@ export class OrphanCleanupView extends ItemView {
 	}
 
 	async onOpen() {
-		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.imageExtensions, {
+		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.settings, {
 			close: () => this.leaf.detach(),
 		});
 		this.panel.render();

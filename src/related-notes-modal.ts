@@ -15,7 +15,8 @@ interface MoveResult {
 
 export class RelatedNotesPanel {
 	private readonly selections = new Map<string, boolean>();
-	private readonly groups: Record<'outgoing' | 'incoming' | 'both', RelatedNote[]>;
+	private relatedNotes: RelatedNote[];
+	private groups: Record<'outgoing' | 'incoming' | 'both', RelatedNote[]>;
 	private baseFolder = '';
 	private subfolder = '';
 	private activeGroup: 'outgoing' | 'incoming' | 'both' = 'outgoing';
@@ -29,21 +30,26 @@ export class RelatedNotesPanel {
 		private readonly containerEl: HTMLElement,
 		private readonly sourceFile: TFile,
 		private readonly sourceFiles: TFile[],
-		private readonly relatedNotes: RelatedNote[],
+		relatedNotes: RelatedNote[],
 		private readonly host: RelatedNotesHost,
 		private readonly sourceLabel = sourceFile.basename,
 		private readonly sourceCount = sourceFiles.length,
 		private readonly settings?: RelatedOperationsSettings,
 		private readonly saveSettings?: () => Promise<void>,
 	) {
+		this.relatedNotes = [...relatedNotes];
 		this.showSourceColumn = sourceCount > 1;
 		this.groupBySource = settings?.groupBySource ?? true;
 		this.groupByPath = settings?.groupByPath ?? false;
 		this.hideCompliant = settings?.hideCompliant ?? true;
-		this.groups = {
-			outgoing: relatedNotes.filter((note) => note.relation === 'outgoing' || note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
-			incoming: relatedNotes.filter((note) => note.relation === 'incoming' || note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
-			both: relatedNotes.filter((note) => note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
+		this.groups = this.buildGroups();
+	}
+
+	private buildGroups() {
+		return {
+			outgoing: this.relatedNotes.filter((note) => note.relation === 'outgoing' || note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
+			incoming: this.relatedNotes.filter((note) => note.relation === 'incoming' || note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
+			both: this.relatedNotes.filter((note) => note.relation === 'both').sort((a, b) => this.sortNotes(a, b)),
 		};
 	}
 
@@ -463,7 +469,20 @@ export class RelatedNotesPanel {
 		if (!confirmed) return;
 		const result = await this.moveFiles(targetFolder, movable, conflicts.map((file) => file.path));
 		new Notice(this.formatResult(result));
-		if (result.failed.length === 0) this.host.close();
+		if (result.failed.length === 0) {
+			this.host.close();
+			return;
+		}
+		this.pruneMovedNotes(new Set(result.succeeded));
+	}
+
+	private pruneMovedNotes(movedPaths: Set<string>) {
+		if (movedPaths.size === 0) return;
+		this.relatedNotes = this.relatedNotes.filter((note) => !movedPaths.has(note.file.path));
+		for (const path of movedPaths) this.selections.delete(path);
+		this.groups = this.buildGroups();
+		this.renderTabs();
+		this.renderList();
 	}
 
 	private isVaultRelativePath(path: string) {

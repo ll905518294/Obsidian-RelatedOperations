@@ -13,6 +13,10 @@ interface CleanupResult {
 	failed: Array<{ path: string; reason: string }>;
 }
 
+interface OrphanImageExtensions {
+	orphanImageExtensions: string;
+}
+
 export interface OrphanCleanupHost {
 	close(): void;
 }
@@ -27,7 +31,7 @@ export class OrphanCleanupPanel {
 	constructor(
 		private readonly app: App,
 		private readonly contentEl: HTMLElement,
-		private readonly imageExtensions: string,
+		private readonly settings: OrphanImageExtensions,
 		private readonly host: OrphanCleanupHost,
 	) {}
 
@@ -41,7 +45,7 @@ export class OrphanCleanupPanel {
 		this.selections.clear();
 		this.renderContents();
 		try {
-			this.candidates = await findCleanupCandidates(this.app, this.imageExtensions);
+			this.candidates = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions);
 		} catch (error) {
 			new Notice(`扫描失败：${reasonFor(error)}`);
 			this.candidates = { images: [], folders: [] };
@@ -328,13 +332,13 @@ export class OrphanCleanupPanel {
 export class OrphanCleanupModal extends Modal {
 	private panel?: OrphanCleanupPanel;
 
-	constructor(app: App, private readonly imageExtensions: string) {
+	constructor(app: App, private readonly settings: OrphanImageExtensions) {
 		super(app);
 	}
 
 	onOpen() {
 		this.titleEl.setText('清理孤立资源');
-		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.imageExtensions, this);
+		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.settings, this);
 		this.panel.render();
 	}
 

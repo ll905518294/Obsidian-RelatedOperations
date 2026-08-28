@@ -30,7 +30,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.settings = loaded;
 		this.registerLinkStatsUpdater();
 		this.registerView(RELATED_NOTES_VIEW_TYPE, (leaf) => new RelatedNotesView(leaf, this.settings, () => this.saveSettings()));
-		this.registerView(ORPHAN_CLEANUP_VIEW_TYPE, (leaf) => new OrphanCleanupView(leaf, this.settings.orphanImageExtensions));
+		this.registerView(ORPHAN_CLEANUP_VIEW_TYPE, (leaf) => new OrphanCleanupView(leaf, this.settings));
 		this.addSettingTab(new RelatedOperationsSettingTab(this.app, this));
 		this.registerNotebookNavigatorMenus();
 		this.app.workspace.onLayoutReady(() => this.retryNotebookNavigatorRegistration());
@@ -120,6 +120,16 @@ export default class RelatedOperationsPlugin extends Plugin {
 			new RelatedNotesModal(this.app, primarySource, orderedFiles, relatedNotes, sourceLabel, orderedFiles.length, this.settings, () => this.saveSettings()).open();
 			return;
 		}
+		const existingLeaf = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE).at(0);
+		if (existingLeaf) {
+			await existingLeaf.setViewState({
+				type: RELATED_NOTES_VIEW_TYPE,
+				active: true,
+				state: { sourcePaths: orderedFiles.map((file) => file.path) },
+			});
+			await this.app.workspace.revealLeaf(existingLeaf);
+			return;
+		}
 		try {
 			const leaf = this.app.workspace.openPopoutLeaf();
 			await leaf.setViewState({
@@ -134,7 +144,12 @@ export default class RelatedOperationsPlugin extends Plugin {
 
 	private async openOrphanCleanupWindow() {
 		if (Platform.isMobile) {
-			new OrphanCleanupModal(this.app, this.settings.orphanImageExtensions).open();
+			new OrphanCleanupModal(this.app, this.settings).open();
+			return;
+		}
+		const existingLeaf = this.app.workspace.getLeavesOfType(ORPHAN_CLEANUP_VIEW_TYPE).at(0);
+		if (existingLeaf) {
+			await this.app.workspace.revealLeaf(existingLeaf);
 			return;
 		}
 		try {
@@ -144,7 +159,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 				active: true,
 			});
 		} catch {
-			new OrphanCleanupModal(this.app, this.settings.orphanImageExtensions).open();
+			new OrphanCleanupModal(this.app, this.settings).open();
 		}
 	}
 
