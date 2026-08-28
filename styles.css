@@ -25,12 +25,18 @@
 	font-size: 1.05em;
 }
 
-.related-operations-description {
+.related-operations-help-button {
+	width: 1.6rem;
+	height: 1.6rem;
+	padding: 0;
+	border-radius: 50%;
+	font-weight: 700;
+}
+
+.related-operations-help {
+	margin-top: 0.35rem;
 	color: var(--text-muted);
 	font-size: 0.9em;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 .related-operations-selected-sources {
@@ -337,16 +343,6 @@
 	overflow: auto;
 }
 
-.orphan-cleanup-intro {
-	display: flex;
-	flex-direction: column;
-	gap: 0.35rem;
-	margin-bottom: 0.85rem;
-	padding: 0.7rem 0.8rem;
-	background: var(--background-secondary);
-	border-radius: var(--radius-s);
-}
-
 .orphan-cleanup-panel {
 	box-sizing: border-box;
 	min-height: 100%;
@@ -355,17 +351,37 @@
 	flex-direction: column;
 }
 
-.orphan-cleanup-intro span,
 .orphan-cleanup-detail,
 .orphan-cleanup-summary {
 	color: var(--text-muted);
 }
 
+.orphan-cleanup-scan-status {
+	color: var(--text-muted);
+}
+
 .orphan-cleanup-tabs {
 	display: flex;
+	align-items: center;
 	gap: 0.35rem;
 	margin-bottom: 0.65rem;
 	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.orphan-cleanup-help-button {
+	margin-left: auto;
+	width: 1.6rem;
+	height: 1.6rem;
+	padding: 0;
+	border-radius: 50%;
+	font-weight: 700;
+}
+
+.orphan-cleanup-help {
+	display: flex;
+	gap: 0.35rem;
+	margin: -0.25rem 0 0.65rem;
+	color: var(--text-muted);
 }
 
 .orphan-cleanup-tab {

@@ -1,0 +1,87 @@
+import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
+
+export interface NativeImageLink {
+	sourcePath: string;
+	original: string;
+	linkPath: string;
+	position: Pos;
+	file?: TFile;
+	reason?: string;
+}
+
+export function nativeImageLinkKey(link: NativeImageLink) {
+	return `${link.sourcePath}\u0000${link.position.start.offset}:${link.position.end.offset}`;
+}
+
+export function findNativeImageLinks(app: App, imageExtensions: string): NativeImageLink[] {
+	const extensions = new Set(imageExtensions.split(/[,，\s]+/).map((x) => x.replace(/^\./, '').toLowerCase()).filter(Boolean));
+	return app.vault.getMarkdownFiles().flatMap((file) => {
+		const cache = app.metadataCache.getFileCache(file);
+		return cache ? findInCache(app, file.path, cache, extensions) : [];
+	}).sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.position.start.offset - b.position.start.offset);
+}
+
+function findInCache(app: App, sourcePath: string, cache: CachedMetadata, extensions: Set<string>) {
+	return (cache.embeds ?? []).flatMap((reference) => {
+		if (!reference.original.startsWith('![[') || isIgnored(cache, reference.position)) return [];
+		const parsed = parseNative(reference.original);
+		if (!parsed) return [];
+		const linkPath = parsed.target.split('#', 1)[0] ?? '';
+		const extension = linkPath.slice(linkPath.lastIndexOf('.') + 1).toLowerCase();
+		if (!extensions.has(extension)) return [];
+		const file = app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath) ?? undefined;
+		return [{ sourcePath, original: reference.original, linkPath, position: reference.position, file, reason: parsed.reason }];
+	});
+}
+
+export function nativeImageLinkOffset(content: string, link: NativeImageLink) {
+	const start = offsetOf(link.position.start.offset), end = offsetOf(link.position.end.offset);
+	if (start >= 0 && end > start && end <= content.length && content.slice(start, end) === link.original) return { start, end };
+	const found = content.indexOf(link.original);
+	return found < 0 ? null : { start: found, end: found + link.original.length };
+}
+
+export function convertNativeImageLink(link: NativeImageLink): string | null {
+	if (!link.file || link.reason) return null;
+	const parsed = parseNative(link.original);
+	if (!parsed) return null;
+	return `![](<${link.file.path}>)`;
+}
+
+export function replaceNativeImageLinks(content: string, links: NativeImageLink[]) {
+	let result = content;
+	let converted = 0;
+	let skipped = 0;
+	for (const link of [...links].sort((a, b) => offsetOf(b.position.start.offset) - offsetOf(a.position.start.offset))) {
+		const range = nativeImageLinkOffset(result, link);
+		const replacement = convertNativeImageLink(link);
+		if (!range || !replacement) { skipped++; continue; }
+		result = result.slice(0, range.start) + replacement + result.slice(range.end);
+		converted++;
+	}
+	return { content: result, converted, skipped };
+}
+
+function parseNative(original: string): { target: string; alias: string; reason?: string } | null {
+	const match = /^!\[\[([^\]]+)\]\]$/.exec(original);
+	if (!match) return null;
+	const parts = match[1]!.split('|');
+	const target = parts.shift()!.trim();
+	const extras = parts.map((part) => part.trim()).filter(Boolean);
+	if (extras.some((part) => /^\d+(?:x\d+)?$/.test(part))) return { target, alias: '', reason: '包含尺寸参数' };
+	return { target, alias: extras[0] ?? '' };
+}
+
+function isIgnored(cache: CachedMetadata, position: Pos) {
+	const frontmatter = cache.frontmatterPosition;
+	if (frontmatter && contains(frontmatter, position)) return true;
+	return (cache.sections ?? []).some((section) => section.type === 'code' && contains(section.position, position));
+}
+
+function contains(range: Pos, position: Pos) {
+	return offsetOf(position.start.offset) >= offsetOf(range.start.offset) && offsetOf(position.end.offset) <= offsetOf(range.end.offset);
+}
+
+function offsetOf(value: number | { line: number; ch: number }) {
+	return typeof value === 'number' ? value : -1;
+}

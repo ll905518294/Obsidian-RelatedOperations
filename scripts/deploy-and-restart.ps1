@@ -45,6 +45,15 @@ function Get-PluginId([string]$ManifestPath) {
     if ($id -match '[\\/:]' -or $id -eq '.' -or $id -eq '..') { throw "Manifest 'id' contains invalid path characters: $id" }
     return $id
 }
+function Get-FileSha256([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "File not found: $Path" }
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '') }
+        finally { $sha256.Dispose() }
+    } finally { $stream.Dispose() }
+}
 function Stop-ObsidianGracefully([int]$TimeoutSeconds) {
     $processes = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue)
     if ($processes.Count -eq 0) { return }
@@ -69,9 +78,24 @@ function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
     foreach ($artifact in $Artifacts) { Copy-Item -LiteralPath $artifact -Destination (Join-Path $Destination (Split-Path $artifact -Leaf)) -Force }
     foreach ($artifact in $Artifacts) {
         $target = Join-Path $Destination (Split-Path $artifact -Leaf)
-        if ((Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) {
+        if ((Get-FileSha256 $artifact) -ne (Get-FileSha256 $target)) {
             throw "Deployment artifact verification failed: $(Split-Path $artifact -Leaf)"
         }
+    }
+}
+function Test-ObsidianVaultProcess([string]$VaultPath) {
+    return @(Get-CimInstance Win32_Process -Filter "Name = 'Obsidian.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { [string]$_.CommandLine -notmatch '--type=' }).Count -gt 0
+}
+function Invoke-ObsidianPluginReload([string]$Launcher, [string]$PluginId, [string]$VaultPath) {
+    if (-not (Test-ObsidianVaultProcess $VaultPath)) {
+        throw "Obsidian is not running with the target Vault: $VaultPath"
+    }
+    try { & $Launcher "plugin:reload" "id=$PluginId" 2>&1 | Out-Null }
+    catch { throw "Obsidian plugin reload failed: $($_.Exception.Message)" }
+    Start-Sleep -Seconds 2
+    if (-not (Test-ObsidianVaultProcess $VaultPath)) {
+        throw 'Obsidian exited while reloading the plugin.'
     }
 }
 function Restore-DeploymentBackup([string]$PluginDir, [string]$BackupDir) {
@@ -108,8 +132,7 @@ function Invoke-DeployAndRestart {
             if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }
             Copy-Item -LiteralPath $pluginDir -Destination $backupDir -Recurse -Force
         }
-        Write-Host '[4/5] Closing Obsidian gracefully...'
-        Stop-ObsidianGracefully $ShutdownTimeoutSeconds
+        Write-Host '[4/5] Copying and verifying plugin artifacts...'
         try {
             Copy-DeploymentArtifacts $artifacts $pluginDir
         } catch {
@@ -123,16 +146,9 @@ function Invoke-DeployAndRestart {
             }
             throw $copyError
         }
-        Write-Host '[5/5] Restarting Obsidian and waiting for a clean plugin reload...'
-        $started = Start-Process -FilePath $launcher -ArgumentList @($vault) -WorkingDirectory (Split-Path -Parent $launcher) -PassThru
-        $startupDeadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
-        do { Start-Sleep -Milliseconds 250 } while (-not $started.HasExited -and (Get-Date) -lt $startupDeadline -and $started.MainWindowHandle -eq 0)
-        if ($started.HasExited) { throw 'Obsidian failed to start after deployment.' }
-        $deployedMain = Join-Path $pluginDir 'main.js'
-        $sourceHash = (Get-FileHash -LiteralPath (Join-Path $ProjectRoot 'main.js') -Algorithm SHA256).Hash
-        $deployedHash = (Get-FileHash -LiteralPath $deployedMain -Algorithm SHA256).Hash
-        if ($sourceHash -ne $deployedHash) { throw 'The deployed main.js hash does not match the build artifact.' }
-        Write-Host 'Deployment complete.' -ForegroundColor Green
+        Write-Host '[5/5] Reloading the plugin in the running Obsidian process...'
+        Invoke-ObsidianPluginReload $launcher $pluginId $vault
+        Write-Host 'Deployment complete. The plugin was reloaded without restarting Obsidian.' -ForegroundColor Green
     } catch {
         throw
     } finally { Pop-Location }

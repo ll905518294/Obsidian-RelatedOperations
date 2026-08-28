@@ -1,6 +1,7 @@
 import { App, FileSystemAdapter, MarkdownView, Modal, Notice, Platform, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { hasHiddenPathSegment, needsRawTextSearch, parseExtensions, pathLikeTokens, pathTokenCandidates } from './core-utils';
 import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelectedBrokenLinks, type BrokenImageLink } from './broken-image-links';
+import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, type NativeImageLink } from './native-image-links';
 
 type ImageGrouping = 'none' | 'path' | 'extension';
 
@@ -8,6 +9,7 @@ interface CleanupCandidates {
 	images: TFile[];
 	folders: TFolder[];
 	brokenLinks: BrokenImageLink[];
+	nativeLinks: NativeImageLink[];
 }
 
 interface CleanupResult {
@@ -24,12 +26,14 @@ export interface OrphanCleanupHost {
 }
 
 export class OrphanCleanupPanel {
-	private candidates: CleanupCandidates = { images: [], folders: [], brokenLinks: [] };
+	private candidates: CleanupCandidates = { images: [], folders: [], brokenLinks: [], nativeLinks: [] };
 	private selections = new Set<string>();
 	private linkSelections = new Set<string>();
+	private nativeSelections = new Set<string>();
 	private activeTab: string = 'images';
 	private imageGrouping: ImageGrouping = 'none';
 	private scanning = false;
+	private showHelp = false;
 
 	constructor(
 		private readonly app: App,
@@ -47,12 +51,13 @@ export class OrphanCleanupPanel {
 		this.scanning = true;
 		this.selections.clear();
 		this.linkSelections.clear();
+		this.nativeSelections.clear();
 		this.renderContents();
 		try {
 			this.candidates = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions);
 		} catch (error) {
 			new Notice(`扫描失败：${reasonFor(error)}`);
-			this.candidates = { images: [], folders: [], brokenLinks: [] };
+			this.candidates = { images: [], folders: [], brokenLinks: [], nativeLinks: [] };
 		} finally {
 			this.scanning = false;
 			this.renderContents();
@@ -61,16 +66,12 @@ export class OrphanCleanupPanel {
 
 	private renderContents() {
 		this.contentEl.empty();
-		const intro = this.contentEl.createDiv({ cls: 'orphan-cleanup-intro' });
-		intro.createEl('strong', { text: this.scanning ? '正在扫描资料库…' : '先预览，再清理' });
-		intro.createSpan({
-			text: this.scanning
-				? '正在检查 Markdown、Canvas 中的图片引用和失效图片链接。'
-				: '未勾选的项目不会被处理；确认后会移入 Obsidian 回收站。',
-		});
-
-		if (this.scanning) return;
+		if (this.scanning) {
+			this.contentEl.createSpan({ text: '正在扫描资料库…', cls: 'orphan-cleanup-scan-status' });
+			return;
+		}
 		this.renderTabs();
+		if (this.showHelp) this.renderHelp();
 		this.renderList();
 		this.renderActions();
 	}
@@ -80,6 +81,7 @@ export class OrphanCleanupPanel {
 		for (const [tab, label, count] of [
 			['images', '孤立图片', this.candidates.images.length],
 			['broken-links', '失效图片链接', this.candidates.brokenLinks.length],
+			['native-links', '原生图片链接', this.candidates.nativeLinks.length],
 			['folders', '空文件夹', this.candidates.folders.length],
 		] as const) {
 			const button = tabs.createEl('button', {
@@ -92,6 +94,21 @@ export class OrphanCleanupPanel {
 				this.renderContents();
 			});
 		}
+		const help = tabs.createEl('button', { text: '!', cls: 'orphan-cleanup-help-button' });
+		help.type = 'button';
+		help.title = '查看使用说明';
+		help.setAttribute('aria-label', '查看使用说明');
+		help.setAttribute('aria-expanded', String(this.showHelp));
+		help.addEventListener('click', () => {
+			this.showHelp = !this.showHelp;
+			this.renderContents();
+		});
+	}
+
+	private renderHelp() {
+		const help = this.contentEl.createDiv({ cls: 'orphan-cleanup-help' });
+		help.createEl('strong', { text: '使用说明' });
+		help.createSpan({ text: '未勾选的项目不会被处理；确认后会移入 Obsidian 回收站。' });
 	}
 
 	private renderList() {
@@ -101,24 +118,26 @@ export class OrphanCleanupPanel {
 		this.addRefreshControl(toolbar);
 		if (this.activeTab === 'images') this.addImageGroupingControl(toolbar);
 
-		if (currentTab === 'broken-links') {
+		if (currentTab === 'broken-links' || currentTab === 'native-links') {
+			const native = currentTab === 'native-links';
+			const candidates = native ? this.candidates.nativeLinks : this.candidates.brokenLinks;
 			const selectAll = toolbar.createEl('button', { text: '全选当前页' });
 			selectAll.disabled = this.candidates.brokenLinks.length === 0;
 			selectAll.addEventListener('click', () => {
-				for (const item of this.candidates.brokenLinks) this.linkSelections.add(brokenLinkKey(item));
+			for (const item of candidates) native ? this.nativeSelections.add(nativeImageLinkKey(item)) : this.linkSelections.add(brokenLinkKey(item));
 				this.renderContents();
 			});
 			const clear = toolbar.createEl('button', { text: '取消当前页选择' });
-			clear.disabled = this.candidates.brokenLinks.length === 0;
+			clear.disabled = candidates.length === 0;
 			clear.addEventListener('click', () => {
 				this.linkSelections.clear();
 				this.renderContents();
 			});
-			if (this.candidates.brokenLinks.length === 0) {
-				list.createEl('p', { text: '没有发现失效图片链接。', cls: 'orphan-cleanup-empty' });
+			if (candidates.length === 0) {
+				list.createEl('p', { text: native ? '没有发现原生图片链接。' : '没有发现失效图片链接。', cls: 'orphan-cleanup-empty' });
 				return;
 			}
-			this.renderBrokenLinkList(list);
+			native ? this.renderNativeLinkList(list) : this.renderBrokenLinkList(list);
 			return;
 		}
 
@@ -184,6 +203,35 @@ export class OrphanCleanupPanel {
 		header.createEl('th', { text: '操作' });
 		const body = table.createEl('tbody');
 		for (const link of this.candidates.brokenLinks) this.renderBrokenLinkRow(body, link);
+	}
+
+	private renderNativeLinkList(container: HTMLElement) {
+		const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
+		const header = table.createEl('thead').createEl('tr');
+		for (const text of ['选择', '源笔记', '原生链接', '目标/状态', '操作']) header.createEl('th', { text });
+		const body = table.createEl('tbody');
+		for (const link of this.candidates.nativeLinks) {
+			const row = body.createEl('tr');
+			const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
+			checkbox.checked = this.nativeSelections.has(nativeImageLinkKey(link));
+			checkbox.disabled = !convertNativeImageLink(link);
+			checkbox.addEventListener('change', () => { if (checkbox.checked) this.nativeSelections.add(nativeImageLinkKey(link)); else this.nativeSelections.delete(nativeImageLinkKey(link)); this.updateSelectionSummary(); });
+			row.createEl('td', { text: link.sourcePath });
+			row.createEl('td', { text: link.original, cls: 'orphan-cleanup-detail' });
+			row.createEl('td', { text: link.reason ?? link.file?.path ?? '未解析目标', cls: 'orphan-cleanup-detail' });
+			const locate = row.createEl('td').createEl('button', { text: '定位' });
+			locate.addEventListener('click', () => void this.locateNativeLink(link));
+		}
+	}
+
+	private async locateNativeLink(link: NativeImageLink) {
+		await this.app.workspace.openLinkText(link.sourcePath, '', false, { state: { mode: 'source' } });
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) return;
+		const range = nativeImageLinkOffset(view.editor.getValue(), link);
+		if (!range) { new Notice('笔记内容已变化，请重新扫描。'); return; }
+		const from = view.editor.offsetToPos(range.start); const to = view.editor.offsetToPos(range.end);
+		view.editor.setSelection(from, to); view.editor.scrollIntoView({ from, to }, true);
 	}
 
 	private renderBrokenLinkRow(body: HTMLElement, link: BrokenImageLink) {
@@ -317,6 +365,7 @@ export class OrphanCleanupPanel {
 		for (const [tab, label, count] of [
 			['images', '孤立图片', this.candidates.images.length],
 			['folders', '空文件夹', this.candidates.folders.length],
+			['native-links', '原生图片链接', this.candidates.nativeLinks.length],
 		] as const) {
 			this.contentEl.querySelector<HTMLElement>(`.orphan-cleanup-tab[data-tab="${tab}"]`)?.setText(`${label}（${count}）`);
 		}
@@ -406,13 +455,13 @@ export class OrphanCleanupPanel {
 		const summary = actions.createSpan({ cls: 'orphan-cleanup-summary' });
 		summary.setAttribute('aria-live', 'polite');
 		this.updateSelectionSummary(summary);
-		const isLinkTab = this.activeTab === 'broken-links';
+		const isLinkTab = this.activeTab === 'broken-links' || this.activeTab === 'native-links';
 		const cleanup = actions.createEl('button', {
-			text: isLinkTab ? '移除选中链接' : '移入回收站',
+			text: this.activeTab === 'native-links' ? '转换选中链接' : isLinkTab ? '移除选中链接' : '移入回收站',
 			cls: 'mod-cta',
 		});
 		cleanup.disabled = isLinkTab ? this.linkSelections.size === 0 : this.selections.size === 0;
-		cleanup.addEventListener('click', () => void (isLinkTab ? this.confirmRemoveLinks() : this.confirmCleanup()));
+		cleanup.addEventListener('click', () => void (this.activeTab === 'native-links' ? this.confirmConvertLinks() : isLinkTab ? this.confirmRemoveLinks() : this.confirmCleanup()));
 	}
 
 	private updateSelectionSummary(summary?: HTMLElement) {
@@ -421,9 +470,10 @@ export class OrphanCleanupPanel {
 		const images = this.candidates.images.filter((item) => this.selections.has(item.path)).length;
 		const folders = this.candidates.folders.filter((item) => this.selections.has(item.path)).length;
 		const links = this.candidates.brokenLinks.filter((item) => this.linkSelections.has(brokenLinkKey(item))).length;
-		target.setText(`已选：${images} 张图片，${links} 条链接，${folders} 个文件夹`);
+		const native = this.candidates.nativeLinks.filter((item) => this.nativeSelections.has(nativeImageLinkKey(item))).length;
+		target.setText(`已选：${images} 张图片，${links + native} 条链接，${folders} 个文件夹`);
 		const action = this.contentEl.querySelector<HTMLButtonElement>('.orphan-cleanup-actions button.mod-cta');
-		if (action) action.disabled = this.activeTab === 'broken-links' ? links === 0 : images + folders === 0;
+		if (action) action.disabled = this.activeTab === 'broken-links' ? links === 0 : this.activeTab === 'native-links' ? native === 0 : images + folders === 0;
 	}
 
 	private itemsForActiveTab(): TAbstractFile[] {
@@ -453,6 +503,20 @@ export class OrphanCleanupPanel {
 		const message = [`已移除链接：${result.removed}`, `跳过：${result.skipped}`, `失败：${result.failed.length}`];
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
 		new Notice(message.join('\n'));
+		await this.scan();
+	}
+
+	private async confirmConvertLinks() {
+		const selected = this.candidates.nativeLinks.filter((item) => this.nativeSelections.has(nativeImageLinkKey(item)));
+		if (!selected.length) return;
+		if (!await new ConvertNativeLinksConfirmationModal(this.app, selected.length).waitForConfirmation()) return;
+		let converted = 0, skipped = 0, failed = 0;
+		for (const [path, links] of new Map([...selected].reduce((map, link) => { const list = map.get(link.sourcePath) ?? []; list.push(link); map.set(link.sourcePath, list); return map; }, new Map<string, NativeImageLink[]>())) ) {
+			const file = this.app.vault.getFileByPath(path);
+			if (!file) { failed++; continue; }
+			try { await this.app.vault.process(file, (content) => { const result = replaceNativeImageLinks(content, links); converted += result.converted; skipped += result.skipped; return result.content; }); } catch { failed++; }
+		}
+		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
 		await this.scan();
 	}
 }
@@ -496,6 +560,7 @@ async function findCleanupCandidates(app: App, imageExtensions: string): Promise
 		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
 		folders: findRecursivelyEmptyFolders(app.vault.getRoot()).sort((a, b) => b.path.length - a.path.length || byPath(a, b)),
 		brokenLinks: findBrokenImageLinks(app, imageExtensions),
+		nativeLinks: findNativeImageLinks(app, imageExtensions),
 	};
 }
 
@@ -688,6 +753,23 @@ class RemoveBrokenLinksConfirmationModal extends Modal {
 		this.resolver?.(confirmed);
 		this.close();
 	}
+}
+
+class ConvertNativeLinksConfirmationModal extends Modal {
+	private resolver?: (confirmed: boolean) => void;
+	private settled = false;
+	constructor(app: App, private readonly count: number) { super(app); }
+	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
+	onOpen() {
+		this.titleEl.setText('确认转换图片链接');
+		this.contentEl.createEl('p', { text: `即将转换 ${this.count} 条原生图片链接。` });
+		this.contentEl.createEl('p', { text: '尺寸参数和无法解析的链接会跳过；已转换内容可用编辑历史撤销。', cls: 'orphan-cleanup-warning' });
+		const actions = this.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });
+		actions.createEl('button', { text: '确认转换', cls: 'mod-cta' }).addEventListener('click', () => this.finish(true));
+		actions.createEl('button', { text: '取消' }).addEventListener('click', () => this.finish(false));
+	}
+	onClose() { this.contentEl.empty(); if (!this.settled) { this.settled = true; this.resolver?.(false); } }
+	private finish(value: boolean) { if (this.settled) return; this.settled = true; this.resolver?.(value); this.close(); }
 }
 
 class ImagePreviewModal extends Modal {
