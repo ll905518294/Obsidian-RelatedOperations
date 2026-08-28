@@ -1,4 +1,5 @@
 import { App, FileSystemAdapter, Modal, Notice, Platform, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { hasHiddenPathSegment, needsRawTextSearch, pathLikeTokens, pathTokenCandidates } from './core-utils';
 
 type ImageGrouping = 'none' | 'path' | 'extension';
 
@@ -354,10 +355,49 @@ async function findCleanupCandidates(app: App, imageExtensions: string): Promise
 	for (const canvas of app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas')) {
 		for (const path of await referencedByCanvas(app, canvas)) referenced.add(path);
 	}
+	// Conservative textual pass: HTML image tags, frontmatter path values, and
+	// code-block text do not appear in resolvedLinks. Any textual mention of the
+	// file name or path counts as a reference so that such images are never
+	// flagged as orphans.
+	await markImagesReferencedByText(app, images, referenced);
 	return {
 		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
 		folders: findRecursivelyEmptyFolders(app.vault.getRoot()).sort((a, b) => b.path.length - a.path.length || byPath(a, b)),
 	};
+}
+
+async function markImagesReferencedByText(app: App, images: TFile[], referenced: Set<string>): Promise<void> {
+	const remaining = images.filter((image) => !referenced.has(image.path));
+	if (remaining.length === 0) return;
+	const byBasename = new Map<string, string[]>();
+	const byPath = new Map<string, string>();
+	const exoticNames: string[] = [];
+	for (const image of remaining) {
+		const key = image.name.toLowerCase();
+		const paths = byBasename.get(key) ?? [];
+		paths.push(image.path);
+		byBasename.set(key, paths);
+		byPath.set(image.path.toLowerCase(), image.path);
+		if (needsRawTextSearch(image.name)) exoticNames.push(key);
+	}
+	for (const file of app.vault.getMarkdownFiles()) {
+		const content = await app.vault.cachedRead(file);
+		for (const token of pathLikeTokens(content)) {
+			for (const candidate of pathTokenCandidates(token.replace(/^[./\\]+/, ''))) {
+				const direct = byPath.get(candidate);
+				if (direct) referenced.add(direct);
+				const matches = byBasename.get(lastPathSegment(candidate));
+				if (matches) for (const path of matches) referenced.add(path);
+			}
+		}
+		for (let index = exoticNames.length - 1; index >= 0; index--) {
+			const key = exoticNames[index]!;
+			if (!content.toLowerCase().includes(key)) continue;
+			for (const path of byBasename.get(key) ?? []) referenced.add(path);
+			exoticNames.splice(index, 1);
+		}
+		if (referenced.size >= images.length) return;
+	}
 }
 
 function parseExtensions(value: string) {
@@ -385,6 +425,9 @@ async function referencedByCanvas(app: App, canvas: TFile): Promise<string[]> {
 function findRecursivelyEmptyFolders(folder: TFolder): TFolder[] {
 	const candidates: TFolder[] = [];
 	const visit = (current: TFolder): boolean => {
+		// Hidden folders such as .obsidian, .trash, and .git are system folders:
+		// never candidates, and they block their parent from being listed as empty.
+		if (hasHiddenPathSegment(current.path)) return false;
 		let onlyEmptyFolders = true;
 		for (const child of current.children) {
 			if (child instanceof TFolder) {
@@ -398,6 +441,11 @@ function findRecursivelyEmptyFolders(folder: TFolder): TFolder[] {
 	};
 	visit(folder);
 	return candidates;
+}
+
+function lastPathSegment(path: string) {
+	const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+	return index >= 0 ? path.slice(index + 1) : path;
 }
 
 async function trashSelected(app: App, images: TFile[], folders: TFolder[]): Promise<CleanupResult> {

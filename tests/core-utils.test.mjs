@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { joinVaultPath, normalizeSettings } from '../src/core-utils.ts';
+import {
+	hasHiddenPathSegment,
+	joinVaultPath,
+	needsRawTextSearch,
+	normalizeSettings,
+	pathLikeTokens,
+	pathTokenCandidates,
+} from '../src/core-utils.ts';
 
 test('joins a root target without introducing a leading slash', () => {
 	assert.equal(joinVaultPath('', 'Pages'), 'Pages');
@@ -22,4 +29,41 @@ test('falls back when a validated setting is invalid', () => {
 		incomingProperty: 'in',
 		outgoingProperty: 'ok',
 	});
+});
+
+test('detects hidden path segments in any position', () => {
+	assert.equal(hasHiddenPathSegment('.obsidian/plugins/demo'), true);
+	assert.equal(hasHiddenPathSegment('notes/.trash'), true);
+	assert.equal(hasHiddenPathSegment('notes/demo.md'), false);
+	assert.equal(hasHiddenPathSegment(''), false);
+});
+
+test('extracts path-like tokens including spaced names', () => {
+	const content = [
+		'---',
+		'banner: "assets/banner photo.jpg"',
+		'---',
+		'<img src="images/pic.PNG">',
+		'See note.png.',
+	].join('\n');
+	const tokens = pathLikeTokens(content);
+	assert.ok(tokens.includes('assets/banner photo.jpg'));
+	assert.ok(tokens.includes('images/pic.png'));
+	const candidates = tokens.flatMap((token) => pathTokenCandidates(token));
+	assert.ok(candidates.includes('note.png'));
+});
+
+test('recovers the file name from prose prefixes and folder paths', () => {
+	const candidates = pathTokenCandidates('see note.png');
+	assert.deepEqual(candidates, ['see note.png', 'note.png']);
+	const folderCandidates = pathTokenCandidates('assets/my photo.png');
+	assert.deepEqual(folderCandidates, ['assets/my photo.png', 'photo.png']);
+	const first = folderCandidates[0];
+	assert.equal(first.slice(Math.max(first.lastIndexOf('/'), first.lastIndexOf('\\')) + 1), 'my photo.png');
+});
+
+test('flags basenames outside the token alphabet for raw text search', () => {
+	assert.equal(needsRawTextSearch('photo (1).png'), true);
+	assert.equal(needsRawTextSearch('封面 图.png'), false);
+	assert.equal(needsRawTextSearch('cover.jpg'), false);
 });

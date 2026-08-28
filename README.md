@@ -29,9 +29,10 @@ An Obsidian community plugin for finding and moving notes directly related to th
 Use the left ribbon **扫描并清理孤立资源** icon or the command with the same name to open the cleanup window. On desktop it opens in a movable standalone window; on mobile, or when a standalone window cannot be created, it falls back to a modal. The window automatically scans and shows orphaned images and recursively empty folders in separate tabs. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
 
 - Images: the formats configured in **设置 → Related Operations → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
+- Conservative reference scan: any textual mention of an image file name or path in Markdown content also counts as a reference. This covers HTML image tags, plain-text paths in frontmatter, and code-block text, so images referenced in non-standard ways are never flagged as orphans.
 - Preview and grouping: the image list displays a thumbnail; select it to open a larger preview. Use **分组** to show the list by folder path or file extension.
-- Folders: folders with no files, including parent folders that only contain empty subfolders.
-- Not scanned: non-image attachments, HTML image tags, plain-text paths in frontmatter, and code-block text.
+- Folders: folders with no files, including parent folders that only contain empty subfolders. Hidden folders such as `.obsidian`, `.trash`, and `.git` are never scanned, and a folder containing hidden subfolders is not listed as empty.
+- Not scanned: non-image attachments.
 - After image cleanup, select **重新扫描** before cleaning folders that have only just become empty.
 
 ## Link-count properties
