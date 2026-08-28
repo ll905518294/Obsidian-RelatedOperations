@@ -4,6 +4,7 @@ import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelect
 import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, type NativeImageLink } from './native-image-links';
 
 type ImageGrouping = 'none' | 'path' | 'extension';
+const CLEANUP_PAGE_SIZE = 100;
 
 interface CleanupCandidates {
 	images: TFile[];
@@ -34,6 +35,7 @@ export class OrphanCleanupPanel {
 	private imageGrouping: ImageGrouping = 'none';
 	private scanning = false;
 	private showHelp = false;
+	private readonly pages = new Map<string, number>();
 
 	constructor(
 		private readonly app: App,
@@ -52,6 +54,7 @@ export class OrphanCleanupPanel {
 		this.selections.clear();
 		this.linkSelections.clear();
 		this.nativeSelections.clear();
+		this.pages.clear();
 		this.renderContents();
 		try {
 			this.candidates = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions);
@@ -121,38 +124,47 @@ export class OrphanCleanupPanel {
 		if (currentTab === 'broken-links' || currentTab === 'native-links') {
 			const native = currentTab === 'native-links';
 			const candidates = native ? this.candidates.nativeLinks : this.candidates.brokenLinks;
+			const page = this.pageFor(currentTab, candidates.length);
+			const pageItems = candidates.slice(page * CLEANUP_PAGE_SIZE, (page + 1) * CLEANUP_PAGE_SIZE);
 			const selectAll = toolbar.createEl('button', { text: '全选当前页' });
-			selectAll.disabled = this.candidates.brokenLinks.length === 0;
+			selectAll.disabled = pageItems.length === 0;
 			selectAll.addEventListener('click', () => {
-			for (const item of candidates) native ? this.nativeSelections.add(nativeImageLinkKey(item)) : this.linkSelections.add(brokenLinkKey(item));
-				this.renderContents();
+				for (const item of pageItems) native ? this.nativeSelections.add(nativeImageLinkKey(item)) : this.linkSelections.add(brokenLinkKey(item));
+				this.syncPageCheckboxes(list, true);
+				this.updateSelectionSummary();
 			});
 			const clear = toolbar.createEl('button', { text: '取消当前页选择' });
-			clear.disabled = candidates.length === 0;
+			clear.disabled = pageItems.length === 0;
 			clear.addEventListener('click', () => {
-				this.linkSelections.clear();
-				this.renderContents();
+				for (const item of pageItems) native ? this.nativeSelections.delete(nativeImageLinkKey(item)) : this.linkSelections.delete(brokenLinkKey(item));
+				this.syncPageCheckboxes(list, false);
+				this.updateSelectionSummary();
 			});
 			if (candidates.length === 0) {
 				list.createEl('p', { text: native ? '没有发现原生图片链接。' : '没有发现失效图片链接。', cls: 'orphan-cleanup-empty' });
 				return;
 			}
-			native ? this.renderNativeLinkList(list) : this.renderBrokenLinkList(list);
+			native ? this.renderNativeLinkList(list, pageItems) : this.renderBrokenLinkList(list, pageItems);
+			this.renderPagination(toolbar, candidates.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
 			return;
 		}
 
 		const items = this.itemsForActiveTab();
+		const page = this.pageFor(currentTab, items.length);
+		const pageItems = items.slice(page * CLEANUP_PAGE_SIZE, (page + 1) * CLEANUP_PAGE_SIZE);
 		const selectAll = toolbar.createEl('button', { text: '全选当前页' });
-		selectAll.disabled = items.length === 0;
+		selectAll.disabled = pageItems.length === 0;
 		selectAll.addEventListener('click', () => {
-			for (const item of items) this.selections.add(item.path);
-			this.renderContents();
+			for (const item of pageItems) this.selections.add(item.path);
+			this.syncPageCheckboxes(list, true);
+			this.updateSelectionSummary();
 		});
 		const clear = toolbar.createEl('button', { text: '取消当前页选择' });
-		clear.disabled = items.length === 0;
+		clear.disabled = pageItems.length === 0;
 		clear.addEventListener('click', () => {
-			for (const item of items) this.selections.delete(item.path);
-			this.renderContents();
+			for (const item of pageItems) this.selections.delete(item.path);
+			this.syncPageCheckboxes(list, false);
+			this.updateSelectionSummary();
 		});
 
 		if (items.length === 0) {
@@ -166,8 +178,8 @@ export class OrphanCleanupPanel {
 		}
 
 		if (currentTab === 'images') {
-			const imageItems = this.candidates.images;
-			this.renderImageGrid(list, imageItems);
+			this.renderImageGrid(list, pageItems.filter((item): item is TFile => item instanceof TFile), items as TFile[]);
+			this.renderPagination(toolbar, items.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
 			return;
 		}
 
@@ -178,13 +190,40 @@ export class OrphanCleanupPanel {
 		header.createEl('th', { text: this.activeTab === 'images' ? '图片' : '文件夹' });
 		header.createEl('th', { text: this.activeTab === 'images' ? '大小' : '说明' });
 		const body = table.createEl('tbody');
-		for (const group of this.groupedItems(items)) {
+		for (const group of this.groupedItems(pageItems)) {
 			if (group.label) {
 				const groupRow = body.createEl('tr', { cls: 'orphan-cleanup-group' });
 				groupRow.createEl('td', { text: `${group.label}（${group.items.length}）`, attr: { colspan: this.activeTab === 'images' ? '4' : '3' } });
 			}
 			for (const item of group.items) this.renderItemRow(body, item);
 		}
+		this.renderPagination(toolbar, items.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
+	}
+
+	private syncPageCheckboxes(list: HTMLElement, checked: boolean) {
+		for (const checkbox of Array.from(list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
+			if (!checkbox.disabled) checkbox.checked = checked;
+		}
+	}
+
+	private pageFor(tab: string, total: number) {
+		const last = Math.max(0, Math.ceil(total / CLEANUP_PAGE_SIZE) - 1);
+		const page = Math.min(this.pages.get(tab) ?? 0, last);
+		this.pages.set(tab, page);
+		return page;
+	}
+
+	private renderPagination(container: HTMLElement, total: number, page: number, onChange: (page: number) => void) {
+		const pageCount = Math.ceil(total / CLEANUP_PAGE_SIZE);
+		if (total === 0) return;
+		const pagination = container.createDiv({ cls: 'orphan-cleanup-pagination' });
+		const previous = pagination.createEl('button', { text: '上一页' });
+		previous.disabled = page === 0;
+		previous.addEventListener('click', () => onChange(page - 1));
+		pagination.createSpan({ text: `第 ${page + 1} / ${pageCount} 页（共 ${total} 项）` });
+		const next = pagination.createEl('button', { text: '下一页' });
+		next.disabled = page === pageCount - 1;
+		next.addEventListener('click', () => onChange(page + 1));
 	}
 
 	private addRefreshControl(container: HTMLElement) {
@@ -193,7 +232,7 @@ export class OrphanCleanupPanel {
 		refresh.addEventListener('click', () => void this.scan());
 	}
 
-	private renderBrokenLinkList(container: HTMLElement) {
+	private renderBrokenLinkList(container: HTMLElement, links: BrokenImageLink[]) {
 		const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
 		const header = table.createEl('thead').createEl('tr');
 		header.createEl('th', { text: '选择' });
@@ -202,15 +241,15 @@ export class OrphanCleanupPanel {
 		header.createEl('th', { text: '未解析目标' });
 		header.createEl('th', { text: '操作' });
 		const body = table.createEl('tbody');
-		for (const link of this.candidates.brokenLinks) this.renderBrokenLinkRow(body, link);
+		for (const link of links) this.renderBrokenLinkRow(body, link);
 	}
 
-	private renderNativeLinkList(container: HTMLElement) {
+	private renderNativeLinkList(container: HTMLElement, links: NativeImageLink[]) {
 		const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
 		const header = table.createEl('thead').createEl('tr');
 		for (const text of ['选择', '源笔记', '原生链接', '目标/状态', '操作']) header.createEl('th', { text });
 		const body = table.createEl('tbody');
-		for (const link of this.candidates.nativeLinks) {
+		for (const link of links) {
 			const row = body.createEl('tr');
 			const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
 			checkbox.checked = this.nativeSelections.has(nativeImageLinkKey(link));
@@ -296,13 +335,13 @@ export class OrphanCleanupPanel {
 		editor.scrollIntoView({ from, to }, true);
 	}
 
-	private renderImageGrid(container: HTMLElement, items: TFile[]) {
+	private renderImageGrid(container: HTMLElement, items: TFile[], allItems: TFile[]) {
 		const grid = container.createDiv({ cls: 'orphan-cleanup-grid' });
 		for (const group of this.groupedItems(items)) {
 			if (group.label) grid.createEl('h3', { text: `${group.label}（${group.items.length}）`, cls: 'orphan-cleanup-grid-group' });
 			const cards = grid.createDiv({ cls: 'orphan-cleanup-grid-items' });
 			for (const item of group.items) {
-				if (item instanceof TFile) this.renderImageCard(cards, item, items);
+				if (item instanceof TFile) this.renderImageCard(cards, item, allItems);
 			}
 		}
 	}
@@ -460,7 +499,7 @@ export class OrphanCleanupPanel {
 			text: this.activeTab === 'native-links' ? '转换选中链接' : isLinkTab ? '移除选中链接' : '移入回收站',
 			cls: 'mod-cta',
 		});
-		cleanup.disabled = isLinkTab ? this.linkSelections.size === 0 : this.selections.size === 0;
+		cleanup.disabled = this.activeTab === 'broken-links' ? this.linkSelections.size === 0 : this.activeTab === 'native-links' ? this.nativeSelections.size === 0 : this.selections.size === 0;
 		cleanup.addEventListener('click', () => void (this.activeTab === 'native-links' ? this.confirmConvertLinks() : isLinkTab ? this.confirmRemoveLinks() : this.confirmCleanup()));
 	}
 
@@ -529,12 +568,14 @@ export class OrphanCleanupModal extends Modal {
 	}
 
 	onOpen() {
+		this.modalEl.addClass('orphan-cleanup-dialog');
 		this.titleEl.setText('清理孤立资源');
 		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.settings, this);
 		this.panel.render();
 	}
 
 	onClose() {
+		this.modalEl.removeClass('orphan-cleanup-dialog');
 		this.panel = undefined;
 		this.contentEl.empty();
 	}

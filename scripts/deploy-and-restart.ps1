@@ -3,7 +3,6 @@ param(
     [string]$VaultRegistryPath = (Join-Path $env:APPDATA 'obsidian\obsidian.json'),
     [string]$ProjectRoot = '',
     [string]$ObsidianCommand = 'obsidian.com',
-    [int]$ShutdownTimeoutSeconds = 20,
     [int]$StartupTimeoutSeconds = 20
 )
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath) }
@@ -54,21 +53,6 @@ function Get-FileSha256([string]$Path) {
         finally { $sha256.Dispose() }
     } finally { $stream.Dispose() }
 }
-function Stop-ObsidianGracefully([int]$TimeoutSeconds) {
-    $processes = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue)
-    if ($processes.Count -eq 0) { return }
-    foreach ($process in ($processes | Where-Object { $_.MainWindowHandle -ne 0 })) { [void]$process.CloseMainWindow() }
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    do { Start-Sleep -Milliseconds 250; $running = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue) } while ($running.Count -gt 0 -and (Get-Date) -lt $deadline)
-    if ($running.Count -eq 0) { return }
-    $windows = @($running | Where-Object { $_.MainWindowHandle -ne 0 })
-    if ($windows.Count -gt 0) { throw "Obsidian did not close within $TimeoutSeconds seconds; a window may have unsaved changes. Deployment stopped." }
-    Write-Warning "Obsidian's main window has closed, but $($running.Count) background process(es) remain; stopping them to clear the loaded plugin code."
-    foreach ($process in $running) { Stop-Process -Id $process.Id -Force }
-    $killDeadline = (Get-Date).AddSeconds(5)
-    do { Start-Sleep -Milliseconds 250; $running = @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue) } while ($running.Count -gt 0 -and (Get-Date) -lt $killDeadline)
-    if ($running.Count -gt 0) { throw "Obsidian did not exit within $TimeoutSeconds seconds; deployment stopped." }
-}
 function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($name in @('main.js', 'manifest.json', 'styles.css')) {
@@ -83,19 +67,53 @@ function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
         }
     }
 }
-function Test-ObsidianVaultProcess([string]$VaultPath) {
+function Get-ObsidianMainProcesses {
     return @(Get-CimInstance Win32_Process -Filter "Name = 'Obsidian.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { [string]$_.CommandLine -notmatch '--type=' }).Count -gt 0
+        Where-Object { [string]$_.CommandLine -notmatch '--type=' })
 }
-function Invoke-ObsidianPluginReload([string]$Launcher, [string]$PluginId, [string]$VaultPath) {
-    if (-not (Test-ObsidianVaultProcess $VaultPath)) {
-        throw "Obsidian is not running with the target Vault: $VaultPath"
+function Assert-ObsidianRestartAcknowledged([string]$Output, [Nullable[int]]$ExitCode) {
+    if ($ExitCode.HasValue -and $ExitCode.Value -ne 0) { throw "Obsidian restart command failed with exit code $($ExitCode.Value): $Output" }
+    if ($Output -match '(?im)^\s*Error:') { throw "Obsidian restart command failed: $($Output.Trim())" }
+    if ($Output -notmatch '(?im)^\s*Restarting\.\.\.') { throw "Obsidian restart command was not accepted: $($Output.Trim())" }
+}
+function Wait-ForObsidianRestart([int[]]$PreviousProcessIds, [int]$TimeoutSeconds, [int]$StableSeconds = 3) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $running = @(Get-ObsidianMainProcesses)
+        $oldStillRunning = @($running | Where-Object { $PreviousProcessIds -contains $_.ProcessId })
+        $newProcesses = @($running | Where-Object { $PreviousProcessIds -notcontains $_.ProcessId })
+        if ($oldStillRunning.Count -eq 0 -and $newProcesses.Count -gt 0) {
+            $stable = $true
+            $stableDeadline = (Get-Date).AddSeconds($StableSeconds)
+            do {
+                Start-Sleep -Milliseconds 250
+                $current = @(Get-ObsidianMainProcesses)
+                if (@($current | Where-Object { $PreviousProcessIds -notcontains $_.ProcessId }).Count -eq 0) { $stable = $false; break }
+            } while ((Get-Date) -lt $stableDeadline)
+            if ($stable) { return $true }
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    return $false
+}
+function Invoke-ObsidianRestart([string]$CliPath, [string]$VaultPath) {
+    $previousProcesses = @(Get-ObsidianMainProcesses)
+    if ($previousProcesses.Count -eq 0) {
+        $exePath = Join-Path (Split-Path -Parent $CliPath) 'Obsidian.exe'
+        if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { throw "Obsidian is not running and executable was not found: $exePath" }
+        [void](Start-Process -FilePath $exePath -ArgumentList @($VaultPath) -WorkingDirectory (Split-Path -Parent $exePath))
+        if (-not (Wait-ForObsidianRestart @() $StartupTimeoutSeconds)) { throw "Obsidian did not start stably: $VaultPath" }
+        return
     }
-    try { & $Launcher "plugin:reload" "id=$PluginId" 2>&1 | Out-Null }
-    catch { throw "Obsidian plugin reload failed: $($_.Exception.Message)" }
-    Start-Sleep -Seconds 2
-    if (-not (Test-ObsidianVaultProcess $VaultPath)) {
-        throw 'Obsidian exited while reloading the plugin.'
+    $vaultName = Split-Path -Leaf ([IO.Path]::GetFullPath($VaultPath).TrimEnd('\'))
+    try {
+        $outputLines = @(& $CliPath "vault=$vaultName" 'restart' 2>&1)
+        $exitCode = if ($null -eq $LASTEXITCODE) { $null } else { [int]$LASTEXITCODE }
+        $output = $outputLines -join [Environment]::NewLine
+        Assert-ObsidianRestartAcknowledged $output $exitCode
+    } catch { throw "Obsidian restart failed: $($_.Exception.Message)" }
+    if (-not (Wait-ForObsidianRestart @($previousProcesses | ForEach-Object { [int]$_.ProcessId }) $StartupTimeoutSeconds)) {
+        throw "Obsidian did not complete a stable restart: $VaultPath"
     }
 }
 function Restore-DeploymentBackup([string]$PluginDir, [string]$BackupDir) {
@@ -119,11 +137,7 @@ function Invoke-DeployAndRestart {
         $vault = Get-OpenVaultPath $VaultRegistryPath
         $resolvedObsidian = Get-Command $ObsidianCommand -ErrorAction SilentlyContinue
         if (-not $resolvedObsidian) { throw "Obsidian launch command not found: $ObsidianCommand" }
-        $launcher = $resolvedObsidian.Source
-        if ([IO.Path]::GetExtension($launcher) -ieq '.com') {
-            $exe = Join-Path (Split-Path -Parent $launcher) 'Obsidian.exe'
-            if (Test-Path -LiteralPath $exe) { $launcher = $exe }
-        }
+        $cliPath = $resolvedObsidian.Source
         $pluginDir = Join-Path $vault ('.obsidian\plugins\' + $pluginId)
         $backupDir = "$pluginDir.backup"
         Write-Host "[2/5] Target vault: $vault"
@@ -146,9 +160,9 @@ function Invoke-DeployAndRestart {
             }
             throw $copyError
         }
-        Write-Host '[5/5] Reloading the plugin in the running Obsidian process...'
-        Invoke-ObsidianPluginReload $launcher $pluginId $vault
-        Write-Host 'Deployment complete. The plugin was reloaded without restarting Obsidian.' -ForegroundColor Green
+        Write-Host '[5/5] Restarting Obsidian to reload the plugin...'
+        Invoke-ObsidianRestart $cliPath $vault
+        Write-Host 'Deployment complete. Obsidian restarted and the plugin was reloaded.' -ForegroundColor Green
     } catch {
         throw
     } finally { Pop-Location }

@@ -16,6 +16,8 @@ try {
 	Copy-DeploymentArtifacts (Get-DeploymentArtifacts $root) (Join-Path $root 'plugin')
 	if (-not (Test-Path $config) -or -not (Test-Path (Join-Path $root 'plugin\main.js'))) { throw 'artifact copy removed config or missed output' }
 	if ((Get-FileSha256 (Join-Path $root 'main.js')) -ne (Get-FileSha256 (Join-Path $root 'plugin\main.js'))) { throw 'artifact hash mismatch' }
+	Assert-ObsidianRestartAcknowledged 'Restarting...' $null
+	try { Assert-ObsidianRestartAcknowledged 'Error: Command failed' 0; throw 'restart error output accepted' } catch { if ($_.Exception.Message -notmatch 'failed') { throw } }
 	@{ vaults = @{ a = @{ path = $vault } } } | ConvertTo-Json | Set-Content $registry
 	try { Get-OpenVaultPath $registry; throw 'missing open property accepted' } catch { if ($_.Exception.Message -notmatch 'No open=true') { throw } }
 	'{invalid' | Set-Content $registry

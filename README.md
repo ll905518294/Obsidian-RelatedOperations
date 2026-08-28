@@ -59,7 +59,7 @@ npm test
 
 ## 本地一键部署测试
 
-构建完成后双击项目根目录的 `deploy-and-restart.cmd`。脚本会自动识别当前打开的 Vault，构建并替换 `Obsidian-RelatedOperations` 插件，校验部署文件哈希，关闭全部 Obsidian 进程后重新启动指定 Vault，从而清理旧插件代码并加载最新状态；同时保留最近一次 `.backup`。没有唯一的当前 Vault、构建失败、文件校验失败或 Obsidian 无法退出时，脚本会停止且不继续部署。
+构建完成后双击项目根目录的 `deploy-and-restart.cmd`。脚本会自动识别当前打开的 Vault，构建并替换 `Obsidian-RelatedOperations` 插件，校验部署文件哈希，然后调用 Obsidian CLI 的 `restart` 命令重启应用并等待稳定运行，从而清理旧插件代码并加载最新状态；同时保留最近一次 `.backup`。没有唯一的当前 Vault、构建失败、文件校验失败或 Obsidian 无法稳定重启时，脚本会停止且不继续部署。
 
 The production build writes `main.js` at the plugin root. Install `main.js`, `manifest.json`, and `styles.css` in the vault's `.obsidian/plugins/Obsidian-RelatedOperations/` directory for manual testing.
 

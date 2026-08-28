@@ -60,19 +60,6 @@ export class RelatedNotesPanel {
 		this.baseFolder = this.parentFolder(this.sourceFile.path);
 		this.subfolder = 'Pages';
 		const header = this.containerEl.createDiv({ cls: 'related-operations-header' });
-		const heading = header.createDiv({ cls: 'related-operations-heading' });
-		heading.createEl('strong', { text: '移动关联笔记' });
-		const helpButton = heading.createEl('button', { text: '!', cls: 'related-operations-help-button' });
-		helpButton.type = 'button';
-		helpButton.title = '查看使用说明';
-		helpButton.setAttribute('aria-label', '查看使用说明');
-		helpButton.setAttribute('aria-expanded', 'false');
-		const help = header.createDiv({ cls: 'related-operations-help', attr: { hidden: 'true' } });
-		help.createSpan({ text: '选择关联笔记并移动到目标文件夹。' });
-		helpButton.addEventListener('click', () => {
-			help.hidden = !help.hidden;
-			helpButton.setAttribute('aria-expanded', String(!help.hidden));
-		});
 		this.renderSelectedSourceSummary(header);
 		this.renderTargetControls(header);
 		this.renderTabs();
