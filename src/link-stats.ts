@@ -1,5 +1,5 @@
-import { App, TFile } from 'obsidian';
-import { buildLinkStatsIndex } from './link-stats-core';
+import type { App, TFile } from 'obsidian';
+import { buildLinkStatsIndex, findLinkStatsPropertyNameConflicts } from './link-stats-core';
 export { buildLinkStatsIndex } from './link-stats-core';
 
 export interface LinkStatsSettings {
@@ -11,6 +11,11 @@ export interface LinkStatsSettings {
 }
 
 export type LinkStatsPropertyNames = Pick<LinkStatsSettings, 'incomingProperty' | 'outgoingProperty' | 'bidirectionalProperty'>;
+
+export interface LinkStatsPropertyConflict {
+	path: string;
+	property: string;
+}
 
 export interface LinkStats {
 	incoming: number;
@@ -84,4 +89,17 @@ export async function migrateLinkStatsProperties(
 		migrated++;
 	}
 	return migrated;
+}
+
+export function findLinkStatsPropertyConflicts(
+	app: App,
+	files: TFile[],
+	oldNames: LinkStatsPropertyNames,
+	nextNames: LinkStatsPropertyNames,
+): LinkStatsPropertyConflict[] {
+	return files.flatMap((file) => {
+		const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
+		return findLinkStatsPropertyNameConflicts(frontmatter, Object.values(oldNames), Object.values(nextNames))
+			.map((property) => ({ path: file.path, property }));
+	});
 }

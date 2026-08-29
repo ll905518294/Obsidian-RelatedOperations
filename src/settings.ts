@@ -36,6 +36,11 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 			return false;
 		}
 		const result = await this.plugin.applyLinkStatsPropertyNames(draft);
+		if (result.conflicts.length) {
+			const sample = result.conflicts.slice(0, 3).map((item) => `${item.path}（${item.property}）`).join('、');
+			new Notice(`未应用属性名：目标属性已存在于 ${result.conflicts.length} 篇笔记。${sample}`);
+			return false;
+		}
 		new Notice(`属性名已应用，迁移 ${result.migrated} 篇笔记，更新 ${result.updated} 篇笔记。`);
 		return true;
 	}

@@ -4,6 +4,17 @@ export interface LinkStatsValue {
 	bidirectional: number;
 }
 
+export function findLinkStatsPropertyNameConflicts(
+	frontmatter: Record<string, unknown> | undefined,
+	oldNames: readonly string[],
+	nextNames: readonly string[],
+): string[] {
+	if (!frontmatter) return [];
+	const oldKeys = new Set(oldNames);
+	return [...new Set(nextNames)]
+		.filter((key) => !oldKeys.has(key) && Object.prototype.hasOwnProperty.call(frontmatter, key));
+}
+
 export function buildLinkStatsIndex(
 	resolved: Record<string, Record<string, number>>,
 	requestedPaths: Set<string>,

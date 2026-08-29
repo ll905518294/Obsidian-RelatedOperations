@@ -51,6 +51,8 @@ The optional setting **写入关联数量到属性** is disabled by default. Whe
 
 Use the command **刷新全库笔记关系数量** to update all Markdown notes immediately. Automatic updates are debounced and only write files when a value changes.
 
+When applying custom property names, the plugin refuses names already used by other frontmatter fields so existing note metadata is not overwritten.
+
 ## Development
 
 ```bash

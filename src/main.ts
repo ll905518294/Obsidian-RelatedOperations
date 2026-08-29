@@ -4,7 +4,7 @@ import { getRelatedNotesForFiles } from './related-notes';
 import { RELATED_NOTES_VIEW_TYPE, RelatedNotesView } from './related-notes-view';
 import { NotebookNavigatorApi } from './notebook-navigator-api';
 import { DEFAULT_SETTINGS, RelatedOperationsSettingTab, RelatedOperationsSettings } from './settings';
-import { LinkStatsPropertyNames, migrateLinkStatsProperties, updateLinkStats } from './link-stats';
+import { findLinkStatsPropertyConflicts, LinkStatsPropertyNames, migrateLinkStatsProperties, updateLinkStats } from './link-stats';
 import { OrphanCleanupModal } from './orphan-cleanup';
 import { ORPHAN_CLEANUP_VIEW_TYPE, OrphanCleanupView } from './orphan-cleanup-view';
 import { isPathInFolder, normalizeSettings } from './core-utils';
@@ -269,18 +269,20 @@ export default class RelatedOperationsPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	async applyLinkStatsPropertyNames(nextNames: LinkStatsPropertyNames): Promise<{ migrated: number; updated: number }> {
+	async applyLinkStatsPropertyNames(nextNames: LinkStatsPropertyNames): Promise<{ migrated: number; updated: number; conflicts: Array<{ path: string; property: string }> }> {
 		const oldNames: LinkStatsPropertyNames = {
 			incomingProperty: this.settings.incomingProperty,
 			outgoingProperty: this.settings.outgoingProperty,
 			bidirectionalProperty: this.settings.bidirectionalProperty,
 		};
 		const files = this.app.vault.getMarkdownFiles();
+		const conflicts = findLinkStatsPropertyConflicts(this.app, files, oldNames, nextNames);
+		if (conflicts.length) return { migrated: 0, updated: 0, conflicts };
 		const migrated = await migrateLinkStatsProperties(this.app, files, oldNames, nextNames);
 		Object.assign(this.settings, nextNames);
 		await this.saveSettings();
 		const updated = this.settings.enabled ? await this.updateAllLinkStats(true) : 0;
-		return { migrated, updated };
+		return { migrated, updated, conflicts: [] };
 	}
 
 	private registerLinkStatsUpdater() {
