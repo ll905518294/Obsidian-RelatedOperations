@@ -28,6 +28,7 @@ test('rejects absolute and parent-traversal vault paths', () => {
 	assert.equal(isVaultRelativePath('folder/../target'), false);
 	assert.equal(isVaultRelativePath('..\\target'), false);
 	assert.equal(isVaultRelativePath('folder\\..\\target'), false);
+	assert.equal(isVaultRelativePath('folder/target\0.md'), false);
 	assert.equal(isVaultRelativePath('folder//target'), false);
 });
 

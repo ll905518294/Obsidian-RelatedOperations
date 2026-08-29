@@ -6,7 +6,7 @@ export function joinVaultPath(base: string, sub: string): string {
 
 export function isVaultRelativePath(path: string): boolean {
 	const normalized = path.replace(/\\/g, '/');
-	return !normalized.startsWith('/') && !/^[a-z]:\//i.test(normalized) && !normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..');
+	return !normalized.includes('\0') && !normalized.startsWith('/') && !/^[a-z]:\//i.test(normalized) && !normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..');
 }
 
 export function hasHiddenPathSegment(path: string): boolean {
