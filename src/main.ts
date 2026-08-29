@@ -294,12 +294,15 @@ export default class RelatedOperationsPlugin extends Plugin {
 				if (this.settings.enabled && this.settings.autoUpdate) void this.updateAllLinkStatsOrNotice();
 			}, 800);
 		};
+		const scheduleForLinkRelevantChange = (file: TAbstractFile) => {
+			if (file instanceof TFolder || (file instanceof TFile && file.extension.toLowerCase() === 'md')) schedule();
+		};
 		this.registerEvent(this.app.vault.on('modify', (file) => {
-			if (file instanceof TFile && file.extension.toLowerCase() === 'md') schedule();
+			scheduleForLinkRelevantChange(file);
 		}));
-		this.registerEvent(this.app.vault.on('create', schedule));
-		this.registerEvent(this.app.vault.on('delete', schedule));
-		this.registerEvent(this.app.vault.on('rename', schedule));
+		this.registerEvent(this.app.vault.on('create', scheduleForLinkRelevantChange));
+		this.registerEvent(this.app.vault.on('delete', scheduleForLinkRelevantChange));
+		this.registerEvent(this.app.vault.on('rename', scheduleForLinkRelevantChange));
 		this.registerInterval(window.setInterval(() => {
 			if (this.settings.enabled && this.settings.autoUpdate) void this.updateAllLinkStatsOrNotice();
 		}, 60_000));
