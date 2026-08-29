@@ -202,17 +202,20 @@ test('skips case-insensitive existing targets when creating missing notes', asyn
 });
 
 test('does not recreate case-insensitive existing parent folders', async () => {
-	const files = [{ path: 'Notes' }];
+	const files = [{ path: 'Notes' }, { path: 'source.md', extension: 'md' }];
 	const createdFolders = [];
 	const app = {
+		metadataCache: { getFirstLinkpathDest: () => null },
 		vault: {
 			getAllLoadedFiles: () => files,
 			getAbstractFileByPath: (path) => files.find((file) => file.path === path),
+			getFileByPath: (path) => files.find((file) => file.path === path),
+			read: async () => '[[notes/new]]',
 			createFolder: async (path) => { createdFolders.push(path); files.push({ path }); },
 			create: async (path) => { files.push({ path }); },
 		},
 	};
-	const result = await createMissingNotes(app, [{ sourcePath: 'source.md', linkPath: 'notes/new', original: '[[notes/new]]', position: { start: { offset: 0 }, end: { offset: 14 } }, syntax: 'wiki' }]);
+	const result = await createMissingNotes(app, [{ sourcePath: 'source.md', linkPath: 'notes/new', original: '[[notes/new]]', position: { start: { offset: 0 }, end: { offset: 13 } }, syntax: 'wiki' }]);
 	assert.deepEqual(createdFolders, []);
 	assert.deepEqual(result.created, ['notes/new.md']);
 });

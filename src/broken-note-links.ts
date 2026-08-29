@@ -77,15 +77,19 @@ export interface CreateMissingNotesResult {
 
 export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Promise<CreateMissingNotesResult> {
 	const result: CreateMissingNotesResult = { created: [], skipped: [], failed: [] };
-	const targets = new Map<string, BrokenNoteLink>();
+	const targets = new Map<string, BrokenNoteLink[]>();
 	for (const link of links) {
 		const path = missingNotePath(link);
 		if (!path) result.skipped.push({ path: link.linkPath, reason: '目标路径无效' });
-		else targets.set(path, link);
+		else (targets.get(path) ?? (targets.set(path, []), targets.get(path)!)).push(link);
 	}
-	for (const path of targets.keys()) {
+	for (const [path, targetLinks] of targets) {
 		if (pathExistsCaseInsensitive(app, path)) {
 			result.skipped.push({ path, reason: '目标已存在' });
+			continue;
+		}
+		if (!(await Promise.all(targetLinks.map((link) => isCurrentMissingNoteLink(app, link)))).some(Boolean)) {
+			result.skipped.push({ path, reason: '链接已变化或目标已恢复' });
 			continue;
 		}
 		try {
@@ -108,6 +112,13 @@ export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Pro
 		}
 	}
 	return result;
+}
+
+async function isCurrentMissingNoteLink(app: App, link: BrokenNoteLink) {
+	if (app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath)) return false;
+	const source = app.vault.getFileByPath(link.sourcePath);
+	if (!source || source.extension.toLowerCase() !== 'md') return false;
+	return findBrokenNoteLinkOffset(await app.vault.read(source), link) !== null;
 }
 
 function pathExistsCaseInsensitive(app: App, path: string) {
