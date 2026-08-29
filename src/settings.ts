@@ -97,6 +97,7 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 							setting.addToggle((toggle) => toggle.setValue(this.plugin.settings.autoUpdate).onChange(async (value) => {
 								this.plugin.settings.autoUpdate = value;
 								await this.plugin.saveSettings();
+								if (!value) this.plugin.cancelPendingLinkStatsUpdate();
 								if (value && this.plugin.settings.enabled) this.plugin.refreshLinkStatsUpdater();
 							}));
 						},

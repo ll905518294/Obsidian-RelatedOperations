@@ -13,6 +13,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
 	private linkStatsUpdaterStarted = false;
 	private linkStatsUpdate?: Promise<number>;
+	private linkStatsDebounceTimer = 0;
 	settings!: RelatedOperationsSettings;
 	async onload() {
 		const propertyName = (value: unknown) => typeof value === 'string' && value.trim().length > 0 && !/[\r\n]/.test(value);
@@ -285,11 +286,13 @@ export default class RelatedOperationsPlugin extends Plugin {
 	private registerLinkStatsUpdater() {
 		if (this.linkStatsUpdaterStarted) return;
 		this.linkStatsUpdaterStarted = true;
-		let timer = 0;
 		const schedule = () => {
 			if (!this.settings.enabled || !this.settings.autoUpdate) return;
-			window.clearTimeout(timer);
-			timer = window.setTimeout(() => void this.updateAllLinkStatsOrNotice(), 800);
+			window.clearTimeout(this.linkStatsDebounceTimer);
+			this.linkStatsDebounceTimer = window.setTimeout(() => {
+				this.linkStatsDebounceTimer = 0;
+				if (this.settings.enabled && this.settings.autoUpdate) void this.updateAllLinkStatsOrNotice();
+			}, 800);
 		};
 		this.registerEvent(this.app.vault.on('modify', (file) => {
 			if (file instanceof TFile && file.extension.toLowerCase() === 'md') schedule();
@@ -300,13 +303,18 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.registerInterval(window.setInterval(() => {
 			if (this.settings.enabled && this.settings.autoUpdate) void this.updateAllLinkStatsOrNotice();
 		}, 60_000));
-		this.register(() => window.clearTimeout(timer));
+		this.register(() => window.clearTimeout(this.linkStatsDebounceTimer));
 		if (this.settings.enabled) void this.updateAllLinkStatsOrNotice();
 	}
 
 	refreshLinkStatsUpdater() {
 		this.registerLinkStatsUpdater();
 		if (this.settings.enabled) void this.updateAllLinkStatsOrNotice();
+	}
+
+	cancelPendingLinkStatsUpdate() {
+		window.clearTimeout(this.linkStatsDebounceTimer);
+		this.linkStatsDebounceTimer = 0;
 	}
 
 	private async updateAllLinkStats(force = false) {
