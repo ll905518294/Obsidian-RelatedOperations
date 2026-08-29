@@ -544,7 +544,7 @@ export class RelatedNotesModal extends Modal {
 	}
 
 	onOpen() {
-		this.titleEl.setText(`移动关联笔记：${this.sourceLabel}`);
+		this.titleEl.setText(`整理关联笔记：${this.sourceLabel}`);
 		this.panel = new RelatedNotesPanel(
 			this.app,
 			this.contentEl,
@@ -586,9 +586,9 @@ class MoveConfirmationModal extends Modal {
 	}
 
 	onOpen() {
-		this.titleEl.setText('确认移动笔记');
+		this.titleEl.setText('确认整理笔记');
 		this.contentEl.empty();
-		this.contentEl.createEl('p', { text: `即将移动 ${this.movableCount} 篇笔记到：` });
+			this.contentEl.createEl('p', { text: `即将整理 ${this.movableCount} 篇笔记到：` });
 		this.contentEl.createEl('p', { text: this.targetFolder, cls: 'related-operations-confirm-target' });
 		if (this.conflictCount > 0) {
 			this.contentEl.createEl('p', {
@@ -597,7 +597,7 @@ class MoveConfirmationModal extends Modal {
 			});
 		}
 		const actions = this.contentEl.createDiv({ cls: 'related-operations-actions' });
-		const confirm = actions.createEl('button', { text: '确认移动', cls: 'mod-cta' });
+		const confirm = actions.createEl('button', { text: '确认整理', cls: 'mod-cta' });
 		confirm.addEventListener('click', () => this.finish(true));
 		const cancel = actions.createEl('button', { text: '取消' });
 		cancel.addEventListener('click', () => this.finish(false));

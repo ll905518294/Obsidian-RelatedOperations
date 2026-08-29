@@ -1,6 +1,6 @@
-# Related Operations
+# Obsidian-Manager
 
-An Obsidian community plugin for finding and moving notes directly related to the current note.
+一个用于检查 Vault 健康状况、整理关联笔记和清理未引用资源的 Obsidian 社区插件。
 
 ## Features
 
@@ -26,18 +26,20 @@ An Obsidian community plugin for finding and moving notes directly related to th
 
 ## Orphan resource cleanup
 
-Use the left ribbon **扫描并清理孤立资源** icon or the command with the same name to open the cleanup window. On desktop it opens in a movable standalone window; on mobile, or when a standalone window cannot be created, it falls back to a modal. The window automatically scans and shows orphaned images and recursively empty folders in separate tabs. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
+Use the left ribbon **打开 Vault 体检与清理** icon or the command with the same name to open the cleanup window. On desktop it opens in a movable standalone window; on mobile, or when a standalone window cannot be created, it falls back to a modal. The window automatically scans and shows unreferenced images, unreferenced attachments, empty files, and recursively empty folders in separate tabs. Empty files include zero-byte non-image, non-Canvas files and Markdown files containing only YAML frontmatter. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
 
-- Images: the formats configured in **设置 → Related Operations → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
-- Ignored folders: configure **设置 → Related Operations → 忽略目录** with comma-, space-, or line-break-separated paths. A folder and all descendants are excluded only from orphan-image and empty-folder candidates; broken and native image-link checks are unchanged.
+- Images: the formats configured in **设置 → Obsidian-Manager → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
+- Ignored folders: configure **设置 → Obsidian-Manager → 忽略目录** with comma-, space-, or line-break-separated paths. A folder and all descendants are excluded only from unreferenced-image and empty-folder candidates; broken and native image-link checks are unchanged.
 - Conservative reference scan: any textual mention of an image file name or path in Markdown content also counts as a reference. This covers HTML image tags, plain-text paths in frontmatter, and code-block text, so images referenced in non-standard ways are never flagged as orphans.
 - Broken image links: Markdown image embeds and image links whose local target cannot be resolved are shown in a separate tab. Select occurrences to remove the full link syntax; external URLs, HTML images, frontmatter links, and code-block text are not scanned. This edits Markdown directly and does not use the trash.
+- Broken note links: the cleanup window can locate, ignore for the current scan, remove, or create selected missing Markdown targets. Missing parent folders are created; existing files and invalid targets are skipped and reported.
+- Broken note links: Wiki links and Markdown links targeting missing Markdown notes are shown separately. Titles, block references, aliases, external URLs, images, attachments, frontmatter, and code blocks are handled conservatively. Select links to remove them after confirmation, or use **定位** to inspect the source note.
 - Native image links: the cleanup window also finds Obsidian image embeds such as `![[image.png]]` across the vault. Select resolved entries and convert them to `![](<path>)`; alt text is intentionally left empty. Dimensions, unresolved targets, code blocks, and frontmatter are skipped and left unchanged. Conversion is grouped per note and can be undone with Obsidian's edit history.
 - Preview and grouping: the image list displays a thumbnail; select it to open a larger preview. Use **分组** to show the list by folder path or file extension.
 - Folders: folders with no files, including parent folders that only contain empty subfolders. Hidden folders such as `.obsidian`, `.trash`, and `.git` are never scanned, and a folder containing hidden subfolders is not listed as empty.
-- Not scanned: non-image attachments.
+- Attachments: all non-Markdown, non-Canvas files outside hidden or ignored folders are scanned. Files referenced by resolved links, Canvas nodes, or textual file-name/path mentions are excluded.
 - After image cleanup, select **重新扫描** before cleaning folders that have only just become empty.
-- Reports: **复制报告** copies the current four-tab scan to the clipboard; **导出报告** writes a Markdown report such as `related-operations-report-20260829-120000.md` to the vault root. Reports contain paths and link details, not note bodies. The latest batch summary is shown in the result window and is not persisted as a log file.
+- Reports: **复制报告** copies the current scan to the clipboard; **导出报告** writes a Markdown report such as `related-operations-report-20260829-120000.md` to the vault root. Reports contain paths and link details, not note bodies. The latest batch summary is shown in the result window and is not persisted as a log file.
 
 ## Link-count properties
 
@@ -47,7 +49,7 @@ The optional setting **写入关联数量到属性** is disabled by default. Whe
 - `related-operations-out-links`
 - `related-operations-bidirectional-links`
 
-Use the command **刷新全库关联数量属性** to update all Markdown notes immediately. Automatic updates are debounced and only write files when a value changes.
+Use the command **刷新全库笔记关系数量** to update all Markdown notes immediately. Automatic updates are debounced and only write files when a value changes.
 
 ## Development
 

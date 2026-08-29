@@ -1,4 +1,4 @@
-import { Notice, Platform, Plugin, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { FileSystemAdapter, Notice, Platform, Plugin, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { RelatedNotesModal } from './related-notes-modal';
 import { getRelatedNotesForFiles } from './related-notes';
 import { RELATED_NOTES_VIEW_TYPE, RelatedNotesView } from './related-notes-view';
@@ -36,7 +36,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.app.workspace.onLayoutReady(() => this.retryNotebookNavigatorRegistration());
 		this.addCommand({
 			id: 'move-related-notes',
-			name: '移动关联笔记',
+			name: '整理关联笔记',
 			checkCallback: (checking) => {
 				const file = this.app.workspace.getActiveFile();
 				const sourceFiles = this.getPreferredSourceFiles(file);
@@ -47,7 +47,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		});
 		this.addCommand({
 			id: 'refresh-related-link-properties',
-			name: '刷新全库关联数量属性',
+			name: '刷新全库笔记关系数量',
 			callback: async () => {
 				if (!this.settings.enabled) {
 					new Notice('请先在设置中启用关联数量属性。');
@@ -59,11 +59,11 @@ export default class RelatedOperationsPlugin extends Plugin {
 		});
 		this.addCommand({
 			id: 'scan-and-clean-orphan-resources',
-			name: '扫描并清理孤立资源',
+			name: '打开 vault 体检与清理',
 			callback: () => void this.openOrphanCleanupWindow(),
 		});
 
-		this.addRibbonIcon('move', '移动关联笔记', () => {
+		this.addRibbonIcon('move', '整理关联笔记', () => {
 			const file = this.app.workspace.getActiveFile();
 			const sourceFiles = this.getPreferredSourceFiles(file);
 			if (sourceFiles.length === 0) {
@@ -72,15 +72,21 @@ export default class RelatedOperationsPlugin extends Plugin {
 			}
 			void this.openRelatedNotesWindow(sourceFiles);
 		});
-		this.addRibbonIcon('trash-2', '扫描并清理孤立资源', () => void this.openOrphanCleanupWindow());
+		this.addRibbonIcon('trash-2', '打开 vault 体检与清理', () => void this.openOrphanCleanupWindow());
 
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
+				menu.addItem((item) =>
+					item
+						.setTitle('打开所在文件夹')
+						.setIcon('folder-open')
+						.onClick(() => openInSystemFolder(this.app, file)),
+				);
 				const sourceFiles = this.getSourceFiles(file);
 				if (sourceFiles.length === 0) return;
 				menu.addItem((item) =>
 					item
-						.setTitle(file instanceof TFolder ? '移动文件夹内关联笔记' : '移动关联笔记')
+						.setTitle(file instanceof TFolder ? '整理文件夹内关联笔记' : '整理关联笔记')
 						.setIcon('move')
 						.onClick(() => void this.openRelatedNotesWindow(sourceFiles)),
 				);
@@ -94,7 +100,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 				if (uniqueFiles.length < 2) return;
 				menu.addItem((item) =>
 					item
-						.setTitle('移动多个笔记的关联笔记')
+						.setTitle('整理多个笔记的关联笔记')
 						.setIcon('move')
 						.onClick(() => void this.openRelatedNotesWindow(uniqueFiles)),
 				);
@@ -214,7 +220,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			if (sourceFiles.length === 0) return;
 			context.addItem((item) =>
 				item
-					.setTitle(sourceFiles.length > 1 ? '移动多个笔记的关联笔记' : '移动关联笔记')
+					.setTitle(sourceFiles.length > 1 ? '整理多个笔记的关联笔记' : '整理关联笔记')
 					.setIcon('move')
 					.onClick(() => void this.openRelatedNotesWindow(sourceFiles)),
 			);
@@ -224,7 +230,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			if (sourceFiles.length === 0) return;
 			context.addItem((item) =>
 				item
-					.setTitle('移动文件夹内关联笔记')
+					.setTitle('整理文件夹内关联笔记')
 					.setIcon('move')
 					.onClick(() => void this.openRelatedNotesWindow(sourceFiles)),
 			);
@@ -307,5 +313,24 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.linkStatsUpdate = updateLinkStats(this.app, this.app.vault.getMarkdownFiles(), this.settings)
 			.finally(() => { this.linkStatsUpdate = undefined; });
 		return this.linkStatsUpdate;
+	}
+}
+
+function openInSystemFolder(app: Plugin['app'], item: TAbstractFile) {
+	if (!Platform.isDesktopApp || !(app.vault.adapter instanceof FileSystemAdapter)) {
+		new Notice('仅桌面端的本地资料库支持打开所在文件夹。');
+		return;
+	}
+	const electron = (window as Window & {
+		require?: (module: string) => { shell?: { showItemInFolder(path: string): void; openPath?: (path: string) => Promise<string> } };
+	}).require?.('electron');
+	if (!electron?.shell) {
+		new Notice('当前环境无法打开系统文件夹。');
+		return;
+	}
+	const path = `${app.vault.adapter.getBasePath()}/${item.path}`;
+	if (item instanceof TFolder && electron.shell.openPath) void electron.shell.openPath(path).catch(() => new Notice('打开文件夹失败。'));
+	else {
+		try { electron.shell.showItemInFolder(path); } catch { new Notice('打开文件夹失败。'); }
 	}
 }

@@ -1,8 +1,8 @@
 {
 	"id": "Obsidian-RelatedOperations",
-	"name": "Related Operations",
+	"name": "Obsidian-Manager",
 	"version": "1.0.0",
 	"minAppVersion": "1.13.0",
-	"description": "Find directly related notes and move selected notes into a target folder.",
+	"description": "检查笔记关系、未引用资源和失效链接，并安全整理关联笔记。",
 	"isDesktopOnly": false
 }

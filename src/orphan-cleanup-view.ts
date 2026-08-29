@@ -19,7 +19,7 @@ export class OrphanCleanupView extends ItemView {
 	}
 
 	getDisplayText() {
-		return '清理孤立资源';
+		return 'Vault 体检与清理';
 	}
 
 	getIcon() {

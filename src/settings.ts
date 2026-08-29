@@ -52,7 +52,7 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 		return [
 			{
 				type: 'group',
-				heading: '移动面板默认行为',
+				heading: '关联笔记整理默认行为',
 				items: [
 					{
 						name: '默认按源笔记分组',
@@ -100,7 +100,7 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 			},
 			{
 				type: 'group',
-				heading: '孤立资源清理',
+				heading: '资源体检与清理',
 				items: [
 					{
 						name: '可清理图片格式',
@@ -113,7 +113,7 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 					},
 					{
 						name: '忽略目录',
-						desc: '用逗号、空格或换行分隔目录；目录及其子目录不会列入孤立资源和空文件夹扫描。',
+						desc: '用逗号、空格或换行分隔目录；目录及其子目录不会列入未引用资源和空文件夹扫描。',
 						control: { type: 'text', key: 'orphanIgnoredFolders', placeholder: 'attachments, archive' },
 					},
 				],

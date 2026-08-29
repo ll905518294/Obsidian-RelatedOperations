@@ -11,6 +11,7 @@ import {
 	parseIgnoredFolders,
 	isIgnoredPath,
 } from '../src/core-utils.ts';
+import { findBrokenNoteLinks, missingNotePath } from '../src/broken-note-links.ts';
 
 test('joins a root target without introducing a leading slash', () => {
 	assert.equal(joinVaultPath('', 'Pages'), 'Pages');
@@ -79,4 +80,24 @@ test('flags basenames outside the token alphabet for raw text search', () => {
 	assert.equal(needsRawTextSearch('photo (1).png'), true);
 	assert.equal(needsRawTextSearch('封面 图.png'), false);
 	assert.equal(needsRawTextSearch('cover.jpg'), false);
+});
+
+test('resolves missing note paths relative to the source note', () => {
+	assert.equal(missingNotePath({ sourcePath: 'notes/source.md', linkPath: 'target', original: '[[target]]', position: { start: { offset: 0 }, end: { offset: 10 } }, syntax: 'wiki' }), 'notes/target.md');
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'folder/target.md', original: '[x](folder/target.md)', position: { start: { offset: 0 }, end: { offset: 20 } }, syntax: 'markdown' }), 'folder/target.md');
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: '../target', original: '[[../target]]', position: { start: { offset: 0 }, end: { offset: 13 } }, syntax: 'wiki' }), null);
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'folder//target', original: '[[folder//target]]', position: { start: { offset: 0 }, end: { offset: 18 } }, syntax: 'wiki' }), null);
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'folder/', original: '[[folder/]]', position: { start: { offset: 0 }, end: { offset: 11 } }, syntax: 'wiki' }), null);
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'C:\\target', original: '[[C:\\target]]', position: { start: { offset: 0 }, end: { offset: 14 } }, syntax: 'wiki' }), null);
+	assert.equal(missingNotePath({ sourcePath: 'notes/source.md', linkPath: 'folder/target', original: '[target](folder/target)', position: { start: { offset: 0 }, end: { offset: 23 } }, syntax: 'markdown' }), 'notes/folder/target.md');
+	assert.equal(missingNotePath({ sourcePath: 'notes/source.md', linkPath: './target', original: '[target](./target)', position: { start: { offset: 0 }, end: { offset: 18 } }, syntax: 'markdown' }), 'notes/target.md');
+});
+
+test('does not classify Markdown image embeds as broken note links', () => {
+	const cache = { links: [{ original: '![missing](missing.md)', link: 'missing.md', position: { start: { offset: 0 }, end: { offset: 24 } } }] };
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'source.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	assert.deepEqual(findBrokenNoteLinks(app, 'png'), []);
 });

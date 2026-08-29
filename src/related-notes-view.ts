@@ -22,7 +22,7 @@ export class RelatedNotesView extends ItemView {
 	}
 
 	getDisplayText() {
-		return '移动关联笔记';
+		return '关联笔记整理';
 	}
 
 	getIcon() {
