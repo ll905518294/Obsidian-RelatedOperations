@@ -1,5 +1,6 @@
 import { App, FileSystemAdapter, MarkdownView, Modal, Notice, Platform, TAbstractFile, TFile, TFolder } from 'obsidian';
-import { hasHiddenPathSegment, needsRawTextSearch, parseExtensions, pathLikeTokens, pathTokenCandidates } from './core-utils';
+import { hasHiddenPathSegment, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens, pathTokenCandidates } from './core-utils';
+import { buildCleanupReport } from './cleanup-report';
 import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelectedBrokenLinks, type BrokenImageLink } from './broken-image-links';
 import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, type NativeImageLink } from './native-image-links';
 
@@ -20,6 +21,7 @@ interface CleanupResult {
 
 interface OrphanImageExtensions {
 	orphanImageExtensions: string;
+	orphanIgnoredFolders: string;
 }
 
 export interface OrphanCleanupHost {
@@ -36,6 +38,7 @@ export class OrphanCleanupPanel {
 	private scanning = false;
 	private showHelp = false;
 	private readonly pages = new Map<string, number>();
+	private processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
 
 	constructor(
 		private readonly app: App,
@@ -57,7 +60,7 @@ export class OrphanCleanupPanel {
 		this.pages.clear();
 		this.renderContents();
 		try {
-			this.candidates = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions);
+			this.candidates = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions, this.settings.orphanIgnoredFolders);
 		} catch (error) {
 			new Notice(`扫描失败：${reasonFor(error)}`);
 			this.candidates = { images: [], folders: [], brokenLinks: [], nativeLinks: [] };
@@ -75,6 +78,7 @@ export class OrphanCleanupPanel {
 		}
 		this.renderTabs();
 		if (this.showHelp) this.renderHelp();
+		if (this.processed) this.renderProcessedSummary();
 		this.renderList();
 		this.renderActions();
 	}
@@ -114,11 +118,22 @@ export class OrphanCleanupPanel {
 		help.createSpan({ text: '未勾选的项目不会被处理；确认后会移入 Obsidian 回收站。' });
 	}
 
+	private renderProcessedSummary() {
+		const summary = this.contentEl.createDiv({ cls: 'orphan-cleanup-result-summary' });
+		summary.setAttribute('role', 'status');
+		const failed = this.processed?.failed ?? [];
+		summary.createEl('strong', { text: '最近一次处理：' });
+		summary.createSpan({ text: `成功 ${this.processed?.success ?? 0}，跳过 ${this.processed?.skipped ?? 0}，失败 ${failed.length}` });
+		if (failed.length) summary.createDiv({ text: failed.map((item) => `${item.path}（${item.reason}）`).join('、') });
+	}
+
 	private renderList() {
 		const currentTab = this.activeTab;
 		const list = this.contentEl.createDiv({ cls: 'orphan-cleanup-list' });
 		const toolbar = list.createDiv({ cls: 'orphan-cleanup-toolbar' });
+		const content = list.createDiv({ cls: 'orphan-cleanup-scroll' });
 		this.addRefreshControl(toolbar);
+		this.addReportControls(toolbar);
 		if (this.activeTab === 'images') this.addImageGroupingControl(toolbar);
 
 		if (currentTab === 'broken-links' || currentTab === 'native-links') {
@@ -126,25 +141,24 @@ export class OrphanCleanupPanel {
 			const candidates = native ? this.candidates.nativeLinks : this.candidates.brokenLinks;
 			const page = this.pageFor(currentTab, candidates.length);
 			const pageItems = candidates.slice(page * CLEANUP_PAGE_SIZE, (page + 1) * CLEANUP_PAGE_SIZE);
-			const selectAll = toolbar.createEl('button', { text: '全选当前页' });
-			selectAll.disabled = pageItems.length === 0;
-			selectAll.addEventListener('click', () => {
-				for (const item of pageItems) native ? this.nativeSelections.add(nativeImageLinkKey(item)) : this.linkSelections.add(brokenLinkKey(item));
-				this.syncPageCheckboxes(list, true);
-				this.updateSelectionSummary();
-			});
-			const clear = toolbar.createEl('button', { text: '取消当前页选择' });
-			clear.disabled = pageItems.length === 0;
-			clear.addEventListener('click', () => {
-				for (const item of pageItems) native ? this.nativeSelections.delete(nativeImageLinkKey(item)) : this.linkSelections.delete(brokenLinkKey(item));
-				this.syncPageCheckboxes(list, false);
-				this.updateSelectionSummary();
-			});
+			this.addSelectionControls(toolbar, pageItems.length, candidates.length,
+				() => pageItems.forEach((item) => native ? this.nativeSelections.add(nativeImageLinkKey(item)) : this.linkSelections.add(brokenLinkKey(item))),
+				() => candidates.forEach((item) => {
+					if (native) {
+						if (convertNativeImageLink(item)) this.nativeSelections.add(nativeImageLinkKey(item));
+					} else {
+						this.linkSelections.add(brokenLinkKey(item));
+					}
+				}),
+				() => pageItems.forEach((item) => native ? this.nativeSelections.delete(nativeImageLinkKey(item)) : this.linkSelections.delete(brokenLinkKey(item))),
+				() => { native ? this.nativeSelections.clear() : this.linkSelections.clear(); },
+				() => { this.syncPageCheckboxes(content, true); this.updateSelectionSummary(); },
+				() => { this.syncPageCheckboxes(content, false); this.updateSelectionSummary(); });
 			if (candidates.length === 0) {
-				list.createEl('p', { text: native ? '没有发现原生图片链接。' : '没有发现失效图片链接。', cls: 'orphan-cleanup-empty' });
+				content.createEl('p', { text: native ? '没有发现原生图片链接。' : '没有发现失效图片链接。', cls: 'orphan-cleanup-empty' });
 				return;
 			}
-			native ? this.renderNativeLinkList(list, pageItems) : this.renderBrokenLinkList(list, pageItems);
+			native ? this.renderNativeLinkList(content, pageItems) : this.renderBrokenLinkList(content, pageItems);
 			this.renderPagination(toolbar, candidates.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
 			return;
 		}
@@ -152,23 +166,16 @@ export class OrphanCleanupPanel {
 		const items = this.itemsForActiveTab();
 		const page = this.pageFor(currentTab, items.length);
 		const pageItems = items.slice(page * CLEANUP_PAGE_SIZE, (page + 1) * CLEANUP_PAGE_SIZE);
-		const selectAll = toolbar.createEl('button', { text: '全选当前页' });
-		selectAll.disabled = pageItems.length === 0;
-		selectAll.addEventListener('click', () => {
-			for (const item of pageItems) this.selections.add(item.path);
-			this.syncPageCheckboxes(list, true);
-			this.updateSelectionSummary();
-		});
-		const clear = toolbar.createEl('button', { text: '取消当前页选择' });
-		clear.disabled = pageItems.length === 0;
-		clear.addEventListener('click', () => {
-			for (const item of pageItems) this.selections.delete(item.path);
-			this.syncPageCheckboxes(list, false);
-			this.updateSelectionSummary();
-		});
+		this.addSelectionControls(toolbar, pageItems.length, items.length,
+			() => pageItems.forEach((item) => this.selections.add(item.path)),
+			() => items.forEach((item) => this.selections.add(item.path)),
+			() => pageItems.forEach((item) => this.selections.delete(item.path)),
+			() => this.selections.clear(),
+			() => { this.syncPageCheckboxes(content, true); this.updateSelectionSummary(); },
+			() => { this.syncPageCheckboxes(content, false); this.updateSelectionSummary(); });
 
 		if (items.length === 0) {
-			list.createEl('p', {
+			content.createEl('p', {
 				text: this.activeTab === 'images'
 					? '没有发现孤立图片。'
 					: '没有发现可递归清理的空文件夹。',
@@ -178,12 +185,12 @@ export class OrphanCleanupPanel {
 		}
 
 		if (currentTab === 'images') {
-			this.renderImageGrid(list, pageItems.filter((item): item is TFile => item instanceof TFile), items as TFile[]);
+			this.renderImageGrid(content, pageItems.filter((item): item is TFile => item instanceof TFile), items as TFile[]);
 			this.renderPagination(toolbar, items.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
 			return;
 		}
 
-		const table = list.createEl('table', { cls: 'orphan-cleanup-table' });
+		const table = content.createEl('table', { cls: 'orphan-cleanup-table' });
 		const header = table.createEl('thead').createEl('tr');
 		header.createEl('th', { text: '选择' });
 		if (this.activeTab === 'images') header.createEl('th', { text: '预览' });
@@ -198,6 +205,31 @@ export class OrphanCleanupPanel {
 			for (const item of group.items) this.renderItemRow(body, item);
 		}
 		this.renderPagination(toolbar, items.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
+	}
+
+	private addSelectionControls(
+		container: HTMLElement,
+		pageCount: number,
+		totalCount: number,
+		selectPage: () => void,
+		selectAll: () => void,
+		clearPage: () => void,
+		clearAll: () => void,
+		refreshPage: () => void,
+		refreshAfterClear: () => void,
+	) {
+		const selectPageButton = container.createEl('button', { text: '全选当前页' });
+		selectPageButton.disabled = pageCount === 0;
+		selectPageButton.addEventListener('click', () => { selectPage(); refreshPage(); });
+		const selectAllButton = container.createEl('button', { text: '全选全部' });
+		selectAllButton.disabled = totalCount === 0;
+		selectAllButton.addEventListener('click', () => { selectAll(); refreshPage(); });
+		const clearPageButton = container.createEl('button', { text: '取消当前页选择' });
+		clearPageButton.disabled = pageCount === 0;
+		clearPageButton.addEventListener('click', () => { clearPage(); refreshAfterClear(); });
+		const clearAllButton = container.createEl('button', { text: '取消全部选择' });
+		clearAllButton.disabled = totalCount === 0;
+		clearAllButton.addEventListener('click', () => { clearAll(); refreshAfterClear(); });
 	}
 
 	private syncPageCheckboxes(list: HTMLElement, checked: boolean) {
@@ -232,6 +264,22 @@ export class OrphanCleanupPanel {
 		refresh.addEventListener('click', () => void this.scan());
 	}
 
+	private addReportControls(container: HTMLElement) {
+		const report = () => buildCleanupReport({ generatedAt: new Date().toLocaleString('zh-CN'), images: this.candidates.images.map((item) => item.path), folders: this.candidates.folders.map((item) => item.path), brokenLinks: this.candidates.brokenLinks.map(({ sourcePath, original, linkPath }) => ({ sourcePath, original, linkPath })), nativeLinks: this.candidates.nativeLinks.map((item) => ({ sourcePath: item.sourcePath, original: item.original, status: convertNativeImageLink(item) ?? item.reason ?? '未解析目标' })), processed: this.processed });
+		const copy = container.createEl('button', { text: '复制报告' });
+		copy.addEventListener('click', () => void (async () => { try { await navigator.clipboard.writeText(report()); new Notice('报告已复制。'); } catch (error) { new Notice(`复制报告失败：${reasonFor(error)}`); } })());
+		const exportButton = container.createEl('button', { text: '导出报告' });
+		exportButton.addEventListener('click', () => void this.exportReport(report()));
+	}
+
+	private async exportReport(content: string) {
+		const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '').replace('T', '-');
+		const base = `related-operations-report-${stamp}`;
+		let path = `${base}.md`; let index = 2;
+		while (this.app.vault.getAbstractFileByPath(path)) path = `${base}-${index++}.md`;
+		try { await this.app.vault.create(path, content); new Notice(`报告已导出：${path}`); } catch (error) { new Notice(`导出报告失败：${reasonFor(error)}`); }
+	}
+
 	private renderBrokenLinkList(container: HTMLElement, links: BrokenImageLink[]) {
 		const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
 		const header = table.createEl('thead').createEl('tr');
@@ -255,9 +303,17 @@ export class OrphanCleanupPanel {
 			checkbox.checked = this.nativeSelections.has(nativeImageLinkKey(link));
 			checkbox.disabled = !convertNativeImageLink(link);
 			checkbox.addEventListener('change', () => { if (checkbox.checked) this.nativeSelections.add(nativeImageLinkKey(link)); else this.nativeSelections.delete(nativeImageLinkKey(link)); this.updateSelectionSummary(); });
-			row.createEl('td', { text: link.sourcePath });
+			const sourceCell = row.createEl('td', { cls: 'orphan-cleanup-path' });
+			const source = sourceCell.createEl('a', { text: link.sourcePath, cls: 'orphan-cleanup-link' });
+			source.addEventListener('click', (event) => {
+				event.preventDefault();
+				void this.app.workspace.openLinkText(link.sourcePath, '', 'tab');
+			});
 			row.createEl('td', { text: link.original, cls: 'orphan-cleanup-detail' });
-			row.createEl('td', { text: link.reason ?? link.file?.path ?? '未解析目标', cls: 'orphan-cleanup-detail' });
+			row.createEl('td', {
+				text: convertNativeImageLink(link) ?? link.reason ?? '未解析目标',
+				cls: 'orphan-cleanup-detail',
+			});
 			const locate = row.createEl('td').createEl('button', { text: '定位' });
 			locate.addEventListener('click', () => void this.locateNativeLink(link));
 		}
@@ -403,6 +459,7 @@ export class OrphanCleanupPanel {
 	private updateTabCounts() {
 		for (const [tab, label, count] of [
 			['images', '孤立图片', this.candidates.images.length],
+			['broken-links', '失效图片链接', this.candidates.brokenLinks.length],
 			['folders', '空文件夹', this.candidates.folders.length],
 			['native-links', '原生图片链接', this.candidates.nativeLinks.length],
 		] as const) {
@@ -526,6 +583,7 @@ export class OrphanCleanupPanel {
 		const confirmed = await new CleanupConfirmationModal(this.app, selectedImages.length, selectedFolders.length).waitForConfirmation();
 		if (!confirmed) return;
 		const result = await trashSelected(this.app, selectedImages, selectedFolders);
+		this.processed = { success: result.deleted.length, skipped: 0, failed: result.failed };
 		const message = [`已移入回收站：${result.deleted.length}`, `失败：${result.failed.length}`];
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
 		new Notice(message.join('\n'));
@@ -539,6 +597,7 @@ export class OrphanCleanupPanel {
 		const confirmed = await new RemoveBrokenLinksConfirmationModal(this.app, selectedLinks.length, sourceCount).waitForConfirmation();
 		if (!confirmed) return;
 		const result = await removeSelectedBrokenLinks(this.app, selectedLinks);
+		this.processed = { success: result.removed, skipped: result.skipped, failed: result.failed };
 		const message = [`已移除链接：${result.removed}`, `跳过：${result.skipped}`, `失败：${result.failed.length}`];
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
 		new Notice(message.join('\n'));
@@ -550,11 +609,13 @@ export class OrphanCleanupPanel {
 		if (!selected.length) return;
 		if (!await new ConvertNativeLinksConfirmationModal(this.app, selected.length).waitForConfirmation()) return;
 		let converted = 0, skipped = 0, failed = 0;
+		const failures: Array<{ path: string; reason: string }> = [];
 		for (const [path, links] of new Map([...selected].reduce((map, link) => { const list = map.get(link.sourcePath) ?? []; list.push(link); map.set(link.sourcePath, list); return map; }, new Map<string, NativeImageLink[]>())) ) {
 			const file = this.app.vault.getFileByPath(path);
-			if (!file) { failed++; continue; }
-			try { await this.app.vault.process(file, (content) => { const result = replaceNativeImageLinks(content, links); converted += result.converted; skipped += result.skipped; return result.content; }); } catch { failed++; }
+			if (!file) { failed++; failures.push({ path, reason: '文件不存在' }); continue; }
+			try { await this.app.vault.process(file, (content) => { const result = replaceNativeImageLinks(content, links); converted += result.converted; skipped += result.skipped; return result.content; }); } catch (error) { failed++; failures.push({ path, reason: reasonFor(error) }); }
 		}
+		this.processed = { success: converted, skipped, failed: failures };
 		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
 		await this.scan();
 	}
@@ -581,9 +642,10 @@ export class OrphanCleanupModal extends Modal {
 	}
 }
 
-async function findCleanupCandidates(app: App, imageExtensions: string): Promise<CleanupCandidates> {
+async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = ''): Promise<CleanupCandidates> {
 	const extensions = parseExtensions(imageExtensions);
-	const images = app.vault.getFiles().filter((file) => extensions.has(file.extension.toLowerCase()));
+	const ignoredFolders = parseIgnoredFolders(ignoredFoldersValue);
+	const images = app.vault.getFiles().filter((file) => extensions.has(file.extension.toLowerCase()) && !isIgnoredPath(file.path, ignoredFolders));
 	const referenced = new Set<string>();
 	for (const [sourcePath, destinations] of Object.entries(app.metadataCache.resolvedLinks)) {
 		if (!sourcePath.toLowerCase().endsWith('.md')) continue;
@@ -599,7 +661,7 @@ async function findCleanupCandidates(app: App, imageExtensions: string): Promise
 	await markImagesReferencedByText(app, images, referenced);
 	return {
 		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
-		folders: findRecursivelyEmptyFolders(app.vault.getRoot()).sort((a, b) => b.path.length - a.path.length || byPath(a, b)),
+		folders: findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders).sort((a, b) => b.path.length - a.path.length || byPath(a, b)),
 		brokenLinks: findBrokenImageLinks(app, imageExtensions),
 		nativeLinks: findNativeImageLinks(app, imageExtensions),
 	};
@@ -652,12 +714,13 @@ async function referencedByCanvas(app: App, canvas: TFile): Promise<string[]> {
 	}
 }
 
-function findRecursivelyEmptyFolders(folder: TFolder): TFolder[] {
+function findRecursivelyEmptyFolders(folder: TFolder, ignoredFolders: string[] = []): TFolder[] {
 	const candidates: TFolder[] = [];
 	const visit = (current: TFolder): boolean => {
 		// Hidden folders such as .obsidian, .trash, and .git are system folders:
 		// never candidates, and they block their parent from being listed as empty.
 		if (hasHiddenPathSegment(current.path)) return false;
+		if (isIgnoredPath(current.path, ignoredFolders)) return false;
 		let onlyEmptyFolders = true;
 		for (const child of current.children) {
 			if (child instanceof TFolder) {

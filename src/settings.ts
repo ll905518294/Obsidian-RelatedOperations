@@ -7,6 +7,7 @@ export interface RelatedOperationsSettings extends LinkStatsSettings {
 	groupByPath: boolean;
 	hideCompliant: boolean;
 	orphanImageExtensions: string;
+	orphanIgnoredFolders: string;
 }
 
 export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
@@ -14,6 +15,7 @@ export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	groupByPath: false,
 	hideCompliant: true,
 	orphanImageExtensions: 'png, jpg, jpeg, gif, webp, svg, bmp, avif, ico',
+	orphanIgnoredFolders: '',
 	enabled: false,
 	autoUpdate: true,
 	incomingProperty: 'related-operations-in-links',
@@ -108,6 +110,11 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 							key: 'orphanImageExtensions',
 							placeholder: 'PNG, JPG, webp',
 						},
+					},
+					{
+						name: '忽略目录',
+						desc: '用逗号、空格或换行分隔目录；目录及其子目录不会列入孤立资源和空文件夹扫描。',
+						control: { type: 'text', key: 'orphanIgnoredFolders', placeholder: 'attachments, archive' },
 					},
 				],
 			},

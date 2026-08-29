@@ -68,11 +68,12 @@ function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
     }
 }
 function Get-ObsidianMainProcesses {
-    return @(Get-CimInstance Win32_Process -Filter "Name = 'Obsidian.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { [string]$_.CommandLine -notmatch '--type=' })
+    return @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        ForEach-Object { [PSCustomObject]@{ Id = $_.Id; StartTime = $_.StartTime } })
 }
 function Assert-ObsidianRestartAcknowledged([string]$Output, [Nullable[int]]$ExitCode) {
-    if ($ExitCode.HasValue -and $ExitCode.Value -ne 0) { throw "Obsidian restart command failed with exit code $($ExitCode.Value): $Output" }
+    if ($null -ne $ExitCode -and $ExitCode -ne 0) { throw "Obsidian restart command failed with exit code ${ExitCode}: $Output" }
     if ($Output -match '(?im)^\s*Error:') { throw "Obsidian restart command failed: $($Output.Trim())" }
     if ($Output -notmatch '(?im)^\s*Restarting\.\.\.') { throw "Obsidian restart command was not accepted: $($Output.Trim())" }
 }
@@ -80,15 +81,15 @@ function Wait-ForObsidianRestart([int[]]$PreviousProcessIds, [int]$TimeoutSecond
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         $running = @(Get-ObsidianMainProcesses)
-        $oldStillRunning = @($running | Where-Object { $PreviousProcessIds -contains $_.ProcessId })
-        $newProcesses = @($running | Where-Object { $PreviousProcessIds -notcontains $_.ProcessId })
+        $oldStillRunning = @($running | Where-Object { $PreviousProcessIds -contains $_.Id })
+        $newProcesses = @($running | Where-Object { $PreviousProcessIds -notcontains $_.Id })
         if ($oldStillRunning.Count -eq 0 -and $newProcesses.Count -gt 0) {
             $stable = $true
             $stableDeadline = (Get-Date).AddSeconds($StableSeconds)
             do {
                 Start-Sleep -Milliseconds 250
                 $current = @(Get-ObsidianMainProcesses)
-                if (@($current | Where-Object { $PreviousProcessIds -notcontains $_.ProcessId }).Count -eq 0) { $stable = $false; break }
+                if (@($current | Where-Object { $PreviousProcessIds -notcontains $_.Id }).Count -eq 0) { $stable = $false; break }
             } while ((Get-Date) -lt $stableDeadline)
             if ($stable) { return $true }
         }
@@ -112,7 +113,7 @@ function Invoke-ObsidianRestart([string]$CliPath, [string]$VaultPath) {
         $output = $outputLines -join [Environment]::NewLine
         Assert-ObsidianRestartAcknowledged $output $exitCode
     } catch { throw "Obsidian restart failed: $($_.Exception.Message)" }
-    if (-not (Wait-ForObsidianRestart @($previousProcesses | ForEach-Object { [int]$_.ProcessId }) $StartupTimeoutSeconds)) {
+    if (-not (Wait-ForObsidianRestart @($previousProcesses | ForEach-Object { [int]$_.Id }) $StartupTimeoutSeconds)) {
         throw "Obsidian did not complete a stable restart: $VaultPath"
     }
 }

@@ -29,6 +29,7 @@ An Obsidian community plugin for finding and moving notes directly related to th
 Use the left ribbon **扫描并清理孤立资源** icon or the command with the same name to open the cleanup window. On desktop it opens in a movable standalone window; on mobile, or when a standalone window cannot be created, it falls back to a modal. The window automatically scans and shows orphaned images and recursively empty folders in separate tabs. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
 
 - Images: the formats configured in **设置 → Related Operations → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
+- Ignored folders: configure **设置 → Related Operations → 忽略目录** with comma-, space-, or line-break-separated paths. A folder and all descendants are excluded only from orphan-image and empty-folder candidates; broken and native image-link checks are unchanged.
 - Conservative reference scan: any textual mention of an image file name or path in Markdown content also counts as a reference. This covers HTML image tags, plain-text paths in frontmatter, and code-block text, so images referenced in non-standard ways are never flagged as orphans.
 - Broken image links: Markdown image embeds and image links whose local target cannot be resolved are shown in a separate tab. Select occurrences to remove the full link syntax; external URLs, HTML images, frontmatter links, and code-block text are not scanned. This edits Markdown directly and does not use the trash.
 - Native image links: the cleanup window also finds Obsidian image embeds such as `![[image.png]]` across the vault. Select resolved entries and convert them to `![](<path>)`; alt text is intentionally left empty. Dimensions, unresolved targets, code blocks, and frontmatter are skipped and left unchanged. Conversion is grouped per note and can be undone with Obsidian's edit history.
@@ -36,6 +37,7 @@ Use the left ribbon **扫描并清理孤立资源** icon or the command with the
 - Folders: folders with no files, including parent folders that only contain empty subfolders. Hidden folders such as `.obsidian`, `.trash`, and `.git` are never scanned, and a folder containing hidden subfolders is not listed as empty.
 - Not scanned: non-image attachments.
 - After image cleanup, select **重新扫描** before cleaning folders that have only just become empty.
+- Reports: **复制报告** copies the current four-tab scan to the clipboard; **导出报告** writes a Markdown report such as `related-operations-report-20260829-120000.md` to the vault root. Reports contain paths and link details, not note bodies. The latest batch summary is shown in the result window and is not persisted as a log file.
 
 ## Link-count properties
 

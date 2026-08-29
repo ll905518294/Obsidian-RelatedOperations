@@ -49,6 +49,15 @@ export function parseExtensions(value: string) {
 	);
 }
 
+export function parseIgnoredFolders(value: string): string[] {
+	return [...new Set(value.split(/[,，\s]+/).map((path) => path.trim().replace(/^\/+|\/+$/g, '').replace(/\\/g, '/')).filter(Boolean))];
+}
+
+export function isIgnoredPath(path: string, ignoredFolders: string[]): boolean {
+	const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+	return ignoredFolders.some((folder) => normalized === folder || normalized.startsWith(`${folder}/`));
+}
+
 export function normalizeSettings<T extends object>(
 	defaults: T,
 	raw: unknown,

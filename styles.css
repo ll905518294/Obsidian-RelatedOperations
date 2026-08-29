@@ -374,6 +374,15 @@
 .orphan-cleanup-list {
 	min-width: 0;
 	min-height: 0;
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.orphan-cleanup-scroll {
+	min-width: 0;
+	min-height: 0;
 	overflow: auto;
 	flex: 1 1 auto;
 }
@@ -400,6 +409,13 @@
 
 .orphan-cleanup-toolbar {
 	margin-bottom: 0.6rem;
+	flex: 0 0 auto;
+	flex-wrap: wrap;
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	padding: 0.25rem 0;
+	background: var(--background-primary);
 }
 
 .orphan-cleanup-grouping {
@@ -412,8 +428,16 @@
 
 .orphan-cleanup-table {
 	width: 100%;
-	border-collapse: collapse;
+	border-collapse: separate;
+	border-spacing: 0;
 	table-layout: fixed;
+}
+
+.orphan-cleanup-table thead th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: var(--background-primary);
 }
 
 .orphan-cleanup-table th,

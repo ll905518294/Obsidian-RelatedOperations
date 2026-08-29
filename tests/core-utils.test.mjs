@@ -8,6 +8,8 @@ import {
 	parseExtensions,
 	pathLikeTokens,
 	pathTokenCandidates,
+	parseIgnoredFolders,
+	isIgnoredPath,
 } from '../src/core-utils.ts';
 
 test('joins a root target without introducing a leading slash', () => {
@@ -56,6 +58,12 @@ test('extracts path-like tokens including spaced names', () => {
 
 test('parses configurable extensions without case or leading dots', () => {
 	assert.deepEqual([...parseExtensions('PNG, .jpg JICO')].sort(), ['jico', 'jpg', 'png']);
+});
+
+test('normalizes ignored folders and matches descendants only', () => {
+	assert.deepEqual(parseIgnoredFolders(' /assets/，archive\\old\n assets '), ['assets', 'archive/old']);
+	assert.equal(isIgnoredPath('assets/photo.png', ['assets']), true);
+	assert.equal(isIgnoredPath('assets2/photo.png', ['assets']), false);
 });
 
 test('recovers the file name from prose prefixes and folder paths', () => {
