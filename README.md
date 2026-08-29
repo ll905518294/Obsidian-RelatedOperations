@@ -55,6 +55,8 @@ When applying custom property names, the plugin refuses names already used by ot
 
 ## Development
 
+测试脚本使用 Node.js 22+ 的原生 TypeScript 类型擦除选项；构建插件本身仍以 ES2021 为目标。
+
 ```bash
 npm install
 npm run dev

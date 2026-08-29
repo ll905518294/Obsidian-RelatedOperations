@@ -42,7 +42,7 @@
 
 | 工具 | 要求 | 说明 |
 |---|---|---|
-| Node.js | LTS 版本 | 插件构建运行时 |
+| Node.js | 22+ LTS | 测试脚本使用原生 TypeScript 类型擦除；插件构建目标仍为 ES2021 |
 | npm | 随 Node.js 安装 | 依赖管理 |
 | Git | 最新版 | 版本控制 |
 | TypeScript | 项目内依赖 | Obsidian 插件使用 TypeScript 开发 |
