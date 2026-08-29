@@ -116,7 +116,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			new Notice('没有可处理的 Markdown 笔记。');
 			return;
 		}
-		const primarySource = orderedFiles.at(0);
+		const primarySource = orderedFiles[0];
 		if (!primarySource) return;
 		if (orderedFiles.some((file) => !this.app.metadataCache.getFileCache(file))) {
 			new Notice('正在解析关联笔记…');
@@ -128,7 +128,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			new RelatedNotesModal(this.app, primarySource, orderedFiles, relatedNotes, sourceLabel, orderedFiles.length, this.settings, () => this.saveSettings()).open();
 			return;
 		}
-		const existingLeaf = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE).at(0);
+		const existingLeaf = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE)[0];
 		if (existingLeaf) {
 			await existingLeaf.setViewState({
 				type: RELATED_NOTES_VIEW_TYPE,
@@ -155,7 +155,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			new OrphanCleanupModal(this.app, this.settings).open();
 			return;
 		}
-		const existingLeaf = this.app.workspace.getLeavesOfType(ORPHAN_CLEANUP_VIEW_TYPE).at(0);
+		const existingLeaf = this.app.workspace.getLeavesOfType(ORPHAN_CLEANUP_VIEW_TYPE)[0];
 		if (existingLeaf) {
 			await this.app.workspace.revealLeaf(existingLeaf);
 			return;
