@@ -571,7 +571,7 @@ export class OrphanCleanupPanel {
 		const preview = card.createEl('img', { attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
 		preview.src = this.app.vault.getResourcePath(file);
 		preview.title = '点击预览';
-		preview.addEventListener('click', () => new ImagePreviewModal(this.app, items, items.indexOf(file), (deletedFile) => this.removeImage(deletedFile)).open());
+		preview.addEventListener('click', () => new ImagePreviewModal(this.app, items, items.indexOf(file), (selectedFile) => this.trashPreviewImage(selectedFile)).open());
 		preview.addEventListener('error', () => {
 			preview.replaceWith(card.createSpan({ text: '无法预览', cls: 'orphan-cleanup-preview-failed' }));
 		});
@@ -596,6 +596,11 @@ export class OrphanCleanupPanel {
 		} catch (error) {
 			new Notice(`删除失败：${reasonFor(error)}`);
 		}
+	}
+
+	private async trashPreviewImage(file: TFile) {
+		await this.trashSingleImage(file);
+		this.renderContents();
 	}
 
 	private removeImage(file: TFile) {
@@ -709,7 +714,7 @@ export class OrphanCleanupPanel {
 		const preview = cell.createEl('img', { attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
 		preview.src = this.app.vault.getResourcePath(file);
 		preview.title = '点击放大预览';
-		preview.addEventListener('click', () => new ImagePreviewModal(this.app, [file], 0).open());
+		preview.addEventListener('click', () => new ImagePreviewModal(this.app, [file], 0, (selectedFile) => this.trashPreviewImage(selectedFile)).open());
 		preview.addEventListener('error', () => {
 			preview.replaceWith(cell.createSpan({ text: '无法预览', cls: 'orphan-cleanup-preview-failed' }));
 		});
@@ -1184,7 +1189,7 @@ class ImagePreviewModal extends Modal {
 		app: App,
 		private readonly files: TFile[],
 		index: number,
-		private readonly onDeleted?: (file: TFile) => void,
+		private readonly onDelete: (file: TFile) => Promise<void>,
 	) {
 		super(app);
 		this.index = index;
@@ -1253,13 +1258,7 @@ class ImagePreviewModal extends Modal {
 	}
 
 	private async trashCurrent(file: TFile) {
-		try {
-			await this.app.fileManager.trashFile(file);
-			new Notice(`已移入回收站：${file.name}`);
-			this.onDeleted?.(file);
-			this.close();
-		} catch (error) {
-			new Notice(`删除失败：${reasonFor(error)}`);
-		}
+		await this.onDelete(file);
+		this.close();
 	}
 }
