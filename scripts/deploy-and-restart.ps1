@@ -174,7 +174,21 @@ function Invoke-DeployAndRestart {
             throw $copyError
         }
         Write-Host '[5/5] Restarting Obsidian to reload the plugin...'
-        Invoke-ObsidianRestart $cliPath $vault
+        try {
+            Invoke-ObsidianRestart $cliPath $vault
+        } catch {
+            $restartError = $_
+            if (Test-Path -LiteralPath $backupDir -PathType Container) {
+                Write-Warning 'Obsidian restart failed; attempting to restore previous plugin version...'
+                try {
+                    Restore-DeploymentBackup $pluginDir $backupDir
+                    Write-Warning 'Previous plugin version restored from backup.'
+                } catch {
+                    Write-Warning "Backup restore also failed: $($_.Exception.Message)"
+                }
+            }
+            throw $restartError
+        }
         Write-Host 'Deployment complete. Obsidian restarted and the plugin was reloaded.' -ForegroundColor Green
     } catch {
         throw
