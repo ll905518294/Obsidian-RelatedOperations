@@ -4,13 +4,17 @@ export function joinVaultPath(base: string, sub: string): string {
 		.join('/');
 }
 
+export function isVaultRelativePath(path: string): boolean {
+	return !path.startsWith('/') && !/^[a-z]:\//i.test(path) && !path.split('/').some((segment) => !segment || segment === '.' || segment === '..');
+}
+
 export function hasHiddenPathSegment(path: string): boolean {
 	return path.split('/').some((segment) => segment.startsWith('.'));
 }
 
 // Matches sequences that look like "name.ext" or "folder/name with spaces.ext".
 // Used for conservative textual reference detection: any mention counts.
-const PATH_LIKE_TOKEN_PATTERN = /[\p{L}\p{N}_\-./\\][\p{L}\p{N}_\-. /\\]*\.[a-z0-9]+/giu;
+const PATH_LIKE_TOKEN_PATTERN = /[\p{L}\p{N}_%\-./\\][\p{L}\p{N}_%\-. /\\]*\.[a-z0-9]+/giu;
 
 const PLAIN_PATH_BASENAME_PATTERN = /^[\p{L}\p{N}_\-. /\\]+\.[a-z0-9]+$/iu;
 
@@ -56,6 +60,14 @@ export function parseIgnoredFolders(value: string): string[] {
 export function isIgnoredPath(path: string, ignoredFolders: string[]): boolean {
 	const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
 	return ignoredFolders.some((folder) => normalized === folder || normalized.startsWith(`${folder}/`));
+}
+
+export function isPathInFolder(path: string, folderPath: string): boolean {
+	return !folderPath || path.startsWith(`${folderPath.replace(/\/+$/, '')}/`);
+}
+
+export function isFrontmatterOnly(content: string): boolean {
+	return /^\uFEFF?\s*---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?[ \t]*---[ \t]*(?:\r?\n)?\s*$/.test(content);
 }
 
 export function normalizeSettings<T extends object>(

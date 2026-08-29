@@ -30,8 +30,13 @@ export class RelatedNotesView extends ItemView {
 	}
 
 	async setState(state: unknown, result: { history: boolean }) {
-		const nextState = state as { sourcePath?: string; sourcePaths?: string[] };
-		this.sourcePaths = nextState.sourcePaths ?? (nextState.sourcePath ? [nextState.sourcePath] : this.sourcePaths);
+		const nextState = state && typeof state === 'object' ? state as { sourcePath?: unknown; sourcePaths?: unknown } : {};
+		const paths = Array.isArray(nextState.sourcePaths)
+			? nextState.sourcePaths.filter((path): path is string => typeof path === 'string' && path.length > 0)
+			: typeof nextState.sourcePath === 'string' && nextState.sourcePath.length > 0
+				? [nextState.sourcePath]
+				: this.sourcePaths;
+		this.sourcePaths = [...new Set(paths)];
 		await super.setState(state, result);
 		this.renderPanel();
 	}
@@ -62,12 +67,17 @@ export class RelatedNotesView extends ItemView {
 	}
 
 	private renderPanel() {
+		this.panel = undefined;
+		this.contentEl.empty();
 		const sourceFiles = this.sourcePaths
 			.map((path) => this.app.vault.getAbstractFileByPath(path))
 			.filter((file): file is TFile => file instanceof TFile && file.extension.toLowerCase() === 'md')
 			.sort((a, b) => a.path.localeCompare(b.path));
 		const sourceFile = sourceFiles[0];
-		if (!sourceFile) return;
+		if (!sourceFile) {
+			void this.leaf.detach();
+			return;
+		}
 		const related = getRelatedNotesForFiles(this.app, sourceFiles);
 		const sourceLabel = sourceFiles.length === 1 ? sourceFile.basename : `${sourceFiles.length} 篇源笔记`;
 		this.panel = new RelatedNotesPanel(this.app, this.contentEl, sourceFile, sourceFiles, related, {

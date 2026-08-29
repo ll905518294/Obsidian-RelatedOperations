@@ -1,5 +1,5 @@
 import { App, FileSystemAdapter, MarkdownView, Modal, Notice, Platform, TAbstractFile, TFile, TFolder, setIcon } from 'obsidian';
-import { hasHiddenPathSegment, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens, pathTokenCandidates } from './core-utils';
+import { hasHiddenPathSegment, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens, pathTokenCandidates } from './core-utils';
 import { buildCleanupReport } from './cleanup-report';
 import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelectedBrokenLinks, type BrokenImageLink } from './broken-image-links';
 import { brokenNoteLinkKey, createMissingNotes, findBrokenNoteLinks, findBrokenNoteLinkOffset, removeSelectedBrokenNoteLinks, type BrokenNoteLink } from './broken-note-links';
@@ -7,6 +7,7 @@ import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativ
 
 type ImageGrouping = 'none' | 'path' | 'extension';
 const CLEANUP_PAGE_SIZE = 100;
+const COMMON_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico', 'tif', 'tiff', 'heic', 'heif']);
 
 interface CleanupCandidates {
 	images: TFile[];
@@ -28,6 +29,7 @@ interface OrphanImageExtensions {
 	orphanIgnoredFolders: string;
 }
 type ScanStage = { label: string; state: 'pending' | 'scanning' | 'done' };
+type CleanupPage = 'result' | 'details';
 
 export interface OrphanCleanupHost {
 	close(): void;
@@ -44,8 +46,12 @@ export class OrphanCleanupPanel {
 	private attachmentGrouping: ImageGrouping = 'none';
 	private scanning = false;
 	private hasScanned = false;
+	private page: CleanupPage = 'result';
 	private scanStages: ScanStage[] = [];
 	private scanGeneration = 0;
+	private scanStartedAt = 0;
+	private scanElapsedMs = 0;
+	private scanTimer = 0;
 	private showHelp = false;
 	private readonly pages = new Map<string, number>();
 	private processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
@@ -62,9 +68,26 @@ export class OrphanCleanupPanel {
 		this.renderContents();
 	}
 
-	private async scan() {
+	dispose() {
+		this.scanGeneration++;
+		this.scanning = false;
+		window.clearInterval(this.scanTimer);
+		this.scanTimer = 0;
+	}
+
+	private async scan(preserveProcessed = false) {
 		const generation = ++this.scanGeneration;
+		if (!preserveProcessed) this.processed = undefined;
 		this.scanning = true;
+		this.scanStartedAt = performance.now();
+		this.scanElapsedMs = 0;
+		window.clearInterval(this.scanTimer);
+		this.scanTimer = window.setInterval(() => {
+			if (!this.scanning) return;
+			this.scanElapsedMs = performance.now() - this.scanStartedAt;
+			const elapsed = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-elapsed');
+			if (elapsed) elapsed.setText(`用时 ${formatScanDuration(this.scanElapsedMs)}`);
+		}, 250);
 		this.selections.clear();
 		this.linkSelections.clear();
 		this.nativeSelections.clear();
@@ -74,19 +97,25 @@ export class OrphanCleanupPanel {
 		this.renderContents();
 		try {
 			const candidates = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions, this.settings.orphanIgnoredFolders, (stage) => {
+				if (generation !== this.scanGeneration) return;
 				this.scanStages.forEach((item, index) => { item.state = index < stage ? 'done' : index === stage ? 'scanning' : 'pending'; });
 				this.renderContents();
 			});
 			if (generation !== this.scanGeneration) return;
 			this.candidates = candidates;
 			this.hasScanned = true;
+			this.page = 'result';
 		} catch (error) {
 			if (generation !== this.scanGeneration) return;
 			new Notice(`扫描失败：${reasonFor(error)}`);
 			this.candidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [] };
+			this.hasScanned = false;
+			this.page = 'result';
 		} finally {
 			if (generation === this.scanGeneration) {
 				this.scanning = false;
+				this.scanElapsedMs = performance.now() - this.scanStartedAt;
+				window.clearInterval(this.scanTimer);
 				this.scanStages.forEach((item) => { item.state = 'done'; });
 				this.renderContents();
 			}
@@ -100,6 +129,8 @@ export class OrphanCleanupPanel {
 			return;
 		}
 		if (!this.hasScanned) { this.renderScanWelcome(); return; }
+		if (this.page === 'result') { this.renderScanResult(); return; }
+		this.renderDetailsHeader();
 		this.renderTabs();
 		if (this.showHelp) this.renderHelp();
 		if (this.processed) this.renderProcessedSummary();
@@ -122,6 +153,7 @@ export class OrphanCleanupPanel {
 		dashboard.createDiv({ cls: 'orphan-cleanup-scan-orb', text: '⌁' });
 		dashboard.createEl('h2', { text: '正在体检资料库…' });
 		dashboard.createEl('p', { text: '请稍候，扫描完成后会显示可处理的问题。', cls: 'orphan-cleanup-scan-detail' });
+		dashboard.createDiv({ text: `用时 ${formatScanDuration(this.scanElapsedMs)}`, cls: 'orphan-cleanup-scan-elapsed' });
 		const list = dashboard.createDiv({ cls: 'orphan-cleanup-scan-stages' });
 		for (const stage of this.scanStages) {
 			const row = list.createDiv({ cls: `orphan-cleanup-scan-stage is-${stage.state}` });
@@ -129,6 +161,32 @@ export class OrphanCleanupPanel {
 			row.createSpan({ text: stage.label });
 			row.createSpan({ cls: 'orphan-cleanup-scan-stage-state', text: stage.state === 'done' ? '完成' : stage.state === 'scanning' ? '扫描中' : '等待中' });
 		}
+	}
+
+	private renderScanResult() {
+		const total = this.candidates.images.length + this.candidates.attachments.length + this.candidates.emptyFiles.length + this.candidates.folders.length + this.candidates.brokenLinks.length + this.candidates.nativeLinks.length + this.candidates.brokenNoteLinks.length;
+		const dashboard = this.contentEl.createDiv({ cls: 'orphan-cleanup-scan-result' });
+		dashboard.createDiv({ cls: 'orphan-cleanup-scan-result-icon', text: total ? '!' : '✓' });
+		const copy = dashboard.createDiv({ cls: 'orphan-cleanup-scan-result-copy' });
+		copy.createEl('h2', { text: total ? '体检完成，发现可处理项目' : '体检完成，资料库状态良好' });
+		copy.createEl('p', { text: `本次扫描用时 ${formatScanDuration(this.scanElapsedMs)}，共发现 ${total} 项结果。` });
+		const counts = dashboard.createDiv({ cls: 'orphan-cleanup-scan-result-counts' });
+		for (const [label, count] of [['未引用图片', this.candidates.images.length], ['未引用附件', this.candidates.attachments.length], ['失效链接', this.candidates.brokenLinks.length + this.candidates.brokenNoteLinks.length], ['原生图片链接', this.candidates.nativeLinks.length], ['空文件/文件夹', this.candidates.emptyFiles.length + this.candidates.folders.length]] as const) {
+			const item = counts.createDiv({ cls: 'orphan-cleanup-scan-result-count' });
+			item.createEl('strong', { text: String(count) });
+			item.createSpan({ text: label });
+		}
+		const rescan = dashboard.createEl('button', { text: '重新扫描' });
+		rescan.addEventListener('click', () => void this.scan());
+		const details = dashboard.createEl('button', { text: '查看详细清理', cls: 'mod-cta' });
+		details.addEventListener('click', () => { this.page = 'details'; this.renderContents(); });
+	}
+
+	private renderDetailsHeader() {
+		const header = this.contentEl.createDiv({ cls: 'orphan-cleanup-details-header' });
+		const back = header.createEl('button', { text: '← 返回体检结果' });
+		back.addEventListener('click', () => { this.page = 'result'; this.renderContents(); });
+		header.createEl('strong', { text: '详细清理项目' });
 	}
 
 	private renderTabs() {
@@ -379,6 +437,7 @@ export class OrphanCleanupPanel {
 			const row = body.createEl('tr');
 			const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
 			checkbox.checked = this.noteLinkSelections.has(brokenNoteLinkKey(item));
+			checkbox.setAttribute('aria-label', `选择 ${item.sourcePath} 中的失效笔记链接`);
 			checkbox.addEventListener('change', () => { if (checkbox.checked) this.noteLinkSelections.add(brokenNoteLinkKey(item)); else this.noteLinkSelections.delete(brokenNoteLinkKey(item)); this.updateSelectionSummary(); });
 			const source = row.createEl('td').createEl('a', { text: item.sourcePath, cls: 'orphan-cleanup-link' });
 			source.addEventListener('click', (event) => { event.preventDefault(); void this.app.workspace.openLinkText(item.sourcePath, '', 'tab'); });
@@ -700,7 +759,7 @@ export class OrphanCleanupPanel {
 		const message = [`已移入回收站：${result.deleted.length}`, `失败：${result.failed.length}`];
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
 		new Notice(message.join('\n'));
-		await this.scan();
+		await this.scan(true);
 	}
 
 	private async confirmRemoveLinks() {
@@ -715,7 +774,7 @@ export class OrphanCleanupPanel {
 		const message = [`已移除链接：${result.removed}`, `跳过：${result.skipped}`, `失败：${result.failed.length}`];
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
 		new Notice(message.join('\n'));
-		await this.scan();
+		await this.scan(true);
 	}
 
 	private async confirmRemoveNoteLinks() {
@@ -726,7 +785,7 @@ export class OrphanCleanupPanel {
 		const result = await removeSelectedBrokenNoteLinks(this.app, selected);
 		this.processed = { success: result.removed, skipped: result.skipped, failed: result.failed };
 		new Notice(`已移除链接：${result.removed}，跳过：${result.skipped}，失败：${result.failed.length}`);
-		await this.scan();
+		await this.scan(true);
 	}
 
 	private async confirmCreateNotes() {
@@ -735,7 +794,7 @@ export class OrphanCleanupPanel {
 		const result = await createMissingNotes(this.app, selected);
 		this.processed = { success: result.created.length, skipped: result.skipped.length, failed: result.failed };
 		new Notice(`已创建：${result.created.length}，跳过：${result.skipped.length}，失败：${result.failed.length}`);
-		await this.scan();
+		await this.scan(true);
 	}
 
 	private async confirmConvertLinks() {
@@ -771,6 +830,7 @@ export class OrphanCleanupModal extends Modal {
 
 	onClose() {
 		this.modalEl.removeClass('orphan-cleanup-dialog');
+		this.panel?.dispose();
 		this.panel = undefined;
 		this.contentEl.empty();
 	}
@@ -799,7 +859,7 @@ async function findCleanupCandidates(app: App, imageExtensions: string, ignoredF
 	// flagged as orphans.
 	await markFilesReferencedByText(app, [...images, ...attachments], referenced);
 	onStage?.(3);
-	const emptyFiles = await findEmptyFiles(visibleFiles, extensions, app);
+	const emptyFiles = (await findEmptyFiles(visibleFiles, extensions, app)).filter((file) => !referenced.has(file.path));
 	const folders = findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
 	onStage?.(4);
 	const brokenLinks = findBrokenImageLinks(app, imageExtensions);
@@ -820,11 +880,12 @@ async function findCleanupCandidates(app: App, imageExtensions: string, ignoredF
 async function findEmptyFiles(files: TFile[], imageExtensions: Set<string>, app: App): Promise<TFile[]> {
 	const result: TFile[] = [];
 	for (const file of files) {
-		if (file.extension.toLowerCase() === 'canvas') continue;
-		if (file.stat.size === 0 && !imageExtensions.has(file.extension.toLowerCase())) { result.push(file); continue; }
+		const extension = file.extension.toLowerCase();
+		if (extension === 'canvas') continue;
+		if (file.stat.size === 0 && !imageExtensions.has(extension) && !COMMON_IMAGE_EXTENSIONS.has(extension)) { result.push(file); continue; }
 		if (file.extension.toLowerCase() !== 'md') continue;
 		const content = await app.vault.cachedRead(file);
-		if (/^\uFEFF?\s*---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n)?\s*$/.test(content)) result.push(file);
+		if (isFrontmatterOnly(content)) result.push(file);
 	}
 	return result.sort(byPath);
 }
@@ -847,9 +908,11 @@ async function markFilesReferencedByText(app: App, images: TFile[], referenced: 
 		const content = await app.vault.cachedRead(file);
 		for (const token of pathLikeTokens(content)) {
 			for (const candidate of pathTokenCandidates(token.replace(/^[./\\]+/, ''))) {
-				const direct = byPath.get(candidate.toLowerCase());
-				if (direct) referenced.add(direct);
-				for (const path of byBasename.get(lastPathSegment(candidate).toLowerCase()) ?? []) referenced.add(path);
+				for (const variant of [candidate, safeDecodePath(candidate)]) {
+					const direct = byPath.get(variant.toLowerCase());
+					if (direct) referenced.add(direct);
+					for (const path of byBasename.get(lastPathSegment(variant).toLowerCase()) ?? []) referenced.add(path);
+				}
 			}
 		}
 		for (let index = exoticNames.length - 1; index >= 0; index--) {
@@ -902,6 +965,15 @@ function lastPathSegment(path: string) {
 	return index >= 0 ? path.slice(index + 1) : path;
 }
 
+function safeDecodePath(path: string) {
+	try { return decodeURIComponent(path); } catch { return path; }
+}
+
+function formatScanDuration(milliseconds: number): string {
+	const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+	return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+}
+
 async function trashSelected(app: App, images: TFile[], folders: TFolder[]): Promise<CleanupResult> {
 	const result: CleanupResult = { deleted: [], failed: [] };
 	const moveToLocalTrash = app.fileManager.trashFile.bind(app.fileManager);
@@ -939,7 +1011,7 @@ function openInSystemFolder(app: App, item: TAbstractFile) {
 		return;
 	}
 	const path = `${app.vault.adapter.getBasePath()}/${item.path}`;
-	if (item instanceof TFolder && electron.shell.openPath) void electron.shell.openPath(path).catch(() => new Notice('打开文件夹失败。'));
+	if (item instanceof TFolder && electron.shell.openPath) void electron.shell.openPath(path).then((error) => { if (error) new Notice('打开文件夹失败。'); }, () => new Notice('打开文件夹失败。'));
 	else {
 		try { electron.shell.showItemInFolder(path); } catch { new Notice('打开文件夹失败。'); }
 	}

@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	hasHiddenPathSegment,
+	isFrontmatterOnly,
+	isPathInFolder,
 	joinVaultPath,
+	isVaultRelativePath,
 	needsRawTextSearch,
 	normalizeSettings,
 	parseExtensions,
@@ -11,10 +14,39 @@ import {
 	parseIgnoredFolders,
 	isIgnoredPath,
 } from '../src/core-utils.ts';
-import { findBrokenNoteLinks, missingNotePath } from '../src/broken-note-links.ts';
+import { createMissingNotes, findBrokenNoteLinks, missingNotePath } from '../src/broken-note-links.ts';
+import { buildLinkStatsIndex } from '../src/link-stats-core.ts';
 
 test('joins a root target without introducing a leading slash', () => {
 	assert.equal(joinVaultPath('', 'Pages'), 'Pages');
+});
+
+test('rejects absolute and parent-traversal vault paths', () => {
+	assert.equal(isVaultRelativePath('folder/target'), true);
+	assert.equal(isVaultRelativePath('/target'), false);
+	assert.equal(isVaultRelativePath('C:/target'), false);
+	assert.equal(isVaultRelativePath('folder/../target'), false);
+	assert.equal(isVaultRelativePath('folder//target'), false);
+});
+
+test('counts incoming links from outside a single-file refresh set', () => {
+	const stats = buildLinkStatsIndex({
+		'other.md': { 'target.md': 1 },
+	}, new Set(['target.md']), new Set(['other.md', 'target.md']));
+	assert.deepEqual(stats.get('target.md'), { incoming: 1, outgoing: 0, bidirectional: 0 });
+});
+
+test('ignores non-Markdown sources in the resolved-link cache', () => {
+	const stats = buildLinkStatsIndex({ 'canvas': { 'target.md': 1 } }, new Set(['target.md']), new Set(['target.md']));
+	assert.deepEqual(stats.get('target.md'), { incoming: 0, outgoing: 0, bidirectional: 0 });
+});
+
+test('preserves bidirectional counts when refreshing a subset', () => {
+	const stats = buildLinkStatsIndex({
+		'one.md': { 'two.md': 1 },
+		'two.md': { 'one.md': 1 },
+	}, new Set(['one.md']), new Set(['one.md', 'two.md']));
+	assert.deepEqual(stats.get('one.md'), { incoming: 1, outgoing: 1, bidirectional: 1 });
 });
 
 test('keeps only persisted settings with the expected primitive type', () => {
@@ -42,6 +74,18 @@ test('detects hidden path segments in any position', () => {
 	assert.equal(hasHiddenPathSegment(''), false);
 });
 
+test('recognizes empty and populated YAML frontmatter as frontmatter-only', () => {
+	assert.equal(isFrontmatterOnly('---\n---\n'), true);
+	assert.equal(isFrontmatterOnly('---\ntitle: note\n---\n'), true);
+	assert.equal(isFrontmatterOnly('---\ntitle: note\n---\n正文\n'), false);
+});
+
+test('includes all Markdown files when the selected folder is the vault root', () => {
+	assert.equal(isPathInFolder('notes/a.md', ''), true);
+	assert.equal(isPathInFolder('notes/a.md', 'notes'), true);
+	assert.equal(isPathInFolder('notebook/a.md', 'notes'), false);
+});
+
 test('extracts path-like tokens including spaced names', () => {
 	const content = [
 		'---',
@@ -55,6 +99,10 @@ test('extracts path-like tokens including spaced names', () => {
 	assert.ok(tokens.includes('images/pic.png'));
 	const candidates = tokens.flatMap((token) => pathTokenCandidates(token));
 	assert.ok(candidates.includes('note.png'));
+});
+
+test('extracts URL-encoded path tokens', () => {
+	assert.ok(pathLikeTokens('![photo](assets/my%20photo.png)').includes('assets/my%20photo.png'));
 });
 
 test('parses configurable extensions without case or leading dots', () => {
@@ -89,8 +137,11 @@ test('resolves missing note paths relative to the source note', () => {
 	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'folder//target', original: '[[folder//target]]', position: { start: { offset: 0 }, end: { offset: 18 } }, syntax: 'wiki' }), null);
 	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'folder/', original: '[[folder/]]', position: { start: { offset: 0 }, end: { offset: 11 } }, syntax: 'wiki' }), null);
 	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'C:\\target', original: '[[C:\\target]]', position: { start: { offset: 0 }, end: { offset: 14 } }, syntax: 'wiki' }), null);
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: '.obsidian/plugins/target', original: '[[.obsidian/plugins/target]]', position: { start: { offset: 0 }, end: { offset: 29 } }, syntax: 'wiki' }), null);
 	assert.equal(missingNotePath({ sourcePath: 'notes/source.md', linkPath: 'folder/target', original: '[target](folder/target)', position: { start: { offset: 0 }, end: { offset: 23 } }, syntax: 'markdown' }), 'notes/folder/target.md');
 	assert.equal(missingNotePath({ sourcePath: 'notes/source.md', linkPath: './target', original: '[target](./target)', position: { start: { offset: 0 }, end: { offset: 18 } }, syntax: 'markdown' }), 'notes/target.md');
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'assets/my%20note', original: '[note](assets/my%20note)', position: { start: { offset: 0 }, end: { offset: 24 } }, syntax: 'markdown' }), 'assets/my note.md');
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'assets/%2e%2e/target', original: '[[assets/%2e%2e/target]]', position: { start: { offset: 0 }, end: { offset: 25 } }, syntax: 'wiki' }), null);
 });
 
 test('does not classify Markdown image embeds as broken note links', () => {
@@ -100,4 +151,56 @@ test('does not classify Markdown image embeds as broken note links', () => {
 		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
 	};
 	assert.deepEqual(findBrokenNoteLinks(app, 'png'), []);
+});
+
+test('does not classify unconfigured image links as broken note links', () => {
+	const cache = { links: [{ original: '[photo](missing.jpg)', link: 'missing.jpg', position: { start: { offset: 0 }, end: { offset: 21 } } }] };
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'source.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	assert.deepEqual(findBrokenNoteLinks(app, 'png'), []);
+});
+
+test('does not classify common office attachments as broken note links', () => {
+	const cache = { links: [{ original: '[sheet](missing.xlsx)', link: 'missing.xlsx', position: { start: { offset: 0 }, end: { offset: 22 } } }] };
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'source.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	assert.deepEqual(findBrokenNoteLinks(app, 'png'), []);
+});
+
+test('respects custom image extensions when finding broken note links', () => {
+	const cache = { links: [{ original: '[icon](missing.jico)', link: 'missing.jico', position: { start: { offset: 0 }, end: { offset: 21 } } }] };
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'source.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	assert.deepEqual(findBrokenNoteLinks(app, 'png, jico'), []);
+});
+
+test('skips case-insensitive existing targets when creating missing notes', async () => {
+	const files = [{ path: 'Notes/Target.md' }];
+	const created = [];
+	const app = {
+		vault: {
+			getAllLoadedFiles: () => files,
+			getAbstractFileByPath: (path) => files.find((file) => file.path === path),
+			createFolder: async () => {},
+			create: async (path) => { created.push(path); files.push({ path }); },
+		},
+	};
+	const result = await createMissingNotes([{ sourcePath: 'source.md', linkPath: 'notes/target', original: '[[notes/target]]', position: { start: { offset: 0 }, end: { offset: 16 } }, syntax: 'wiki' }]);
+	assert.deepEqual(created, []);
+	assert.deepEqual(result.skipped, [{ path: 'notes/target.md', reason: '目标已存在' }]);
+});
+
+test('keeps dotted note names eligible for broken note detection', () => {
+	const cache = { links: [{ original: '[[API.v2]]', link: 'API.v2', position: { start: { offset: 0 }, end: { offset: 10 } } }] };
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'source.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	assert.equal(findBrokenNoteLinks(app, 'png').length, 1);
 });

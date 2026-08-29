@@ -1,7 +1,7 @@
 import { App, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { RelatedNote, relationLabel } from './related-notes';
 import { RelatedOperationsSettings } from './settings';
-import { joinVaultPath } from './core-utils';
+import { isVaultRelativePath, joinVaultPath } from './core-utils';
 
 export interface RelatedNotesHost {
 	close(): void;
@@ -101,6 +101,14 @@ export class RelatedNotesPanel {
 		const folderCompare = this.parentFolder(a.file.path).localeCompare(this.parentFolder(b.file.path));
 		const sourceCompare = a.sourceFile.path.localeCompare(b.sourceFile.path);
 		return folderCompare || sourceCompare || a.file.path.localeCompare(b.file.path);
+	}
+
+	private sortForDisplay(a: RelatedNote, b: RelatedNote) {
+		const sourceCompare = a.sourceFile.path.localeCompare(b.sourceFile.path);
+		const folderCompare = this.parentFolder(a.file.path).localeCompare(this.parentFolder(b.file.path));
+		return this.groupBySource
+			? sourceCompare || folderCompare || a.file.path.localeCompare(b.file.path)
+			: folderCompare || sourceCompare || a.file.path.localeCompare(b.file.path);
 	}
 
 	private renderTargetControls(container: HTMLElement) {
@@ -206,7 +214,39 @@ export class RelatedNotesPanel {
 			this.renderList();
 		});
 		const hiddenCount = this.uniqueCount(currentGroup.filter((note) => this.isAlreadyAtTarget(note.file)));
-		if (hiddenCount > 0) toolbar.createSpan({ text: `符合目标：${hiddenCount} 条`, cls: 'related-operations-hidden-count' });
+		if (hiddenCount > 0 && this.hideCompliant) {
+			const showHidden = toolbar.createEl('button', {
+				text: `符合目标：${hiddenCount} 条`,
+				cls: 'related-operations-hidden-count',
+			});
+			showHidden.type = 'button';
+			showHidden.title = '点击显示符合目标的条目';
+			showHidden.addEventListener('click', () => {
+				this.hideCompliant = false;
+				if (this.settings) this.settings.hideCompliant = false;
+				void this.saveSettings?.();
+				this.renderList();
+			});
+		}
+		const selectAllMovable = toolbar.createEl('button', { text: '全选可移动', cls: 'related-operations-select-all-action' });
+		selectAllMovable.type = 'button';
+		selectAllMovable.title = '选择所有标签页中可移动的关联笔记';
+		selectAllMovable.addEventListener('click', () => {
+			for (const note of this.relatedNotes) {
+				if (!this.isAlreadyAtTarget(note.file)) this.selections.set(note.file.path, true);
+			}
+			this.syncRowCheckboxes(this.relatedNotes);
+			this.refreshSelectAll();
+			this.updateSelectionSummary();
+		});
+		const clearSelection = toolbar.createEl('button', { text: '清空选择' });
+		clearSelection.type = 'button';
+		clearSelection.addEventListener('click', () => {
+			this.selections.clear();
+			this.syncRowCheckboxes(this.relatedNotes);
+			this.refreshSelectAll();
+			this.updateSelectionSummary();
+		});
 		const selectAll = this.addToggle(toolbar, '全选当前分组', 'related-operations-select-all', false, (checked) => {
 			for (const note of currentGroup) {
 				if (!this.isAlreadyAtTarget(note.file)) this.selections.set(note.file.path, checked);
@@ -225,9 +265,9 @@ export class RelatedNotesPanel {
 			wrapper.createEl('p', { text: '暂无关联笔记。', cls: 'related-operations-empty' });
 			return;
 		}
-		const displayGroup = this.hideCompliant
+		const displayGroup = (this.hideCompliant
 			? currentGroup.filter((note) => !this.isAlreadyAtTarget(note.file))
-			: currentGroup;
+			: currentGroup).sort((a, b) => this.sortForDisplay(a, b));
 		if (displayGroup.length === 0) {
 			wrapper.createEl('p', { text: `所有条目都已符合目标，已隐藏 ${hiddenCount} 条。`, cls: 'related-operations-empty' });
 			return;
@@ -255,6 +295,7 @@ export class RelatedNotesPanel {
 				const groupRow = tbody.createEl('tr', { cls: 'related-operations-path-group' });
 				groupRow.createEl('td', { text: groupLabel, attr: { colspan: this.showSourceColumn ? '6' : '5' } });
 				previousFolder = groupLabel;
+				previousSource = '';
 			}
 			const row = tbody.createEl('tr');
 			row.dataset.relatedPath = note.file.path;
@@ -432,7 +473,7 @@ export class RelatedNotesPanel {
 
 	private async moveSelected() {
 		const targetFolder = this.finalTarget();
-		if (!targetFolder || !this.isVaultRelativePath(targetFolder)) {
+		if (!targetFolder || !isVaultRelativePath(targetFolder)) {
 			new Notice('请输入 vault 内的目标文件夹。');
 			return;
 		}
@@ -447,7 +488,7 @@ export class RelatedNotesPanel {
 		const selectedFiles = [...new Map(selected.map((note) => [note.file.path, note.file])).values()];
 		const conflicts = selectedFiles.filter((file) => {
 			const destination = normalizePath(`${targetFolder}/${file.name}`);
-			return destination !== file.path && Boolean(this.app.vault.getAbstractFileByPath(destination));
+			return destination.toLowerCase() !== file.path.toLowerCase() && this.pathExistsCaseInsensitive(destination);
 		});
 		const movable = selectedFiles.filter((file) => !conflicts.includes(file) && !this.isAlreadyAtTarget(file));
 		if (movable.length === 0) {
@@ -479,10 +520,6 @@ export class RelatedNotesPanel {
 		this.renderList();
 	}
 
-	private isVaultRelativePath(path: string) {
-		return !path.startsWith('/') && !path.split('/').some((segment) => segment === '..');
-	}
-
 	private formatResult(result: MoveResult) {
 		const lines = [`已移动：${result.succeeded.length}`, `已跳过：${result.skipped.length}`, `失败：${result.failed.length}`];
 		if (result.skipped.length) lines.push(`跳过文件：${result.skipped.join('、')}`);
@@ -500,7 +537,7 @@ export class RelatedNotesPanel {
 		}
 		for (const file of selected) {
 			const destination = normalizePath(`${targetFolder}/${file.name}`);
-			if (destination === file.path || this.app.vault.getAbstractFileByPath(destination)) {
+			if (destination.toLowerCase() === file.path.toLowerCase() || this.pathExistsCaseInsensitive(destination)) {
 				result.skipped.push(file.path);
 				continue;
 			}
@@ -513,6 +550,11 @@ export class RelatedNotesPanel {
 			}
 		}
 		return result;
+	}
+
+	private pathExistsCaseInsensitive(path: string) {
+		const normalized = path.toLowerCase();
+		return this.app.vault.getAllLoadedFiles().some((file) => file.path.toLowerCase() === normalized);
 	}
 
 	private async ensureFolder(path: string) {

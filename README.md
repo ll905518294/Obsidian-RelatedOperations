@@ -26,7 +26,7 @@
 
 ## Orphan resource cleanup
 
-Use the left ribbon **打开 Vault 体检与清理** icon or the command with the same name to open the cleanup window. On desktop it opens in a movable standalone window; on mobile, or when a standalone window cannot be created, it falls back to a modal. The window automatically scans and shows unreferenced images, unreferenced attachments, empty files, and recursively empty folders in separate tabs. Empty files include zero-byte non-image, non-Canvas files and Markdown files containing only YAML frontmatter. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
+Use the left ribbon **打开 Vault 体检与清理** icon or the command with the same name to open the cleanup window. On desktop it opens in a movable standalone window; on mobile, or when a standalone window cannot be created, it falls back to a modal. Click **开始扫描** to inspect unreferenced images, unreferenced attachments, empty files, and recursively empty folders in separate tabs. Empty files include zero-byte non-image, non-Canvas files and Markdown files containing only YAML frontmatter. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
 
 - Images: the formats configured in **设置 → Obsidian-Manager → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
 - Ignored folders: configure **设置 → Obsidian-Manager → 忽略目录** with comma-, space-, or line-break-separated paths. A folder and all descendants are excluded only from unreferenced-image and empty-folder candidates; broken and native image-link checks are unchanged.
@@ -57,13 +57,18 @@ Use the command **刷新全库笔记关系数量** to update all Markdown notes 
 npm install
 npm run dev
 npm run build
+npm run deploy
 npm run lint
 npm test
 ```
 
+`npm run build` 只生成项目根目录的构建产物，不会修改 Vault。要让当前打开的 Obsidian 加载最新代码，请运行 `npm run deploy`；它会识别唯一的当前 Vault、复制并校验插件文件，然后重启 Obsidian。部署失败时不会继续重启。
+
+重新安装或更新都使用同一条命令：`npm run deploy`。它会覆盖目标插件文件，不会删除 Vault 笔记或插件数据；旧插件目录会先保存为同级的 `.backup`。如需先确认目标 Vault 和安装状态，运行 `npm run deploy:check`，该命令只构建并检查，不复制文件、不重启 Obsidian。
+
 ## 本地一键部署测试
 
-构建完成后双击项目根目录的 `deploy-and-restart.cmd`。脚本会自动识别当前打开的 Vault，构建并替换 `Obsidian-RelatedOperations` 插件，校验部署文件哈希，然后调用 Obsidian CLI 的 `restart` 命令重启应用并等待稳定运行，从而清理旧插件代码并加载最新状态；同时保留最近一次 `.backup`。没有唯一的当前 Vault、构建失败、文件校验失败或 Obsidian 无法稳定重启时，脚本会停止且不继续部署。
+构建完成后双击项目根目录的 `deploy-and-restart.cmd`，或运行 `npm run deploy`。脚本会自动识别当前打开的 Vault，构建并替换 `Obsidian-RelatedOperations` 插件，校验部署文件哈希，然后调用 Obsidian CLI 的 `restart` 命令重启应用并等待稳定运行，从而清理旧插件代码并加载最新状态；同时保留最近一次 `.backup`。没有唯一的当前 Vault、构建失败、文件校验失败或 Obsidian 无法稳定重启时，脚本会停止且不继续部署。
 
 The production build writes `main.js` at the plugin root. Install `main.js`, `manifest.json`, and `styles.css` in the vault's `.obsidian/plugins/Obsidian-RelatedOperations/` directory for manual testing.
 

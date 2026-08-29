@@ -1,4 +1,6 @@
 import { App, TFile } from 'obsidian';
+import { buildLinkStatsIndex } from './link-stats-core';
+export { buildLinkStatsIndex } from './link-stats-core';
 
 export interface LinkStatsSettings {
 	enabled: boolean;
@@ -25,32 +27,8 @@ export function getLinkStats(app: App, file: TFile): LinkStats {
 export function getLinkStatsForFiles(app: App, files: TFile[]): Map<string, LinkStats> {
 	const resolved = app.metadataCache.resolvedLinks;
 	const mdPaths = new Set(files.map((file) => file.path));
-	const outgoingByPath = new Map<string, Set<string>>();
-	const incomingByPath = new Map<string, Set<string>>();
-	for (const [sourcePath, destinations] of Object.entries(resolved)) {
-		if (!mdPaths.has(sourcePath)) continue;
-		for (const targetPath of Object.keys(destinations)) {
-			const target = app.vault.getAbstractFileByPath(targetPath);
-			if (!(target instanceof TFile) || target.extension.toLowerCase() !== 'md') continue;
-			const outgoing = outgoingByPath.get(sourcePath) ?? new Set<string>();
-			outgoing.add(targetPath);
-			outgoingByPath.set(sourcePath, outgoing);
-			const incoming = incomingByPath.get(targetPath) ?? new Set<string>();
-			incoming.add(sourcePath);
-			incomingByPath.set(targetPath, incoming);
-		}
-	}
-	const statsByPath = new Map<string, LinkStats>();
-	for (const file of files) {
-		const outgoing = outgoingByPath.get(file.path) ?? new Set<string>();
-		const incoming = incomingByPath.get(file.path) ?? new Set<string>();
-		statsByPath.set(file.path, {
-			incoming: incoming.size,
-			outgoing: outgoing.size,
-			bidirectional: [...outgoing].filter((path) => incoming.has(path)).length,
-		});
-	}
-	return statsByPath;
+	const allMarkdownPaths = new Set(app.vault.getMarkdownFiles().map((file) => file.path));
+	return buildLinkStatsIndex(resolved, mdPaths, allMarkdownPaths);
 }
 
 export async function updateLinkStats(app: App, files: TFile[], settings: LinkStatsSettings): Promise<number> {

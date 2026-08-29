@@ -1,12 +1,14 @@
 {
 	"name": "related-operations",
 	"version": "1.0.0",
-	"description": "Find directly related notes and move selected notes into a target folder.",
+	"description": "Inspect Vault health, find broken links and unreferenced resources, and organize related notes.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"deploy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-and-restart.ps1",
+		"deploy:check": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-and-restart.ps1 -CheckOnly",
 		"test": "node --test --experimental-strip-types tests/**/*.test.mjs",
 		"test:deploy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-and-restart.tests.ps1",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",

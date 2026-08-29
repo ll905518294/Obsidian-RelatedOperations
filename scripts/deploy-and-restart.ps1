@@ -3,7 +3,8 @@ param(
     [string]$VaultRegistryPath = (Join-Path $env:APPDATA 'obsidian\obsidian.json'),
     [string]$ProjectRoot = '',
     [string]$ObsidianCommand = 'obsidian.com',
-    [int]$StartupTimeoutSeconds = 20
+    [int]$StartupTimeoutSeconds = 20,
+    [switch]$CheckOnly
 )
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath) }
 Set-StrictMode -Version Latest
@@ -65,6 +66,7 @@ function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
         if ((Get-FileSha256 $artifact) -ne (Get-FileSha256 $target)) {
             throw "Deployment artifact verification failed: $(Split-Path $artifact -Leaf)"
         }
+        Write-Host ("Verified {0}: {1}" -f (Split-Path $artifact -Leaf), (Get-FileSha256 $target))
     }
 }
 function Get-ObsidianMainProcesses {
@@ -134,6 +136,8 @@ function Invoke-DeployAndRestart {
         & npm run build
         if ($LASTEXITCODE -ne 0) { throw "npm run build failed (exit code $LASTEXITCODE)." }
         $artifacts = @(Get-DeploymentArtifacts $ProjectRoot)
+        $buildStamp = (Get-Item (Join-Path $ProjectRoot 'main.js')).LastWriteTimeUtc
+        Write-Host "Built main.js: $buildStamp"
         $pluginId = Get-PluginId (Join-Path $ProjectRoot 'manifest.json')
         $vault = Get-OpenVaultPath $VaultRegistryPath
         $resolvedObsidian = Get-Command $ObsidianCommand -ErrorAction SilentlyContinue
@@ -142,6 +146,11 @@ function Invoke-DeployAndRestart {
         $pluginDir = Join-Path $vault ('.obsidian\plugins\' + $pluginId)
         $backupDir = "$pluginDir.backup"
         Write-Host "[2/5] Target vault: $vault"
+		if ($CheckOnly) {
+			$targetState = if (Test-Path -LiteralPath $pluginDir -PathType Container) { 'existing, will update' } else { 'missing, will install' }
+			Write-Host "Preflight OK: $pluginId ($targetState)"
+			return
+		}
         Write-Host '[3/5] Preparing build artifacts...'
         if (Test-Path -LiteralPath $pluginDir) {
             if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }
@@ -150,6 +159,8 @@ function Invoke-DeployAndRestart {
         Write-Host '[4/5] Copying and verifying plugin artifacts...'
         try {
             Copy-DeploymentArtifacts $artifacts $pluginDir
+            $deployedStamp = (Get-Item (Join-Path $pluginDir 'main.js')).LastWriteTimeUtc
+            if ($deployedStamp -lt $buildStamp) { throw "Deployed main.js is older than build output: $deployedStamp < $buildStamp" }
         } catch {
             $copyError = $_
             Write-Warning 'Deployment copy failed; attempting to restore previous version...'

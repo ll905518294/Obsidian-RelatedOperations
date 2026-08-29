@@ -93,7 +93,13 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 					{
 						name: '自动更新关联数量',
 						desc: '笔记变化后自动更新关联数量。',
-						control: { type: 'toggle', key: 'autoUpdate' },
+						render: (setting) => {
+							setting.addToggle((toggle) => toggle.setValue(this.plugin.settings.autoUpdate).onChange(async (value) => {
+								this.plugin.settings.autoUpdate = value;
+								await this.plugin.saveSettings();
+								if (value && this.plugin.settings.enabled) this.plugin.refreshLinkStatsUpdater();
+							}));
+						},
 					},
 					...this.linkStatsPropertyDefinitions(draft),
 				],

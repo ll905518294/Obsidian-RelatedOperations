@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS, RelatedOperationsSettingTab, RelatedOperationsSetting
 import { LinkStatsPropertyNames, migrateLinkStatsProperties, updateLinkStats } from './link-stats';
 import { OrphanCleanupModal } from './orphan-cleanup';
 import { ORPHAN_CLEANUP_VIEW_TYPE, OrphanCleanupView } from './orphan-cleanup-view';
-import { normalizeSettings } from './core-utils';
+import { isPathInFolder, normalizeSettings } from './core-utils';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
@@ -53,7 +53,8 @@ export default class RelatedOperationsPlugin extends Plugin {
 					new Notice('请先在设置中启用关联数量属性。');
 					return;
 				}
-				const count = await this.updateAllLinkStats();
+				const count = await this.updateAllLinkStatsOrNotice();
+				if (count === null) return;
 				new Notice(`已更新 ${count} 篇笔记的关联数量属性。`);
 			},
 		});
@@ -192,7 +193,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		if (file instanceof TFolder) {
 			return this.app.vault
 				.getMarkdownFiles()
-				.filter((candidate) => candidate.path.startsWith(`${file.path}/`));
+				.filter((candidate) => isPathInFolder(candidate.path, file.path));
 		}
 		return [];
 	}
@@ -282,13 +283,13 @@ export default class RelatedOperationsPlugin extends Plugin {
 	}
 
 	private registerLinkStatsUpdater() {
-		if (!this.settings.enabled || this.linkStatsUpdaterStarted) return;
+		if (this.linkStatsUpdaterStarted) return;
 		this.linkStatsUpdaterStarted = true;
 		let timer = 0;
 		const schedule = () => {
-			if (!this.settings.autoUpdate) return;
+			if (!this.settings.enabled || !this.settings.autoUpdate) return;
 			window.clearTimeout(timer);
-			timer = window.setTimeout(() => void this.updateAllLinkStats(), 800);
+			timer = window.setTimeout(() => void this.updateAllLinkStatsOrNotice(), 800);
 		};
 		this.registerEvent(this.app.vault.on('modify', (file) => {
 			if (file instanceof TFile && file.extension.toLowerCase() === 'md') schedule();
@@ -297,14 +298,15 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.registerEvent(this.app.vault.on('delete', schedule));
 		this.registerEvent(this.app.vault.on('rename', schedule));
 		this.registerInterval(window.setInterval(() => {
-			if (this.settings.autoUpdate) void this.updateAllLinkStats();
+			if (this.settings.autoUpdate) void this.updateAllLinkStatsOrNotice();
 		}, 60_000));
 		this.register(() => window.clearTimeout(timer));
-		void this.updateAllLinkStats();
+		if (this.settings.enabled) void this.updateAllLinkStatsOrNotice();
 	}
 
 	refreshLinkStatsUpdater() {
 		this.registerLinkStatsUpdater();
+		if (this.settings.enabled) void this.updateAllLinkStatsOrNotice();
 	}
 
 	private async updateAllLinkStats() {
@@ -313,6 +315,15 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.linkStatsUpdate = updateLinkStats(this.app, this.app.vault.getMarkdownFiles(), this.settings)
 			.finally(() => { this.linkStatsUpdate = undefined; });
 		return this.linkStatsUpdate;
+	}
+
+	private async updateAllLinkStatsOrNotice(): Promise<number | null> {
+		try {
+			return await this.updateAllLinkStats();
+		} catch (error) {
+			new Notice(`更新关联数量失败：${error instanceof Error ? error.message : '未知错误'}`);
+			return null;
+		}
 	}
 }
 
@@ -329,7 +340,7 @@ function openInSystemFolder(app: Plugin['app'], item: TAbstractFile) {
 		return;
 	}
 	const path = `${app.vault.adapter.getBasePath()}/${item.path}`;
-	if (item instanceof TFolder && electron.shell.openPath) void electron.shell.openPath(path).catch(() => new Notice('打开文件夹失败。'));
+	if (item instanceof TFolder && electron.shell.openPath) void electron.shell.openPath(path).then((error) => { if (error) new Notice('打开文件夹失败。'); }, () => new Notice('打开文件夹失败。'));
 	else {
 		try { electron.shell.showItemInFolder(path); } catch { new Notice('打开文件夹失败。'); }
 	}

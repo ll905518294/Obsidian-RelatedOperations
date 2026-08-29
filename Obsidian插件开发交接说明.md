@@ -99,6 +99,7 @@ npm run dev
 
 # 构建生产版本
 npm run build
+npm run deploy
 ```
 
 **调试步骤**：
@@ -106,6 +107,9 @@ npm run build
 2. 将构建产物（`main.js`、`manifest.json`、`styles.css`）复制到测试 vault 的 `.obsidian/plugins/<plugin-id>/` 目录
 3. 在 Obsidian 设置 → 第三方插件中启用插件
 4. 使用 `Ctrl+Shift+I` 打开开发者工具调试（Obsidian 基于 Electron）
+
+说明：`npm run build` 只构建，不会同步到 Vault；修改代码后需要运行 `npm run deploy`（或双击 `deploy-and-restart.cmd`），脚本会校验部署文件并重启 Obsidian。
+重新安装不需要手动删除插件目录，仍运行 `npm run deploy`；可先运行 `npm run deploy:check` 做无写入预检。
 
 ### 5.3 版本发布
 

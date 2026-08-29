@@ -78,7 +78,7 @@ export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Pro
 		else targets.set(path, link);
 	}
 	for (const path of targets.keys()) {
-		if (app.vault.getAbstractFileByPath(path)) {
+		if (pathExistsCaseInsensitive(app, path)) {
 			result.skipped.push({ path, reason: '目标已存在' });
 			continue;
 		}
@@ -91,7 +91,7 @@ export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Pro
 					if (!app.vault.getAbstractFileByPath(current)) await app.vault.createFolder(current);
 				}
 			}
-			if (app.vault.getAbstractFileByPath(path)) {
+			if (pathExistsCaseInsensitive(app, path)) {
 				result.skipped.push({ path, reason: '目标已存在' });
 				continue;
 			}
@@ -104,10 +104,17 @@ export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Pro
 	return result;
 }
 
+function pathExistsCaseInsensitive(app: App, path: string) {
+	const normalized = path.toLowerCase();
+	return app.vault.getAllLoadedFiles().some((file) => file.path.toLowerCase() === normalized);
+}
+
 export function missingNotePath(link: BrokenNoteLink): string | null {
-	const raw = link.linkPath.trim().replaceAll('\\', '/');
+	const encoded = link.linkPath.trim().replaceAll('\\', '/');
+	let raw: string;
+	try { raw = decodeURIComponent(encoded); } catch { return null; }
 	const parts = raw.split('/');
-	if (!raw || raw.startsWith('/') || /^[a-z]:\//i.test(raw) || raw.includes('\0') || parts.some((part) => !part.trim() || part === '..')) return null;
+	if (!raw || raw.startsWith('/') || /^[a-z]:\//i.test(raw) || raw.includes('\0') || parts.some((part, index) => !part.trim() || part === '..' || (part.startsWith('.') && !(index === 0 && part === '.')))) return null;
 	const normalized = parts.filter((part) => part !== '.').join('/');
 	const sourceDir = link.sourcePath.includes('/') ? link.sourcePath.slice(0, link.sourcePath.lastIndexOf('/')) : '';
 	const relative = link.syntax === 'markdown' || !raw.includes('/') || raw.startsWith('./');
@@ -127,8 +134,17 @@ function parseLink(original: string, raw: string) {
 
 function isImageOrAttachment(path: string, images: Set<string>) {
 	const dot = path.lastIndexOf('.');
-	return dot >= 0 && !images.has(path.slice(dot + 1).toLowerCase()) && path.slice(dot + 1).toLowerCase() !== 'md';
+	if (dot < 0) return false;
+	const extension = path.slice(dot + 1).toLowerCase();
+	return extension !== 'md' && (images.has(extension) || KNOWN_IMAGE_EXTENSIONS.has(extension) || KNOWN_ATTACHMENT_EXTENSIONS.has(extension));
 }
+
+const KNOWN_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico', 'tif', 'tiff', 'heic', 'heif']);
+const KNOWN_ATTACHMENT_EXTENSIONS = new Set([
+	'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp',
+	'zip', 'rar', '7z', 'tar', 'gz', 'txt', 'csv', 'json', 'xml',
+	'mp3', 'wav', 'ogg', 'm4a', 'mp4', 'mov', 'webm', 'avi',
+]);
 
 function isExternal(path: string) { return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(path); }
 function parseExtensions(value: string) { return new Set(value.split(/[,，\s]+/).map((x) => x.replace(/^\./, '').toLowerCase()).filter(Boolean)); }

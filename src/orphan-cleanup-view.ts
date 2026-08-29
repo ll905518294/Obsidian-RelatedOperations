@@ -34,6 +34,7 @@ export class OrphanCleanupView extends ItemView {
 	}
 
 	async onClose() {
+		this.panel?.dispose();
 		this.panel = undefined;
 		this.contentEl.empty();
 	}
