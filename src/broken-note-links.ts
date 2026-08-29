@@ -53,7 +53,13 @@ export function findBrokenNoteLinkOffset(content: string, link: BrokenNoteLink) 
 export async function removeSelectedBrokenNoteLinks(app: App, links: BrokenNoteLink[]) {
 	const result = { removed: 0, skipped: 0, failed: [] as Array<{ path: string; reason: string }> };
 	const grouped = new Map<string, BrokenNoteLink[]>();
-	for (const link of links) (grouped.get(link.sourcePath) ?? (grouped.set(link.sourcePath, []), grouped.get(link.sourcePath)!)).push(link);
+	for (const link of links) {
+		if (app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath)) {
+			result.skipped++;
+			continue;
+		}
+		(grouped.get(link.sourcePath) ?? (grouped.set(link.sourcePath, []), grouped.get(link.sourcePath)!)).push(link);
+	}
 	for (const [path, selected] of grouped) {
 		const file = app.vault.getFileByPath(path);
 		if (!file) { result.failed.push({ path, reason: '源笔记不存在' }); continue; }

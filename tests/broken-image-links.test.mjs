@@ -5,6 +5,7 @@ import {
 	findBrokenLinkOffset,
 	findBrokenImageLinks,
 	removeBrokenImageLinks,
+	removeSelectedBrokenLinks,
 } from '../src/broken-image-links.ts';
 
 function position(start, end) {
@@ -134,4 +135,19 @@ test('generates a stable key per source occurrence', () => {
 	const base = { sourcePath: 'note.md', original: 'x', linkPath: 'x.png', position: position(2, 8) };
 	assert.equal(brokenLinkKey(base), brokenLinkKey({ ...base, original: 'y' }));
 	assert.notEqual(brokenLinkKey(base), brokenLinkKey({ ...base, position: position(9, 15) }));
+});
+
+test('does not remove an image link after its target is restored', async () => {
+	const link = { sourcePath: 'note.md', original: '![missing](image.png)', linkPath: 'image.png', position: position(0, 21) };
+	let processed = false;
+	const app = {
+		metadataCache: { getFirstLinkpathDest: () => ({ path: 'image.png' }) },
+		vault: {
+			getFileByPath: () => ({ path: 'note.md', extension: 'md' }),
+			process: async () => { processed = true; },
+		},
+	};
+	const result = await removeSelectedBrokenLinks(app, [link]);
+	assert.deepEqual(result, { removed: 0, skipped: 1, failed: [] });
+	assert.equal(processed, false);
 });

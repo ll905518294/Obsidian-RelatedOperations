@@ -104,6 +104,10 @@ export async function removeSelectedBrokenLinks(
 	const result = { removed: 0, skipped: 0, failed: [] as Array<{ path: string; reason: string }> };
 	const linksBySource = new Map<string, BrokenImageLink[]>();
 	for (const link of links) {
+		if (app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath)) {
+			result.skipped++;
+			continue;
+		}
 		const grouped = linksBySource.get(link.sourcePath) ?? [];
 		grouped.push(link);
 		linksBySource.set(link.sourcePath, grouped);

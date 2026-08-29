@@ -14,7 +14,7 @@ import {
 	parseIgnoredFolders,
 	isIgnoredPath,
 } from '../src/core-utils.ts';
-import { createMissingNotes, findBrokenNoteLinks, missingNotePath } from '../src/broken-note-links.ts';
+import { createMissingNotes, findBrokenNoteLinks, missingNotePath, removeSelectedBrokenNoteLinks } from '../src/broken-note-links.ts';
 import { buildLinkStatsIndex } from '../src/link-stats-core.ts';
 
 test('joins a root target without introducing a leading slash', () => {
@@ -224,4 +224,19 @@ test('keeps dotted note names eligible for broken note detection', () => {
 		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
 	};
 	assert.equal(findBrokenNoteLinks(app, 'png').length, 1);
+});
+
+test('does not remove a note link after its target is restored', async () => {
+	const link = { sourcePath: 'source.md', original: '[[target]]', linkPath: 'target', position: { start: { offset: 0 }, end: { offset: 10 } }, syntax: 'wiki' };
+	let processed = false;
+	const app = {
+		metadataCache: { getFirstLinkpathDest: () => ({ path: 'target.md' }) },
+		vault: {
+			getFileByPath: () => ({ path: 'source.md' }),
+			process: async () => { processed = true; },
+		},
+	};
+	const result = await removeSelectedBrokenNoteLinks(app, [link]);
+	assert.deepEqual(result, { removed: 0, skipped: 1, failed: [] });
+	assert.equal(processed, false);
 });
