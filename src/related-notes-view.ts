@@ -1,4 +1,4 @@
-import { ItemView, TFile } from 'obsidian';
+import { ItemView, TFile, TFolder } from 'obsidian';
 import { getRelatedNotesForFiles } from './related-notes';
 import { RelatedNotesPanel } from './related-notes-modal';
 import { RelatedOperationsSettings } from './settings';
@@ -47,14 +47,22 @@ export class RelatedNotesView extends ItemView {
 
 	async onOpen() {
 		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
-			const index = this.sourcePaths.indexOf(oldPath);
-			if (index < 0) return;
-			this.sourcePaths[index] = file.path;
+			let changed = false;
+			this.sourcePaths = this.sourcePaths.map((path) => {
+				if (path === oldPath) { changed = true; return file.path; }
+				if (file instanceof TFolder && path.startsWith(`${oldPath}/`)) {
+					changed = true;
+					return `${file.path}${path.slice(oldPath.length)}`;
+				}
+				return path;
+			});
+			if (!changed) return;
 			this.renderPanel();
 		}));
 		this.registerEvent(this.app.vault.on('delete', (file) => {
-			if (!this.sourcePaths.includes(file.path)) return;
-			this.sourcePaths = this.sourcePaths.filter((path) => path !== file.path);
+			const previousLength = this.sourcePaths.length;
+			this.sourcePaths = this.sourcePaths.filter((path) => path !== file.path && !(file instanceof TFolder && path.startsWith(`${file.path}/`)));
+			if (this.sourcePaths.length === previousLength) return;
 			if (this.sourcePaths.length === 0) this.leaf.detach();
 			else this.renderPanel();
 		}));
