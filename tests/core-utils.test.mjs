@@ -144,6 +144,7 @@ test('resolves missing note paths relative to the source note', () => {
 	assert.equal(missingNotePath({ sourcePath: 'notes/source.md', linkPath: './target', original: '[target](./target)', position: { start: { offset: 0 }, end: { offset: 18 } }, syntax: 'markdown' }), 'notes/target.md');
 	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'assets/my%20note', original: '[note](assets/my%20note)', position: { start: { offset: 0 }, end: { offset: 24 } }, syntax: 'markdown' }), 'assets/my note.md');
 	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'assets/%2e%2e/target', original: '[[assets/%2e%2e/target]]', position: { start: { offset: 0 }, end: { offset: 25 } }, syntax: 'wiki' }), null);
+	assert.equal(missingNotePath({ sourcePath: 'source.md', linkPath: 'assets/%5C..%5Ctarget', original: '[[assets/%5C..%5Ctarget]]', position: { start: { offset: 0 }, end: { offset: 25 } }, syntax: 'wiki' }), null);
 });
 
 test('does not classify Markdown image embeds as broken note links', () => {

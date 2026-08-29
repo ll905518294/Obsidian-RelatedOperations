@@ -112,7 +112,7 @@ function pathExistsCaseInsensitive(app: App, path: string) {
 export function missingNotePath(link: BrokenNoteLink): string | null {
 	const encoded = link.linkPath.trim().replaceAll('\\', '/');
 	let raw: string;
-	try { raw = decodeURIComponent(encoded); } catch { return null; }
+	try { raw = decodeURIComponent(encoded).replaceAll('\\', '/'); } catch { return null; }
 	const parts = raw.split('/');
 	if (!raw || raw.startsWith('/') || /^[a-z]:\//i.test(raw) || raw.includes('\0') || parts.some((part, index) => !part.trim() || part === '..' || (part.startsWith('.') && !(index === 0 && part === '.')))) return null;
 	const normalized = parts.filter((part) => part !== '.').join('/');
