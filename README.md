@@ -38,6 +38,7 @@ Use the left ribbon **打开 Vault 体检与清理** icon or the command with th
 - Folders: folders with no files, including parent folders that only contain empty subfolders. Hidden folders such as `.obsidian`, `.trash`, and `.git` are never scanned, and a folder containing hidden subfolders is not listed as empty.
 - Attachments: all non-Markdown, non-Canvas files outside hidden or ignored folders are scanned. Files referenced by resolved links, Canvas nodes, or textual file-name/path mentions are excluded.
 - After image cleanup, select **重新扫描** before cleaning folders that have only just become empty.
+- Before moving a selected resource to the local trash, the plugin rescans its cleanup status. Resources that were referenced, changed, or removed after the original scan are skipped.
 - Reports: **复制报告** copies the current scan to the clipboard; **导出报告** writes a Markdown report such as `related-operations-report-20260829-120000.md` to the vault root. Reports contain paths and link details, not note bodies. The latest batch summary is shown in the result window and is not persisted as a log file.
 
 ## Link-count properties
