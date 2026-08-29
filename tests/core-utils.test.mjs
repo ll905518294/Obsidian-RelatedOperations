@@ -115,6 +115,7 @@ test('parses configurable extensions without case or leading dots', () => {
 test('normalizes ignored folders and matches descendants only', () => {
 	assert.deepEqual(parseIgnoredFolders(' /assets/，archive\\old\n assets '), ['assets', 'archive/old']);
 	assert.equal(isIgnoredPath('assets/photo.png', ['assets']), true);
+	assert.equal(isIgnoredPath('Assets/Photo.PNG', ['assets']), true);
 	assert.equal(isIgnoredPath('assets2/photo.png', ['assets']), false);
 });
 

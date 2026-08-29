@@ -59,8 +59,11 @@ export function parseIgnoredFolders(value: string): string[] {
 }
 
 export function isIgnoredPath(path: string, ignoredFolders: string[]): boolean {
-	const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-	return ignoredFolders.some((folder) => normalized === folder || normalized.startsWith(`${folder}/`));
+	const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase();
+	return ignoredFolders.some((folder) => {
+		const normalizedFolder = folder.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase();
+		return normalized === normalizedFolder || normalized.startsWith(`${normalizedFolder}/`);
+	});
 }
 
 export function isPathInFolder(path: string, folderPath: string): boolean {
