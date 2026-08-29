@@ -20,7 +20,9 @@ try {
 	$validPlugin = Join-Path $pluginsRoot 'demo'
 	$backup = "$validPlugin.backup"
 	New-Item -ItemType Directory -Path $validPlugin, $backup -Force | Out-Null
+	Set-Content (Join-Path $backup 'data.json') '{"restored":true}'
 	Restore-DeploymentBackup $validPlugin $backup
+	if ((Get-Content (Join-Path $validPlugin 'data.json') -Raw).Trim() -ne '{"restored":true}') { throw 'backup contents were not restored' }
 	$otherBackup = Join-Path $root 'other.backup'
 	New-Item -ItemType Directory -Path $otherBackup -Force | Out-Null
 	try { Restore-DeploymentBackup $validPlugin $otherBackup; throw 'mismatched backup path accepted' } catch { if ($_.Exception.Message -notmatch 'does not match plugin directory') { throw } }
