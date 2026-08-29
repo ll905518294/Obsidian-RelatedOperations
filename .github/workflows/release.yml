@@ -21,6 +21,28 @@ jobs:
                   node-version: 24
                   cache: 'npm'
 
+            - name: Validate release version
+              env:
+                  RELEASE_TAG: ${{ github.ref_name }}
+              run: |
+                  node --input-type=module -e '
+                  import { readFileSync } from "node:fs";
+
+                  const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
+                  const versions = JSON.parse(readFileSync("versions.json", "utf8"));
+                  const tag = process.env.RELEASE_TAG;
+
+                  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(manifest.version)) {
+                      throw new Error(`manifest.json version must be a SemVer value without a v prefix: ${manifest.version}`);
+                  }
+                  if (tag !== manifest.version) {
+                      throw new Error(`Release tag ${tag} must exactly match manifest.json version ${manifest.version}`);
+                  }
+                  if (versions[manifest.version] !== manifest.minAppVersion) {
+                      throw new Error(`versions.json must map ${manifest.version} to ${manifest.minAppVersion}`);
+                  }
+                  '
+
             - name: Build plugin
               run: |
                   npm ci
