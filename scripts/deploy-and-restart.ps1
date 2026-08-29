@@ -42,7 +42,7 @@ function Get-PluginId([string]$ManifestPath) {
     $idProperty = $manifest.PSObject.Properties['id']
     $id = if ($null -ne $idProperty) { [string]$idProperty.Value } else { '' }
     if ([string]::IsNullOrWhiteSpace($id)) { throw "Manifest is missing required 'id' property: $ManifestPath" }
-    if ($id -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { throw "Manifest 'id' contains invalid path characters: $id" }
+    if ($id -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?$') { throw "Manifest 'id' contains invalid path characters: $id" }
     return $id
 }
 function Get-FileSha256([string]$Path) {

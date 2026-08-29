@@ -16,6 +16,8 @@ try {
 	if ((Get-PluginId (Join-Path $root 'manifest.json')) -ne 'safe.plugin-id') { throw 'valid plugin id rejected' }
 	'{"id":"unsafe*id"}' | Set-Content (Join-Path $root 'manifest.json')
 	try { Get-PluginId (Join-Path $root 'manifest.json'); throw 'unsafe plugin id accepted' } catch { if ($_.Exception.Message -notmatch 'invalid path characters') { throw } }
+	'{"id":"unsafe."}' | Set-Content (Join-Path $root 'manifest.json')
+	try { Get-PluginId (Join-Path $root 'manifest.json'); throw 'trailing-dot plugin id accepted' } catch { if ($_.Exception.Message -notmatch 'invalid path characters') { throw } }
 	$config = Join-Path $root 'data.json'; '{"keep":true}' | Set-Content $config
 	Copy-DeploymentArtifacts (Get-DeploymentArtifacts $root) (Join-Path $root 'plugin')
 	if (-not (Test-Path $config) -or -not (Test-Path (Join-Path $root 'plugin\main.js'))) { throw 'artifact copy removed config or missed output' }
