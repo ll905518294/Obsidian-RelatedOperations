@@ -17,7 +17,12 @@ test('skips dimensions and unresolved targets', () => {
 
 test('replaces multiple occurrences from right to left and skips changed content', () => {
 	const a = link('![[a.png]]', 'a.png', 0);
-	const b = link('![[b.png]]', 'b.png', 12);
+	const b = link('![[b.png]]', 'b.png', 11);
 	assert.deepEqual(replaceNativeImageLinks('![[a.png]]\n![[b.png]]', [a, b]), { content: '![](<a.png>)\n![](<b.png>)', converted: 2, skipped: 0 });
 	assert.deepEqual(replaceNativeImageLinks('changed', [a]), { content: 'changed', converted: 0, skipped: 1 });
+});
+
+test('does not replace a different identical embed when the cached position is stale', () => {
+	const second = link('![[a.png]]', 'a.png', 11);
+	assert.deepEqual(replaceNativeImageLinks('![[a.png]]\nchanged', [second]), { content: '![[a.png]]\nchanged', converted: 0, skipped: 1 });
 });

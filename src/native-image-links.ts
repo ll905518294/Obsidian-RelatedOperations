@@ -34,9 +34,10 @@ function findInCache(app: App, sourcePath: string, cache: CachedMetadata, extens
 	});
 }
 
-export function nativeImageLinkOffset(content: string, link: NativeImageLink) {
+export function nativeImageLinkOffset(content: string, link: NativeImageLink, allowFallback = true) {
 	const start = offsetOf(link.position.start.offset), end = offsetOf(link.position.end.offset);
 	if (start >= 0 && end > start && end <= content.length && content.slice(start, end) === link.original) return { start, end };
+	if (!allowFallback) return null;
 	const found = content.indexOf(link.original);
 	return found < 0 ? null : { start: found, end: found + link.original.length };
 }
@@ -53,7 +54,7 @@ export function replaceNativeImageLinks(content: string, links: NativeImageLink[
 	let converted = 0;
 	let skipped = 0;
 	for (const link of [...links].sort((a, b) => offsetOf(b.position.start.offset) - offsetOf(a.position.start.offset))) {
-		const range = nativeImageLinkOffset(result, link);
+		const range = nativeImageLinkOffset(result, link, false);
 		const replacement = convertNativeImageLink(link);
 		if (!range || !replacement) { skipped++; continue; }
 		result = result.slice(0, range.start) + replacement + result.slice(range.end);
