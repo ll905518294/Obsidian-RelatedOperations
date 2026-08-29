@@ -237,5 +237,5 @@ npm version patch  # 或 minor / major
 
 ---
 
-*文档生成时间：2026-08-22*
+*文档生成时间：2026-08-29*
 *交接对象：Codex AI*
