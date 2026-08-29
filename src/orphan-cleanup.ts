@@ -1,6 +1,7 @@
 import { App, FileSystemAdapter, MarkdownView, Modal, Notice, Platform, TAbstractFile, TFile, TFolder, setIcon } from 'obsidian';
 import { hasHiddenPathSegment, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens, pathTokenCandidates } from './core-utils';
 import { buildCleanupReport } from './cleanup-report';
+import { selectCurrentCleanupItems } from './cleanup-selection';
 import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelectedBrokenLinks, type BrokenImageLink } from './broken-image-links';
 import { brokenNoteLinkKey, createMissingNotes, findBrokenNoteLinks, findBrokenNoteLinkOffset, removeSelectedBrokenNoteLinks, type BrokenNoteLink } from './broken-note-links';
 import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, type NativeImageLink } from './native-image-links';
@@ -582,9 +583,14 @@ export class OrphanCleanupPanel {
 	}
 
 	private async trashSingleImage(file: TFile) {
-		if (!this.app.vault.getAbstractFileByPath(file.path)) return;
 		try {
-			await this.app.fileManager.trashFile(file);
+			const { files, skipped } = await this.revalidateCleanupSelection([file.path], []);
+			if (skipped.length || files.length === 0) {
+				this.removeImage(file);
+				new Notice(`未移动：${file.name} 已被引用或不存在。`);
+				return;
+			}
+			await this.app.fileManager.trashFile(files[0]!);
 			this.removeImage(file);
 			new Notice(`已移入回收站：${file.name}`);
 		} catch (error) {
@@ -757,13 +763,31 @@ export class OrphanCleanupPanel {
 		if (selectedImages.length + selectedAttachments.length + selectedEmptyFiles.length + selectedFolders.length === 0) return;
 		const confirmed = await new CleanupConfirmationModal(this.app, selectedImages.length, selectedAttachments.length, selectedEmptyFiles.length, selectedFolders.length).waitForConfirmation();
 		if (!confirmed) return;
-		const result = await trashSelected(this.app, [...selectedImages, ...selectedAttachments, ...selectedEmptyFiles], selectedFolders);
+		let verified: { files: TFile[]; folders: TFolder[]; skipped: string[] };
+		try {
+			verified = await this.revalidateCleanupSelection(
+				[selectedImages, selectedAttachments, selectedEmptyFiles].flat().map((item) => item.path),
+				selectedFolders.map((item) => item.path),
+			);
+		} catch (error) {
+			new Notice(`重新确认清理条件失败：${reasonFor(error)}`);
+			return;
+		}
+		const result = await trashSelected(this.app, verified.files, verified.folders);
+		result.skipped.unshift(...verified.skipped);
 		this.processed = { success: result.deleted.length, skipped: result.skipped.length, failed: result.failed };
 		const message = [`已移入回收站：${result.deleted.length}`, `跳过：${result.skipped.length}`, `失败：${result.failed.length}`];
 		if (result.skipped.length) message.push(`跳过文件：${result.skipped.join('、')}`);
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
 		new Notice(message.join('\n'));
 		await this.scan(true);
+	}
+
+	private async revalidateCleanupSelection(filePaths: Iterable<string>, folderPaths: Iterable<string>) {
+		const current = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions, this.settings.orphanIgnoredFolders);
+		const files = selectCurrentCleanupItems(filePaths, [...current.images, ...current.attachments, ...current.emptyFiles]);
+		const folders = selectCurrentCleanupItems(folderPaths, current.folders);
+		return { files: files.items, folders: folders.items, skipped: [...files.skipped, ...folders.skipped] };
 	}
 
 	private async confirmRemoveLinks() {
