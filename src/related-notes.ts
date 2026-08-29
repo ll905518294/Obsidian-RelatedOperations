@@ -43,6 +43,8 @@ export function getRelatedNotesForFiles(app: App, sourceFiles: TFile[]): Related
 
 	const sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
 	for (const [linkingPath, destinations] of Object.entries(resolvedLinks)) {
+		const linkingFile = app.vault.getAbstractFileByPath(linkingPath);
+		if (!(linkingFile instanceof TFile) || linkingFile.extension.toLowerCase() !== 'md') continue;
 		for (const targetPath of Object.keys(destinations)) {
 			const sourceFile = sourceByPath.get(targetPath);
 			if (sourceFile && linkingPath !== sourceFile.path) {
