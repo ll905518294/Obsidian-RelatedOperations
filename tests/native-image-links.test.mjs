@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { convertNativeImageLink, replaceNativeImageLinks } from '../src/native-image-links.ts';
+import { convertNativeImageLink, replaceNativeImageLinks, revalidateNativeImageLink } from '../src/native-image-links.ts';
 
 const file = (path, basename = path.split('/').at(-1).replace(/\.[^.]+$/, '')) => ({ path, basename });
 const link = (original, path, start, extra = {}) => ({ sourcePath: 'note.md', original, linkPath: path, position: { start: { offset: start }, end: { offset: start + original.length } }, file: Object.hasOwn(extra, 'file') ? extra.file : file(path), reason: extra.reason });
@@ -13,6 +13,12 @@ test('converts basic and aliased embeds with empty alt text', () => {
 test('skips dimensions and unresolved targets', () => {
 	assert.equal(convertNativeImageLink(link('![[image.png|300x200]]', 'image.png', 0, { reason: '包含尺寸参数' })), null);
 	assert.equal(convertNativeImageLink(link('![[missing.png]]', 'missing.png', 0, { file: undefined })), null);
+});
+
+test('revalidates a target before conversion', () => {
+	const stale = link('![[image.png]]', 'image.png', 0);
+	const current = revalidateNativeImageLink({ metadataCache: { getFirstLinkpathDest: () => null } }, stale);
+	assert.equal(convertNativeImageLink(current), null);
 });
 
 test('replaces multiple occurrences from right to left and skips changed content', () => {

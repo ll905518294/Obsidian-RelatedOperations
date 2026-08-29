@@ -13,6 +13,10 @@ export function nativeImageLinkKey(link: NativeImageLink) {
 	return `${link.sourcePath}\u0000${link.position.start.offset}:${link.position.end.offset}`;
 }
 
+export function revalidateNativeImageLink(app: App, link: NativeImageLink): NativeImageLink {
+	return { ...link, file: app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath) ?? undefined };
+}
+
 export function findNativeImageLinks(app: App, imageExtensions: string): NativeImageLink[] {
 	const extensions = new Set(imageExtensions.split(/[,，\s]+/).map((x) => x.replace(/^\./, '').toLowerCase()).filter(Boolean));
 	return app.vault.getMarkdownFiles().flatMap((file) => {

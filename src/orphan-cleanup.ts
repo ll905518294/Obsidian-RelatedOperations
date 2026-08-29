@@ -4,7 +4,7 @@ import { buildCleanupReport } from './cleanup-report';
 import { selectCurrentCleanupItems } from './cleanup-selection';
 import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelectedBrokenLinks, type BrokenImageLink } from './broken-image-links';
 import { brokenNoteLinkKey, createMissingNotes, findBrokenNoteLinks, findBrokenNoteLinkOffset, removeSelectedBrokenNoteLinks, type BrokenNoteLink } from './broken-note-links';
-import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, type NativeImageLink } from './native-image-links';
+import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, revalidateNativeImageLink, type NativeImageLink } from './native-image-links';
 
 type ImageGrouping = 'none' | 'path' | 'extension';
 const CLEANUP_PAGE_SIZE = 100;
@@ -836,7 +836,8 @@ export class OrphanCleanupPanel {
 		if (!await new ConvertNativeLinksConfirmationModal(this.app, selected.length).waitForConfirmation()) return;
 		let converted = 0, skipped = 0, failed = 0;
 		const failures: Array<{ path: string; reason: string }> = [];
-		for (const [path, links] of new Map([...selected].reduce((map, link) => { const list = map.get(link.sourcePath) ?? []; list.push(link); map.set(link.sourcePath, list); return map; }, new Map<string, NativeImageLink[]>())) ) {
+		const currentLinks = selected.map((link) => revalidateNativeImageLink(this.app, link));
+		for (const [path, links] of new Map([...currentLinks].reduce((map, link) => { const list = map.get(link.sourcePath) ?? []; list.push(link); map.set(link.sourcePath, list); return map; }, new Map<string, NativeImageLink[]>())) ) {
 			const file = this.app.vault.getFileByPath(path);
 			if (!file) { failed++; failures.push({ path, reason: '文件不存在' }); continue; }
 			try { await this.app.vault.process(file, (content) => { const result = replaceNativeImageLinks(content, links); converted += result.converted; skipped += result.skipped; return result.content; }); } catch (error) { failed++; failures.push({ path, reason: reasonFor(error) }); }
