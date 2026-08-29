@@ -21,6 +21,7 @@ interface CleanupCandidates {
 
 interface CleanupResult {
 	deleted: string[];
+	skipped: string[];
 	failed: Array<{ path: string; reason: string }>;
 }
 
@@ -410,6 +411,7 @@ export class OrphanCleanupPanel {
 			const row = body.createEl('tr');
 			const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
 			checkbox.checked = this.nativeSelections.has(nativeImageLinkKey(link));
+			checkbox.setAttribute('aria-label', `选择 ${link.sourcePath} 中的原生图片链接`);
 			checkbox.disabled = !convertNativeImageLink(link);
 			checkbox.addEventListener('change', () => { if (checkbox.checked) this.nativeSelections.add(nativeImageLinkKey(link)); else this.nativeSelections.delete(nativeImageLinkKey(link)); this.updateSelectionSummary(); });
 			const sourceCell = row.createEl('td', { cls: 'orphan-cleanup-path' });
@@ -670,6 +672,7 @@ export class OrphanCleanupPanel {
 		const row = body.createEl('tr');
 		const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
 		checkbox.checked = this.selections.has(item.path);
+		checkbox.setAttribute('aria-label', `选择 ${item.path}`);
 		checkbox.addEventListener('change', () => {
 			if (checkbox.checked) this.selections.add(item.path);
 			else this.selections.delete(item.path);
@@ -755,8 +758,9 @@ export class OrphanCleanupPanel {
 		const confirmed = await new CleanupConfirmationModal(this.app, selectedImages.length, selectedAttachments.length, selectedEmptyFiles.length, selectedFolders.length).waitForConfirmation();
 		if (!confirmed) return;
 		const result = await trashSelected(this.app, [...selectedImages, ...selectedAttachments, ...selectedEmptyFiles], selectedFolders);
-		this.processed = { success: result.deleted.length, skipped: 0, failed: result.failed };
-		const message = [`已移入回收站：${result.deleted.length}`, `失败：${result.failed.length}`];
+		this.processed = { success: result.deleted.length, skipped: result.skipped.length, failed: result.failed };
+		const message = [`已移入回收站：${result.deleted.length}`, `跳过：${result.skipped.length}`, `失败：${result.failed.length}`];
+		if (result.skipped.length) message.push(`跳过文件：${result.skipped.join('、')}`);
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
 		new Notice(message.join('\n'));
 		await this.scan(true);
@@ -975,10 +979,10 @@ function formatScanDuration(milliseconds: number): string {
 }
 
 async function trashSelected(app: App, images: TFile[], folders: TFolder[]): Promise<CleanupResult> {
-	const result: CleanupResult = { deleted: [], failed: [] };
+	const result: CleanupResult = { deleted: [], skipped: [], failed: [] };
 	const moveToLocalTrash = app.fileManager.trashFile.bind(app.fileManager);
 	for (const item of [...images, ...folders.sort((a, b) => b.path.length - a.path.length)]) {
-		if (!app.vault.getAbstractFileByPath(item.path)) continue;
+		if (!app.vault.getAbstractFileByPath(item.path)) { result.skipped.push(item.path); continue; }
 		try {
 			await moveToLocalTrash(item);
 			result.deleted.push(item.path);

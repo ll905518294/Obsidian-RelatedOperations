@@ -305,6 +305,7 @@ export class RelatedNotesPanel {
 			const checkCell = row.createEl('td');
 			const checkbox = checkCell.createEl('input', { type: 'checkbox' });
 			checkbox.checked = this.selections.get(note.file.path) ?? false;
+			checkbox.setAttribute('aria-label', `选择 ${note.file.path}`);
 			checkbox.disabled = alreadyAtTarget;
 			if (alreadyAtTarget) checkbox.title = '该笔记已经位于目标文件夹';
 			checkbox.addEventListener('change', () => {

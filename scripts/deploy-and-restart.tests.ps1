@@ -16,6 +16,14 @@ try {
 	Copy-DeploymentArtifacts (Get-DeploymentArtifacts $root) (Join-Path $root 'plugin')
 	if (-not (Test-Path $config) -or -not (Test-Path (Join-Path $root 'plugin\main.js'))) { throw 'artifact copy removed config or missed output' }
 	if ((Get-FileSha256 (Join-Path $root 'main.js')) -ne (Get-FileSha256 (Join-Path $root 'plugin\main.js'))) { throw 'artifact hash mismatch' }
+	$pluginsRoot = Join-Path $root 'plugins'
+	$validPlugin = Join-Path $pluginsRoot 'demo'
+	$backup = "$validPlugin.backup"
+	New-Item -ItemType Directory -Path $validPlugin, $backup -Force | Out-Null
+	Restore-DeploymentBackup $validPlugin $backup
+	$otherBackup = Join-Path $root 'other.backup'
+	New-Item -ItemType Directory -Path $otherBackup -Force | Out-Null
+	try { Restore-DeploymentBackup $validPlugin $otherBackup; throw 'mismatched backup path accepted' } catch { if ($_.Exception.Message -notmatch 'does not match plugin directory') { throw } }
 	Assert-ObsidianRestartAcknowledged 'Restarting...' $null
 	try { Assert-ObsidianRestartAcknowledged 'Error: Command failed' 0; throw 'restart error output accepted' } catch { if ($_.Exception.Message -notmatch 'failed') { throw } }
 	@{ vaults = @{ a = @{ path = $vault } } } | ConvertTo-Json | Set-Content $registry

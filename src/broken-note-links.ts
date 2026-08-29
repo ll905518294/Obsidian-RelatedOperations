@@ -88,7 +88,7 @@ export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Pro
 				let current = '';
 				for (const segment of parent.split('/')) {
 					current = current ? `${current}/${segment}` : segment;
-					if (!app.vault.getAbstractFileByPath(current)) await app.vault.createFolder(current);
+					if (!pathExistsCaseInsensitive(app, current)) await app.vault.createFolder(current);
 				}
 			}
 			if (pathExistsCaseInsensitive(app, path)) {

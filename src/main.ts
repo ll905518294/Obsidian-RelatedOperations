@@ -173,18 +173,18 @@ export default class RelatedOperationsPlugin extends Plugin {
 	private async waitForMetadataResolution() {
 		await new Promise<void>((resolve) => {
 			let settled = false;
+			let timeout = 0;
+			const finish = () => {
+				if (settled) return;
+				settled = true;
+				this.app.metadataCache.offref(ref);
+				window.clearTimeout(timeout);
+				resolve();
+			};
 			const ref = this.app.metadataCache.on('resolved', () => {
-				if (settled) return;
-				settled = true;
-				this.app.metadataCache.offref(ref);
-				resolve();
+				finish();
 			});
-			window.setTimeout(() => {
-				if (settled) return;
-				settled = true;
-				this.app.metadataCache.offref(ref);
-				resolve();
-			}, 2000);
+			timeout = window.setTimeout(finish, 2000);
 		});
 	}
 
@@ -278,7 +278,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		const migrated = await migrateLinkStatsProperties(this.app, files, oldNames, nextNames);
 		Object.assign(this.settings, nextNames);
 		await this.saveSettings();
-		const updated = this.settings.enabled ? await this.updateAllLinkStats() : 0;
+		const updated = this.settings.enabled ? await this.updateAllLinkStats(true) : 0;
 		return { migrated, updated };
 	}
 
@@ -298,7 +298,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.registerEvent(this.app.vault.on('delete', schedule));
 		this.registerEvent(this.app.vault.on('rename', schedule));
 		this.registerInterval(window.setInterval(() => {
-			if (this.settings.autoUpdate) void this.updateAllLinkStatsOrNotice();
+			if (this.settings.enabled && this.settings.autoUpdate) void this.updateAllLinkStatsOrNotice();
 		}, 60_000));
 		this.register(() => window.clearTimeout(timer));
 		if (this.settings.enabled) void this.updateAllLinkStatsOrNotice();
@@ -309,10 +309,14 @@ export default class RelatedOperationsPlugin extends Plugin {
 		if (this.settings.enabled) void this.updateAllLinkStatsOrNotice();
 	}
 
-	private async updateAllLinkStats() {
+	private async updateAllLinkStats(force = false) {
 		if (!this.settings.enabled) return 0;
-		if (this.linkStatsUpdate) return this.linkStatsUpdate;
-		this.linkStatsUpdate = updateLinkStats(this.app, this.app.vault.getMarkdownFiles(), this.settings)
+		if (this.linkStatsUpdate) {
+			if (!force) return this.linkStatsUpdate;
+			await this.linkStatsUpdate;
+		}
+		const settings = { ...this.settings };
+		this.linkStatsUpdate = updateLinkStats(this.app, this.app.vault.getMarkdownFiles(), settings)
 			.finally(() => { this.linkStatsUpdate = undefined; });
 		return this.linkStatsUpdate;
 	}

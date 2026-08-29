@@ -121,10 +121,11 @@ function Invoke-ObsidianRestart([string]$CliPath, [string]$VaultPath) {
 }
 function Restore-DeploymentBackup([string]$PluginDir, [string]$BackupDir) {
     if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) { return }
-    $pluginsRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PluginDir))
     $resolvedPluginDir = [IO.Path]::GetFullPath($PluginDir)
-    if (-not $resolvedPluginDir.StartsWith($pluginsRoot, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to restore: plugin directory is not under plugins root: $resolvedPluginDir"
+    $resolvedBackupDir = [IO.Path]::GetFullPath($BackupDir)
+    $expectedBackupDir = "$resolvedPluginDir.backup"
+    if (-not $resolvedBackupDir.Equals($expectedBackupDir, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to restore: backup directory does not match plugin directory: $resolvedBackupDir"
     }
     if (Test-Path -LiteralPath $PluginDir) { Remove-Item -LiteralPath $PluginDir -Recurse -Force }
     Copy-Item -LiteralPath $BackupDir -Destination $PluginDir -Recurse -Force

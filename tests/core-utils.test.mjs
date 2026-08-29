@@ -26,6 +26,8 @@ test('rejects absolute and parent-traversal vault paths', () => {
 	assert.equal(isVaultRelativePath('/target'), false);
 	assert.equal(isVaultRelativePath('C:/target'), false);
 	assert.equal(isVaultRelativePath('folder/../target'), false);
+	assert.equal(isVaultRelativePath('..\\target'), false);
+	assert.equal(isVaultRelativePath('folder\\..\\target'), false);
 	assert.equal(isVaultRelativePath('folder//target'), false);
 });
 
@@ -191,9 +193,25 @@ test('skips case-insensitive existing targets when creating missing notes', asyn
 			create: async (path) => { created.push(path); files.push({ path }); },
 		},
 	};
-	const result = await createMissingNotes([{ sourcePath: 'source.md', linkPath: 'notes/target', original: '[[notes/target]]', position: { start: { offset: 0 }, end: { offset: 16 } }, syntax: 'wiki' }]);
+	const result = await createMissingNotes(app, [{ sourcePath: 'source.md', linkPath: 'notes/target', original: '[[notes/target]]', position: { start: { offset: 0 }, end: { offset: 16 } }, syntax: 'wiki' }]);
 	assert.deepEqual(created, []);
 	assert.deepEqual(result.skipped, [{ path: 'notes/target.md', reason: '目标已存在' }]);
+});
+
+test('does not recreate case-insensitive existing parent folders', async () => {
+	const files = [{ path: 'Notes' }];
+	const createdFolders = [];
+	const app = {
+		vault: {
+			getAllLoadedFiles: () => files,
+			getAbstractFileByPath: (path) => files.find((file) => file.path === path),
+			createFolder: async (path) => { createdFolders.push(path); files.push({ path }); },
+			create: async (path) => { files.push({ path }); },
+		},
+	};
+	const result = await createMissingNotes(app, [{ sourcePath: 'source.md', linkPath: 'notes/new', original: '[[notes/new]]', position: { start: { offset: 0 }, end: { offset: 14 } }, syntax: 'wiki' }]);
+	assert.deepEqual(createdFolders, []);
+	assert.deepEqual(result.created, ['notes/new.md']);
 });
 
 test('keeps dotted note names eligible for broken note detection', () => {
