@@ -138,13 +138,13 @@ export class OrphanCleanupPanel {
 			if (elapsed) elapsed.setText(`用时 ${formatScanDuration(this.scanElapsedMs)}`);
 			this.updateScanStageRows();
 		}, 250);
-			this.selections.clear();
-			this.linkSelections.clear();
-			this.nativeSelections.clear();
-			this.noteLinkSelections.clear();
-			this.duplicateSelections.clear();
+		this.selections.clear();
+		this.linkSelections.clear();
+		this.nativeSelections.clear();
+		this.noteLinkSelections.clear();
+		this.duplicateSelections.clear();
 		this.pages.clear();
-			this.tabScanned.clear();
+		this.tabScanned.clear();
 		const startedAt = performance.now();
 		this.scanStages = ['扫描资料库文件', '分析引用关系', '检查文本引用', '检查空文件与文件夹', '检查链接健康度', '检查重复文件'].map((label, index) => ({ label, state: index === 0 ? 'scanning' : 'pending', elapsedMs: 0, startedAt: index === 0 ? startedAt : undefined }));
 		this.scanProgress = { stage: 0, processed: 0, total: 0 };
@@ -524,7 +524,10 @@ export class OrphanCleanupPanel {
 	private async cleanDuplicateLinks(file: DuplicateFileGroup['files'][number]) {
 		const result = await removeImageReferencesForFile(this.app, file.path);
 		new Notice(`已清理 ${result.removed} 条图片链接${result.failed.length ? `，失败 ${result.failed.length} 个文件` : ''}。`);
-		if (result.removed) await this.scan(true);
+		if (result.removed) {
+			this.saveCacheToSettings();
+			this.renderContents();
+		}
 	}
 
 	private async deleteDuplicateFile(file: DuplicateFileGroup['files'][number]) {
