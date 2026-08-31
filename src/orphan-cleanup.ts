@@ -537,7 +537,6 @@ export class OrphanCleanupPanel {
 				.map((group) => ({ ...group, files: group.files.filter((item) => item.path !== file.path) }))
 				.filter((group) => group.files.length > 1);
 			this.selections.delete(file.path);
-			this.renderContents();
 			new Notice(`已移入回收站：${file.path}`);
 			this.saveCacheToSettings();
 			this.renderContents();
@@ -695,9 +694,19 @@ export class OrphanCleanupPanel {
 	private addReportControls(container: HTMLElement) {
 		const report = () => buildCleanupReport({ generatedAt: new Date().toLocaleString('zh-CN'), images: this.candidates.images.map((item) => item.path), attachments: this.candidates.attachments.map((item) => item.path), emptyFiles: this.candidates.emptyFiles.map((item) => item.path), folders: this.candidates.folders.map((item) => item.path), brokenLinks: this.candidates.brokenLinks.map(({ sourcePath, original, linkPath }) => ({ sourcePath, original, linkPath })), nativeLinks: this.candidates.nativeLinks.map((item) => ({ sourcePath: item.sourcePath, original: item.original, status: convertNativeImageLink(item) ?? item.reason ?? '未解析目标' })), brokenNoteLinks: this.candidates.brokenNoteLinks.map(({ sourcePath, original, linkPath, syntax }) => ({ sourcePath, original, linkPath, syntax })), duplicates: this.candidates.duplicates, duplicateWarnings: this.candidates.duplicateWarnings, processed: this.processed });
 		const copy = container.createEl('button', { text: '复制报告' });
-		copy.addEventListener('click', () => void (async () => { try { await navigator.clipboard.writeText(report()); new Notice('报告已复制。'); } catch (error) { new Notice(`复制报告失败：${reasonFor(error)}`); } })());
+		copy.addEventListener('click', () => void this.copyReport());
 		const exportButton = container.createEl('button', { text: '导出报告' });
 		exportButton.addEventListener('click', () => void this.exportReport(report()));
+	}
+
+	private async copyReport() {
+		const report = () => buildCleanupReport({ generatedAt: new Date().toLocaleString('zh-CN'), images: this.candidates.images.map((item) => item.path), attachments: this.candidates.attachments.map((item) => item.path), emptyFiles: this.candidates.emptyFiles.map((item) => item.path), folders: this.candidates.folders.map((item) => item.path), brokenLinks: this.candidates.brokenLinks.map(({ sourcePath, original, linkPath }) => ({ sourcePath, original, linkPath })), nativeLinks: this.candidates.nativeLinks.map((item) => ({ sourcePath: item.sourcePath, original: item.original, status: convertNativeImageLink(item) ?? item.reason ?? '未解析目标' })), brokenNoteLinks: this.candidates.brokenNoteLinks.map(({ sourcePath, original, linkPath, syntax }) => ({ sourcePath, original, linkPath, syntax })), duplicates: this.candidates.duplicates, duplicateWarnings: this.candidates.duplicateWarnings, processed: this.processed });
+		try {
+			await navigator.clipboard.writeText(report());
+			new Notice('报告已复制。');
+		} catch (error) {
+			new Notice(`复制报告失败：${reasonFor(error)}`);
+		}
 	}
 
 	private async exportReport(content: string) {
