@@ -1279,9 +1279,9 @@ async function findCleanupCandidates(app: App, imageExtensions: string, ignoredF
 	onProgress?.({ stage: 3, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	const brokenLinks = findBrokenImageLinks(app, imageExtensions);
 	const nativeLinks = findNativeImageLinks(app, imageExtensions);
-		const brokenNoteLinks = findBrokenNoteLinks(app, imageExtensions);
-		onProgress?.({ stage: 5, processed: 0, total: 1 });
-		const duplicateResult = await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress }));
+	const brokenNoteLinks = findBrokenNoteLinks(app, imageExtensions);
+	onProgress?.({ stage: 5, processed: 0, total: 1 });
+	const duplicateResult = await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress }));
 	return {
 		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
 		attachments: attachments.filter((file) => !referenced.has(file.path)).sort(byPath),
