@@ -27,3 +27,10 @@
 - 事实：项目定义了 `npm run build`、`npm run lint`、`npm test` 和部署校验命令。
 - 证据：`package.json` scripts。
 - 影响与注意事项：代码改动至少运行相关测试；发布前运行构建和部署预检。
+
+### 体检清理面板架构（或phanCleanupPanel）
+- 事实：`src/orphan-cleanup.ts` 包含 `OrphanCleanupPanel` 类，使用多 Tab 结构（overview/images/attachments/broken-links/native-links/broken-note-links/empty-files/folders/duplicates）。
+- 每个 Tab 有独立的 selection Set：`selections`（文件类）、`linkSelections`（失效图片链接）、`nativeSelections`（原生链接）、`noteLinkSelections`（失效笔记链接）、`duplicateSelections`（重复文件）。
+- 多选模式统一模式：声明 Set → scan() 中 clear → renderList() 中添加 addSelectionControls → 每行 checkbox → renderActions() 和 updateSelectionSummary() 处理该 Tab。
+- 注意事项：nested 对象（如 DuplicateFileGroup.files）需显式 `.map(f => f.path)` 转成 string 再 add 到 Set，否则 TypeScript 类型报错。
+- 批量操作入口：`renderActions()` 中的主按钮文字根据 activeTab 变化；`updateSelectionSummary()` 根据 activeTab 显示不同摘要文本。
