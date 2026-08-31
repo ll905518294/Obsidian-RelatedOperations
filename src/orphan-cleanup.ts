@@ -679,17 +679,32 @@ export class OrphanCleanupPanel {
 	}
 
 	private addReportControls(container: HTMLElement) {
-		const report = () => buildCleanupReport({ generatedAt: new Date().toLocaleString('zh-CN'), images: this.candidates.images.map((item) => item.path), attachments: this.candidates.attachments.map((item) => item.path), emptyFiles: this.candidates.emptyFiles.map((item) => item.path), folders: this.candidates.folders.map((item) => item.path), brokenLinks: this.candidates.brokenLinks.map(({ sourcePath, original, linkPath }) => ({ sourcePath, original, linkPath })), nativeLinks: this.candidates.nativeLinks.map((item) => ({ sourcePath: item.sourcePath, original: item.original, status: convertNativeImageLink(item) ?? item.reason ?? '未解析目标' })), brokenNoteLinks: this.candidates.brokenNoteLinks.map(({ sourcePath, original, linkPath, syntax }) => ({ sourcePath, original, linkPath, syntax })), duplicates: this.candidates.duplicates, duplicateWarnings: this.candidates.duplicateWarnings, processed: this.processed });
+		const data = this.buildReportData();
 		const copy = container.createEl('button', { text: '复制报告' });
 		copy.addEventListener('click', () => void this.copyReport());
 		const exportButton = container.createEl('button', { text: '导出报告' });
-		exportButton.addEventListener('click', () => void this.exportReport(report()));
+		exportButton.addEventListener('click', () => void this.exportReport(buildCleanupReport(data)));
+	}
+
+	private buildReportData() {
+		return {
+			generatedAt: new Date().toLocaleString('zh-CN'),
+			images: this.candidates.images.map((item) => item.path),
+			attachments: this.candidates.attachments.map((item) => item.path),
+			emptyFiles: this.candidates.emptyFiles.map((item) => item.path),
+			folders: this.candidates.folders.map((item) => item.path),
+			brokenLinks: this.candidates.brokenLinks.map(({ sourcePath, original, linkPath }) => ({ sourcePath, original, linkPath })),
+			nativeLinks: this.candidates.nativeLinks.map((item) => ({ sourcePath: item.sourcePath, original: item.original, status: convertNativeImageLink(item) ?? item.reason ?? '未解析目标' })),
+			brokenNoteLinks: this.candidates.brokenNoteLinks.map(({ sourcePath, original, linkPath, syntax }) => ({ sourcePath, original, linkPath, syntax })),
+			duplicates: this.candidates.duplicates,
+			duplicateWarnings: this.candidates.duplicateWarnings,
+			processed: this.processed,
+		};
 	}
 
 	private async copyReport() {
-		const report = () => buildCleanupReport({ generatedAt: new Date().toLocaleString('zh-CN'), images: this.candidates.images.map((item) => item.path), attachments: this.candidates.attachments.map((item) => item.path), emptyFiles: this.candidates.emptyFiles.map((item) => item.path), folders: this.candidates.folders.map((item) => item.path), brokenLinks: this.candidates.brokenLinks.map(({ sourcePath, original, linkPath }) => ({ sourcePath, original, linkPath })), nativeLinks: this.candidates.nativeLinks.map((item) => ({ sourcePath: item.sourcePath, original: item.original, status: convertNativeImageLink(item) ?? item.reason ?? '未解析目标' })), brokenNoteLinks: this.candidates.brokenNoteLinks.map(({ sourcePath, original, linkPath, syntax }) => ({ sourcePath, original, linkPath, syntax })), duplicates: this.candidates.duplicates, duplicateWarnings: this.candidates.duplicateWarnings, processed: this.processed });
 		try {
-			await navigator.clipboard.writeText(report());
+			await navigator.clipboard.writeText(buildCleanupReport(this.buildReportData()));
 			new Notice('报告已复制。');
 		} catch (error) {
 			new Notice(`复制报告失败：${reasonFor(error)}`);
