@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS, RelatedOperationsSettingTab, RelatedOperationsSetting
 import { findLinkStatsPropertyConflicts, LinkStatsPropertyNames, migrateLinkStatsProperties, updateLinkStats } from './link-stats';
 import { OrphanCleanupModal } from './orphan-cleanup';
 import { ORPHAN_CLEANUP_VIEW_TYPE, OrphanCleanupView } from './orphan-cleanup-view';
-import { isPathInFolder, normalizeSettings } from './core-utils';
+import { groupingModeFromLegacy, isPathInFolder, normalizeSettings } from './core-utils';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
@@ -17,11 +17,19 @@ export default class RelatedOperationsPlugin extends Plugin {
 	settings!: RelatedOperationsSettings;
 	async onload() {
 		const propertyName = (value: unknown) => typeof value === 'string' && value.trim().length > 0 && !/[\r\n]/.test(value);
-		const loaded = normalizeSettings(DEFAULT_SETTINGS, await this.loadData(), {
+		const rawSettings: unknown = await this.loadData();
+		const loaded = normalizeSettings(DEFAULT_SETTINGS, rawSettings, {
 			incomingProperty: propertyName,
 			outgoingProperty: propertyName,
 			bidirectionalProperty: propertyName,
 		});
+		if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+			const legacy = rawSettings as { groupBySource?: unknown; groupByPath?: unknown };
+			if (typeof (rawSettings as { groupingMode?: unknown }).groupingMode !== 'string' && (typeof legacy.groupBySource === 'boolean' || typeof legacy.groupByPath === 'boolean')) {
+				loaded.groupingMode = groupingModeFromLegacy(legacy);
+				await this.saveData(loaded);
+			}
+		}
 		const propertyNames = [loaded.incomingProperty, loaded.outgoingProperty, loaded.bidirectionalProperty];
 		if (new Set(propertyNames).size !== propertyNames.length) {
 			loaded.incomingProperty = DEFAULT_SETTINGS.incomingProperty;
@@ -74,7 +82,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			}
 			void this.openRelatedNotesWindow(sourceFiles);
 		});
-		this.addRibbonIcon('trash-2', '打开 vault 体检与清理', () => void this.openOrphanCleanupWindow());
+		this.addRibbonIcon('plus-square', '打开 vault 体检与清理', () => void this.openOrphanCleanupWindow());
 
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
@@ -116,7 +124,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			new Notice('没有可处理的 Markdown 笔记。');
 			return;
 		}
-		const primarySource = orderedFiles[0];
+		const primarySource = orderedFiles[0]!;
 		if (!primarySource) return;
 		if (orderedFiles.some((file) => !this.app.metadataCache.getFileCache(file))) {
 			new Notice('正在解析关联笔记…');
@@ -128,7 +136,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			new RelatedNotesModal(this.app, primarySource, orderedFiles, relatedNotes, sourceLabel, orderedFiles.length, this.settings, () => this.saveSettings()).open();
 			return;
 		}
-		const existingLeaf = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE)[0];
+		const existingLeaf = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE)[0]!;
 		if (existingLeaf) {
 			await existingLeaf.setViewState({
 				type: RELATED_NOTES_VIEW_TYPE,
@@ -139,7 +147,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			return;
 		}
 		try {
-			const leaf = this.app.workspace.openPopoutLeaf();
+			const leaf = this.app.workspace.getLeaf('tab');
 			await leaf.setViewState({
 				type: RELATED_NOTES_VIEW_TYPE,
 				active: true,
@@ -161,7 +169,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			return;
 		}
 		try {
-			const leaf = this.app.workspace.openPopoutLeaf();
+			const leaf = this.app.workspace.getLeaf('tab');
 			await leaf.setViewState({
 				type: ORPHAN_CLEANUP_VIEW_TYPE,
 				active: true,

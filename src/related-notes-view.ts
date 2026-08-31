@@ -63,8 +63,7 @@ export class RelatedNotesView extends ItemView {
 			const previousLength = this.sourcePaths.length;
 			this.sourcePaths = this.sourcePaths.filter((path) => path !== file.path && !(file instanceof TFolder && path.startsWith(`${file.path}/`)));
 			if (this.sourcePaths.length === previousLength) return;
-			if (this.sourcePaths.length === 0) this.leaf.detach();
-			else this.renderPanel();
+			this.renderPanel();
 		}));
 		this.renderPanel();
 	}
@@ -83,7 +82,7 @@ export class RelatedNotesView extends ItemView {
 			.sort((a, b) => a.path.localeCompare(b.path));
 		const sourceFile = sourceFiles[0];
 		if (!sourceFile) {
-			void this.leaf.detach();
+			this.contentEl.createEl('p', { text: '请先打开或选择 Markdown 笔记，再使用关联笔记整理。', cls: 'related-operations-empty' });
 			return;
 		}
 		const related = getRelatedNotesForFiles(this.app, sourceFiles);

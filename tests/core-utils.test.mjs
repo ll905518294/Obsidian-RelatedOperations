@@ -14,6 +14,13 @@ import {
 	parseIgnoredFolders,
 	isIgnoredPath,
 } from '../src/core-utils.ts';
+import { groupingModeFromLegacy } from '../src/core-utils.ts';
+
+test('migrates legacy grouping settings with source taking precedence', () => {
+	assert.equal(groupingModeFromLegacy({}), 'none');
+	assert.equal(groupingModeFromLegacy({ groupByPath: true }), 'path');
+	assert.equal(groupingModeFromLegacy({ groupBySource: true, groupByPath: true }), 'source');
+});
 import { createMissingNotes, findBrokenNoteLinks, missingNotePath, removeSelectedBrokenNoteLinks } from '../src/broken-note-links.ts';
 import { buildLinkStatsIndex } from '../src/link-stats-core.ts';
 
