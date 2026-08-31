@@ -48,6 +48,7 @@ export class OrphanCleanupPanel {
 	private linkSelections = new Set<string>();
 	private nativeSelections = new Set<string>();
 	private noteLinkSelections = new Set<string>();
+	private duplicateSelections = new Set<string>();
 	private activeTab: CleanupTab = 'overview';
 	private imageGrouping: ImageGrouping = 'none';
 	private attachmentGrouping: ImageGrouping = 'none';
@@ -96,10 +97,11 @@ export class OrphanCleanupPanel {
 			if (elapsed) elapsed.setText(`用时 ${formatScanDuration(this.scanElapsedMs)}`);
 			this.updateScanStageRows();
 		}, 250);
-		this.selections.clear();
-		this.linkSelections.clear();
-		this.nativeSelections.clear();
-		this.noteLinkSelections.clear();
+			this.selections.clear();
+			this.linkSelections.clear();
+			this.nativeSelections.clear();
+			this.noteLinkSelections.clear();
+			this.duplicateSelections.clear();
 		this.pages.clear();
 		const startedAt = performance.now();
 		this.scanStages = ['扫描资料库文件', '分析引用关系', '检查文本引用', '检查空文件与文件夹', '检查链接健康度', '检查重复文件'].map((label, index) => ({ label, state: index === 0 ? 'scanning' : 'pending', elapsedMs: 0, startedAt: index === 0 ? startedAt : undefined }));
@@ -301,8 +303,17 @@ export class OrphanCleanupPanel {
 			if (this.candidates.duplicateWarnings.length) {
 				content.createDiv({ text: `有 ${this.candidates.duplicateWarnings.length} 个文件读取失败，仅展示成功计算哈希的结果。`, cls: 'orphan-cleanup-warning' });
 			}
+			const allDuplicates = this.candidates.duplicates.flatMap((group) => group.files.map((file) => file.path));
 			const page = this.pageFor(currentTab, this.candidates.duplicates.length);
 			const pageItems = this.candidates.duplicates.slice(page * CLEANUP_PAGE_SIZE, (page + 1) * CLEANUP_PAGE_SIZE);
+			const allPageFiles = pageItems.flatMap((group) => group.files.map((file) => file.path));
+			this.addSelectionControls(toolbar, allPageFiles.length, allDuplicates.length,
+				() => allPageFiles.forEach((path) => this.duplicateSelections.add(path)),
+				() => allDuplicates.forEach((path) => this.duplicateSelections.add(path)),
+				() => allPageFiles.forEach((path) => this.duplicateSelections.delete(path)),
+				() => this.duplicateSelections.clear(),
+				() => { this.syncPageCheckboxes(content, true); this.updateSelectionSummary(); },
+				() => { this.syncPageCheckboxes(content, false); this.updateSelectionSummary(); });
 			if (!pageItems.length) content.createEl('p', { text: '没有发现重复文件。', cls: 'orphan-cleanup-empty' });
 			else this.renderDuplicateGroups(content, pageItems);
 			this.renderPagination(toolbar, this.candidates.duplicates.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
@@ -388,10 +399,18 @@ export class OrphanCleanupPanel {
 			section.createDiv({ text: `SHA-256：${group.hash}`, cls: 'orphan-cleanup-detail' });
 			const table = section.createEl('table', { cls: 'orphan-cleanup-table orphan-cleanup-duplicate-table' });
 			const header = table.createEl('thead').createEl('tr');
-			for (const text of ['文件', '所在笔记', '所在文件夹', '状态', '操作']) header.createEl('th', { text });
+			for (const text of ['选择', '文件', '所在笔记', '所在文件夹', '状态', '操作']) header.createEl('th', { text });
 			const body = table.createEl('tbody');
 			for (const file of group.files) {
 				const row = body.createEl('tr');
+				const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
+				checkbox.checked = this.duplicateSelections.has(file.path);
+				checkbox.setAttribute('aria-label', `选择 ${file.path}`);
+				checkbox.addEventListener('change', () => {
+					if (checkbox.checked) this.duplicateSelections.add(file.path);
+					else this.duplicateSelections.delete(file.path);
+					this.updateSelectionSummary();
+				});
 				const fileCell = row.createEl('td', { cls: 'orphan-cleanup-path' });
 				if (isImageFile(file.extension)) {
 					const preview = fileCell.createEl('img', { attr: { alt: `${file.path} 预览`, loading: 'lazy' }, cls: 'orphan-cleanup-duplicate-preview' });
@@ -467,7 +486,7 @@ export class OrphanCleanupPanel {
 	}
 
 	private async deleteDuplicateFile(file: DuplicateFileGroup['files'][number]) {
-		if (!await new CleanupConfirmationModal(this.app, 1, 0, 0, 0).waitForConfirmation()) return;
+		if (!await new CleanupConfirmationModal(this.app, 0, 0, 1, 0).waitForConfirmation()) return;
 		const target = this.app.vault.getAbstractFileByPath(file.path);
 		if (!(target instanceof TFile)) { new Notice('文件不存在，请重新扫描。'); return; }
 		try {
@@ -890,11 +909,11 @@ export class OrphanCleanupPanel {
 		this.updateSelectionSummary(summary);
 		const isLinkTab = this.activeTab === 'broken-links' || this.activeTab === 'native-links' || this.activeTab === 'broken-note-links';
 		const cleanup = actions.createEl('button', {
-			text: this.activeTab === 'native-links' ? '转换选中链接' : this.activeTab === 'broken-note-links' ? '创建选中笔记' : isLinkTab ? '移除选中链接' : '移入回收站',
+			text: this.activeTab === 'native-links' ? '转换选中链接' : this.activeTab === 'broken-note-links' ? '创建选中笔记' : isLinkTab ? '移除选中链接' : this.activeTab === 'duplicates' ? '删除选中文件' : '移入回收站',
 			cls: 'mod-cta',
 		});
-		cleanup.disabled = this.activeTab === 'broken-links' ? this.linkSelections.size === 0 : this.activeTab === 'native-links' ? this.nativeSelections.size === 0 : this.activeTab === 'broken-note-links' ? this.noteLinkSelections.size === 0 : this.selections.size === 0;
-		cleanup.addEventListener('click', () => void (this.activeTab === 'native-links' ? this.confirmConvertLinks() : this.activeTab === 'broken-note-links' ? this.confirmCreateNotes() : isLinkTab ? this.confirmRemoveLinks() : this.confirmCleanup()));
+		cleanup.disabled = this.activeTab === 'broken-links' ? this.linkSelections.size === 0 : this.activeTab === 'native-links' ? this.nativeSelections.size === 0 : this.activeTab === 'broken-note-links' ? this.noteLinkSelections.size === 0 : this.activeTab === 'duplicates' ? this.duplicateSelections.size === 0 : this.selections.size === 0;
+		cleanup.addEventListener('click', () => void (this.activeTab === 'native-links' ? this.confirmConvertLinks() : this.activeTab === 'broken-note-links' ? this.confirmCreateNotes() : isLinkTab ? this.confirmRemoveLinks() : this.activeTab === 'duplicates' ? this.confirmCleanupDuplicates() : this.confirmCleanup()));
 		if (this.activeTab === 'broken-note-links') {
 			const remove = actions.createEl('button', { text: '移除选中链接', cls: 'orphan-cleanup-remove-note-links' });
 			remove.disabled = this.noteLinkSelections.size === 0;
@@ -912,9 +931,14 @@ export class OrphanCleanupPanel {
 		const links = this.candidates.brokenLinks.filter((item) => this.linkSelections.has(brokenLinkKey(item))).length;
 		const native = this.candidates.nativeLinks.filter((item) => this.nativeSelections.has(nativeImageLinkKey(item))).length;
 		const noteLinks = this.candidates.brokenNoteLinks.filter((item) => this.noteLinkSelections.has(brokenNoteLinkKey(item))).length;
-		target.setText(`已选：${images} 张图片，${attachments} 个附件，${emptyFiles} 个空文件，${links + native + noteLinks} 条链接，${folders} 个文件夹`);
+		const duplicates = this.duplicateSelections.size;
+		if (this.activeTab === 'duplicates') {
+			target.setText(`已选：${duplicates} 个文件`);
+		} else {
+			target.setText(`已选：${images} 张图片，${attachments} 个附件，${emptyFiles} 个空文件，${links + native + noteLinks} 条链接，${folders} 个文件夹`);
+		}
 		const action = this.contentEl.querySelector<HTMLButtonElement>('.orphan-cleanup-actions button.mod-cta');
-		if (action) action.disabled = this.activeTab === 'broken-links' ? links === 0 : this.activeTab === 'native-links' ? native === 0 : this.activeTab === 'broken-note-links' ? noteLinks === 0 : images + attachments + emptyFiles + folders === 0;
+		if (action) action.disabled = this.activeTab === 'broken-links' ? links === 0 : this.activeTab === 'native-links' ? native === 0 : this.activeTab === 'broken-note-links' ? noteLinks === 0 : this.activeTab === 'duplicates' ? duplicates === 0 : images + attachments + emptyFiles + folders === 0;
 		const removeNoteLinks = this.contentEl.querySelector<HTMLButtonElement>('.orphan-cleanup-remove-note-links');
 		if (removeNoteLinks) removeNoteLinks.disabled = noteLinks === 0;
 	}
@@ -948,6 +972,34 @@ export class OrphanCleanupPanel {
 		if (result.skipped.length) message.push(`跳过文件：${result.skipped.join('、')}`);
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
 		new Notice(message.join('\n'));
+		await this.scan(true);
+	}
+
+	private async confirmCleanupDuplicates() {
+		const selectedFiles = this.candidates.duplicates.flatMap((group) => group.files.filter((file) => this.duplicateSelections.has(file.path)));
+		if (selectedFiles.length === 0) return;
+		const confirmed = await new CleanupConfirmationModal(this.app, 0, 0, selectedFiles.length, 0).waitForConfirmation();
+		if (!confirmed) return;
+		const result: CleanupResult = { deleted: [], skipped: [], failed: [] };
+		for (const file of selectedFiles) {
+			const target = this.app.vault.getAbstractFileByPath(file.path);
+			if (!(target instanceof TFile)) { result.skipped.push(file.path); continue; }
+			try {
+				await this.app.fileManager.trashFile(target);
+				result.deleted.push(file.path);
+			} catch (error) {
+				result.failed.push({ path: file.path, reason: reasonFor(error) });
+			}
+		}
+		this.processed = { success: result.deleted.length, skipped: result.skipped.length, failed: result.failed };
+		const message = [`已删除：${result.deleted.length}`, `跳过：${result.skipped.length}`, `失败：${result.failed.length}`];
+		if (result.skipped.length) message.push(`跳过文件：${result.skipped.join('、')}`);
+		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
+		new Notice(message.join('\n'));
+		if (result.deleted.length > 0 || result.failed.length > 0) {
+			this.candidates.duplicates = this.candidates.duplicates.map((group) => ({ ...group, files: group.files.filter((f) => !result.deleted.includes(f.path)) })).filter((group) => group.files.length > 1);
+		}
+		this.duplicateSelections.clear();
 		await this.scan(true);
 	}
 
