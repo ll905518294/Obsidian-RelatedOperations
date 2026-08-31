@@ -1206,7 +1206,10 @@ export class OrphanCleanupPanel {
 		}
 		this.processed = { success: converted, skipped, failed: failures };
 		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
-		await this.scan();
+		if (converted > 0) {
+			this.saveCacheToSettings();
+			this.renderContents();
+		}
 	}
 
 	private async buildReferencedSet(): Promise<Set<string>> {
