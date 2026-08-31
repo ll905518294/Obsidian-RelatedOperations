@@ -6,12 +6,14 @@ import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelect
 import { brokenNoteLinkKey, createMissingNotes, findBrokenNoteLinks, findBrokenNoteLinkOffset, removeSelectedBrokenNoteLinks, type BrokenNoteLink } from './broken-note-links';
 import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, revalidateNativeImageLink, type NativeImageLink } from './native-image-links';
 import { findDuplicateFiles, removeImageReferencesForFile, type DuplicateFileGroup } from './duplicate-files.ts';
+import type { OrphanCleanupCache } from './settings';
+import type { RelatedOperationsSettings } from './settings';
 
 type ImageGrouping = 'none' | 'path' | 'extension';
 const CLEANUP_PAGE_SIZE = 100;
 const COMMON_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico', 'tif', 'tiff', 'heic', 'heif']);
 
-interface CleanupCandidates {
+export interface CleanupCandidates {
 	images: TFile[];
 	attachments: TFile[];
 	emptyFiles: TFile[];
@@ -22,6 +24,8 @@ interface CleanupCandidates {
 	duplicates: DuplicateFileGroup[];
 	duplicateWarnings: Array<{ path: string; reason: string }>;
 }
+
+export type { BrokenImageLink, BrokenNoteLink, NativeImageLink };
 
 interface CleanupResult {
 	deleted: string[];
@@ -40,6 +44,15 @@ type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'nati
 
 export interface OrphanCleanupHost {
 	close(): void;
+}
+
+export interface OrphanCleanupOptions {
+	cachedCandidates?: CleanupCandidates;
+	cachedSettings?: {
+		orphanImageExtensions: string;
+		orphanIgnoredFolders: string;
+	};
+	saveCache?: (cache: OrphanCleanupCache) => Promise<void>;
 }
 
 export class OrphanCleanupPanel {
@@ -69,11 +82,37 @@ export class OrphanCleanupPanel {
 		private readonly contentEl: HTMLElement,
 		private readonly settings: OrphanImageExtensions,
 		private readonly host: OrphanCleanupHost,
+		private readonly options: OrphanCleanupOptions = {},
 	) {}
 
 	render() {
 		this.contentEl.addClass('orphan-cleanup-panel');
+		if (this.options.cachedCandidates) {
+			this.restoreFromCache();
+		} else {
+			this.renderContents();
+		}
+	}
+
+	private restoreFromCache() {
+		this.candidates = this.options.cachedCandidates!;
+		this.hasScanned = true;
+		this.processed = undefined;
+		this.pages.clear();
 		this.renderContents();
+	}
+
+	private saveCacheToSettings() {
+		const cache: OrphanCleanupCache = {
+			version: 1,
+			scannedAt: new Date().toISOString(),
+			candidates: this.candidates,
+			settingsSnapshot: {
+				orphanImageExtensions: this.settings.orphanImageExtensions,
+				orphanIgnoredFolders: this.settings.orphanIgnoredFolders,
+			},
+		};
+		void this.options.saveCache?.(cache);
 	}
 
 	dispose() {
@@ -497,6 +536,8 @@ export class OrphanCleanupPanel {
 			this.selections.delete(file.path);
 			this.renderContents();
 			new Notice(`已移入回收站：${file.path}`);
+			this.saveCacheToSettings();
+			this.renderContents();
 		} catch (error) { new Notice(`删除失败：${reasonFor(error)}`); }
 	}
 
@@ -1000,7 +1041,8 @@ export class OrphanCleanupPanel {
 			this.candidates.duplicates = this.candidates.duplicates.map((group) => ({ ...group, files: group.files.filter((f) => !result.deleted.includes(f.path)) })).filter((group) => group.files.length > 1);
 		}
 		this.duplicateSelections.clear();
-		await this.scan(true);
+		this.saveCacheToSettings();
+		this.renderContents();
 	}
 
 	private async revalidateCleanupSelection(filePaths: Iterable<string>, folderPaths: Iterable<string>) {
@@ -1066,14 +1108,19 @@ export class OrphanCleanupPanel {
 export class OrphanCleanupModal extends Modal {
 	private panel?: OrphanCleanupPanel;
 
-	constructor(app: App, private readonly settings: OrphanImageExtensions) {
+	constructor(app: App, private readonly settings: RelatedOperationsSettings, private readonly saveCache: (cache: OrphanCleanupCache) => Promise<void>) {
 		super(app);
 	}
 
 	onOpen() {
 		this.modalEl.addClass('orphan-cleanup-dialog');
 		this.titleEl.setText('Vault 体检与清理');
-		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.settings, this);
+		const options: OrphanCleanupOptions = {
+			cachedCandidates: this.settings.orphanCleanupCache?.candidates,
+			cachedSettings: this.settings.orphanCleanupCache?.settingsSnapshot,
+			saveCache: this.saveCache,
+		};
+		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.settings, this, options);
 		this.panel.render();
 	}
 

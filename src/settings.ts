@@ -1,13 +1,28 @@
 import { App, Notice, PluginSettingTab, SettingDefinition, SettingDefinitionItem } from 'obsidian';
 import type RelatedOperationsPlugin from './main';
 import { LinkStatsPropertyNames, LinkStatsSettings } from './link-stats';
+import { CleanupCandidates } from './orphan-cleanup';
 
 export interface RelatedOperationsSettings extends LinkStatsSettings {
 	groupingMode: 'none' | 'source' | 'path';
 	hideCompliant: boolean;
 	orphanImageExtensions: string;
 	orphanIgnoredFolders: string;
+	orphanCleanupCache?: OrphanCleanupCache;
 }
+
+export interface OrphanCleanupCache {
+	version: number;
+	scannedAt: string;
+	candidates: CleanupCandidates;
+	settingsSnapshot: {
+		orphanImageExtensions: string;
+		orphanIgnoredFolders: string;
+	};
+}
+
+const CACHE_VERSION = 1;
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	groupingMode: 'source',

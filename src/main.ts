@@ -39,7 +39,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.settings = loaded;
 		this.registerLinkStatsUpdater();
 		this.registerView(RELATED_NOTES_VIEW_TYPE, (leaf) => new RelatedNotesView(leaf, this.settings, () => this.saveSettings()));
-		this.registerView(ORPHAN_CLEANUP_VIEW_TYPE, (leaf) => new OrphanCleanupView(leaf, this.settings));
+		this.registerView(ORPHAN_CLEANUP_VIEW_TYPE, (leaf) => new OrphanCleanupView(leaf, this.settings, () => this.saveSettings()));
 		this.addSettingTab(new RelatedOperationsSettingTab(this.app, this));
 		this.registerNotebookNavigatorMenus();
 		this.app.workspace.onLayoutReady(() => this.retryNotebookNavigatorRegistration());
@@ -160,7 +160,10 @@ export default class RelatedOperationsPlugin extends Plugin {
 
 	private async openOrphanCleanupWindow() {
 		if (Platform.isMobile) {
-			new OrphanCleanupModal(this.app, this.settings).open();
+			new OrphanCleanupModal(this.app, this.settings, async (cache) => {
+				this.settings.orphanCleanupCache = cache;
+				await this.saveSettings();
+			}).open();
 			return;
 		}
 		const existingLeaf = this.app.workspace.getLeavesOfType(ORPHAN_CLEANUP_VIEW_TYPE)[0];
@@ -175,7 +178,10 @@ export default class RelatedOperationsPlugin extends Plugin {
 				active: true,
 			});
 		} catch {
-			new OrphanCleanupModal(this.app, this.settings).open();
+			new OrphanCleanupModal(this.app, this.settings, async (cache) => {
+				this.settings.orphanCleanupCache = cache;
+				await this.saveSettings();
+			}).open();
 		}
 	}
 
