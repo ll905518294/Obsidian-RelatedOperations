@@ -11,14 +11,17 @@
 - Optionally maintains incoming, outgoing, and bidirectional link counts in frontmatter for display in Notebook Navigator.
 - Aggregates related notes across all selected source notes and de-duplicates the move list.
 - Batch views show the source note beside each related-note row; the same related note may appear for multiple sources but is moved once.
-- Uses a movable standalone popout window on desktop and a modal fallback on mobile.
+- Opens the cleanup tool as a normal workspace tab on desktop and a modal fallback on mobile.
 - Groups notes into outgoing, incoming, and bidirectional tabs with counts.
 - Supports cross-tab selection, current-group select-all, and note navigation.
 - Selects multiple related notes before moving.
 - Defaults the base target folder to the source note's parent folder.
 - For a batch, defaults to the parent folder of the first source note by path order.
-- Defaults the subfolder to `Pages`; it can be cleared, replaced, or extended with nested paths.
-- Allows choosing or typing a base folder and an optional nested subfolder.
+- Defaults the target folder to the source note's folder plus `Pages`.
+- Allows typing a complete target folder path or choosing a shortcut for the current folder, source-note folder, or current folder plus `Pages`.
+- Supports one grouping mode at a time: no grouping, grouping by source note, or grouping by current path. Legacy grouping settings are migrated automatically.
+- **全选当前分组** only selects the current relation tab; **全选所有可移动笔记** selects deduplicated movable notes across all tabs.
+- The **双向链接** tab is the intersection of outgoing and incoming links and must not be added to those counts as an independent category.
 - Defaults to grouping rows by source note; grouping by current path and hiding compliant rows can be changed in the panel or plugin settings.
 - Shows a confirmation step before any batch move is executed.
 - Uses Obsidian's native file manager so link updates follow the user's Obsidian settings.
@@ -26,7 +29,7 @@
 
 ## Orphan resource cleanup
 
-Use the left ribbon **打开 Vault 体检与清理** icon or the command with the same name to open the cleanup window. On desktop it opens in a movable standalone window; on mobile, or when a standalone window cannot be created, it falls back to a modal. Click **开始扫描** to inspect unreferenced images, unreferenced attachments, empty files, and recursively empty folders in separate tabs. Empty files include zero-byte non-image, non-Canvas files and Markdown files containing only YAML frontmatter. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
+Use the left ribbon **打开 Vault 体检与清理** icon or the command with the same name to open the cleanup tool. On desktop it opens as a normal workspace tab; on mobile it falls back to a modal. After scanning, **体检首页** and each cleanup category are sibling tabs, so you can switch back to the overview at any time. Click **开始扫描** to inspect unreferenced images, unreferenced attachments, empty files, and recursively empty folders in separate tabs. Empty files include zero-byte non-image, non-Canvas files and Markdown files containing only YAML frontmatter. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
 
 - Images: the formats configured in **设置 → Obsidian-Manager → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
 - Ignored folders: configure **设置 → Obsidian-Manager → 忽略目录** with comma-, space-, or line-break-separated paths. A folder and all descendants are excluded from unreferenced-image, unreferenced-attachment, and empty-folder candidates; broken and native image-link checks are unchanged.
@@ -40,6 +43,7 @@ Use the left ribbon **打开 Vault 体检与清理** icon or the command with th
 - After image cleanup, select **重新扫描** before cleaning folders that have only just become empty.
 - Before moving a selected resource to the local trash, the plugin rescans its cleanup status. Resources that were referenced, changed, or removed after the original scan are skipped.
 - Reports: **复制报告** copies the current scan to the clipboard; **导出报告** writes a Markdown report such as `related-operations-report-20260829-120000.md` to the vault root. Reports contain paths and link details, not note bodies. The latest batch summary is shown in the result window and is not persisted as a log file.
+- Duplicate files: the **重复文件** tab groups non-hidden, non-ignored Markdown, image, and attachment files by exact SHA-256 content hash after a file-size precheck; Canvas files and single-file groups are excluded. Duplicate results are read-only in this version: paths can be opened and included in reports, but no files are moved or deleted. Results are labeled **安全处理** (existing reversible cleanup), **需确认** (note edits or note creation), or **仅提示** (duplicate groups and scan warnings).
 
 ## Link-count properties
 

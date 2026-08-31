@@ -1,5 +1,14 @@
 # Obsidian community plugin
 
+## 协作文档路由
+
+- 处理非简单任务时，先读取 `HANDOFF.md`、`PROJECT_MEMORY.md`，再按任务需要读取 `docs/architecture.md`、`docs/runbook.md`、`docs/decisions.md`。
+- `HANDOFF.md` 记录当前未完成事项和下一步；任务完成且无遗留时保持简短。
+- `PROJECT_MEMORY.md` 只记录已验证、长期有效的项目事实；不要写过程流水账或未经验证的猜测。
+- `CHANGELOG.md` 只记录用户或调用方可感知的变化；纯内部整理不单独记录。
+- 代码、脚本或文档改动后，运行最相关的测试、构建或静态检查，并在交付时说明验证范围。
+- 文档与代码不一致时，以实际代码行为为准，并在收尾时同步相关文档。
+
 ## Project overview
 
 - Target: Obsidian Community Plugin (TypeScript → bundled JavaScript).

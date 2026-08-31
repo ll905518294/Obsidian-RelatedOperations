@@ -5,6 +5,7 @@ import { selectCurrentCleanupItems } from './cleanup-selection';
 import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelectedBrokenLinks, type BrokenImageLink } from './broken-image-links';
 import { brokenNoteLinkKey, createMissingNotes, findBrokenNoteLinks, findBrokenNoteLinkOffset, removeSelectedBrokenNoteLinks, type BrokenNoteLink } from './broken-note-links';
 import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, revalidateNativeImageLink, type NativeImageLink } from './native-image-links';
+import { findDuplicateFiles, removeImageReferencesForFile, type DuplicateFileGroup } from './duplicate-files.ts';
 
 type ImageGrouping = 'none' | 'path' | 'extension';
 const CLEANUP_PAGE_SIZE = 100;
@@ -18,6 +19,8 @@ interface CleanupCandidates {
 	brokenLinks: BrokenImageLink[];
 	nativeLinks: NativeImageLink[];
 	brokenNoteLinks: BrokenNoteLink[];
+	duplicates: DuplicateFileGroup[];
+	duplicateWarnings: Array<{ path: string; reason: string }>;
 }
 
 interface CleanupResult {
@@ -30,26 +33,28 @@ interface OrphanImageExtensions {
 	orphanImageExtensions: string;
 	orphanIgnoredFolders: string;
 }
-type ScanStage = { label: string; state: 'pending' | 'scanning' | 'done' };
-type CleanupPage = 'result' | 'details';
+
+type ScanStage = { label: string; state: 'pending' | 'scanning' | 'done'; elapsedMs: number; startedAt?: number };
+type ScanProgress = { stage: number; processed: number; total: number; currentFile?: string };
+type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'native-links' | 'broken-note-links' | 'empty-files' | 'folders' | 'duplicates';
 
 export interface OrphanCleanupHost {
 	close(): void;
 }
 
 export class OrphanCleanupPanel {
-	private candidates: CleanupCandidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [] };
+	private candidates: CleanupCandidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], duplicates: [], duplicateWarnings: [] };
 	private selections = new Set<string>();
 	private linkSelections = new Set<string>();
 	private nativeSelections = new Set<string>();
 	private noteLinkSelections = new Set<string>();
-	private activeTab: string = 'images';
+	private activeTab: CleanupTab = 'overview';
 	private imageGrouping: ImageGrouping = 'none';
 	private attachmentGrouping: ImageGrouping = 'none';
 	private scanning = false;
 	private hasScanned = false;
-	private page: CleanupPage = 'result';
 	private scanStages: ScanStage[] = [];
+	private scanProgress: ScanProgress = { stage: 0, processed: 0, total: 0 };
 	private scanGeneration = 0;
 	private scanStartedAt = 0;
 	private scanElapsedMs = 0;
@@ -89,36 +94,54 @@ export class OrphanCleanupPanel {
 			this.scanElapsedMs = performance.now() - this.scanStartedAt;
 			const elapsed = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-elapsed');
 			if (elapsed) elapsed.setText(`用时 ${formatScanDuration(this.scanElapsedMs)}`);
+			this.updateScanStageRows();
 		}, 250);
 		this.selections.clear();
 		this.linkSelections.clear();
 		this.nativeSelections.clear();
 		this.noteLinkSelections.clear();
 		this.pages.clear();
-		this.scanStages = ['扫描资料库文件', '分析引用关系', '检查文本引用', '检查空文件与文件夹', '检查链接健康度'].map((label, index) => ({ label, state: index === 0 ? 'scanning' : 'pending' }));
+		const startedAt = performance.now();
+		this.scanStages = ['扫描资料库文件', '分析引用关系', '检查文本引用', '检查空文件与文件夹', '检查链接健康度', '检查重复文件'].map((label, index) => ({ label, state: index === 0 ? 'scanning' : 'pending', elapsedMs: 0, startedAt: index === 0 ? startedAt : undefined }));
+		this.scanProgress = { stage: 0, processed: 0, total: 0 };
 		this.renderContents();
 		try {
-			const candidates = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions, this.settings.orphanIgnoredFolders, (stage) => {
+			const candidates = await findCleanupCandidates(this.app, this.settings.orphanImageExtensions, this.settings.orphanIgnoredFolders, (progress) => {
 				if (generation !== this.scanGeneration) return;
-				this.scanStages.forEach((item, index) => { item.state = index < stage ? 'done' : index === stage ? 'scanning' : 'pending'; });
-				this.renderContents();
+				const stageChanged = this.scanProgress.stage !== progress.stage;
+				const previousStage = this.scanProgress.stage;
+				this.scanProgress = progress;
+				if (stageChanged) {
+					const now = performance.now();
+					const previous = this.scanStages[previousStage];
+					if (previous?.startedAt) previous.elapsedMs = now - previous.startedAt;
+					const current = this.scanStages[progress.stage];
+					if (current && !current.startedAt) current.startedAt = now;
+					this.scanStages.forEach((item, index) => { item.state = index < progress.stage ? 'done' : index === progress.stage ? 'scanning' : 'pending'; });
+					this.updateScanStageRows();
+				}
+				this.updateScanProgress();
 			});
 			if (generation !== this.scanGeneration) return;
 			this.candidates = candidates;
 			this.hasScanned = true;
-			this.page = 'result';
+			this.renderContents();
 		} catch (error) {
 			if (generation !== this.scanGeneration) return;
 			new Notice(`扫描失败：${reasonFor(error)}`);
-			this.candidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [] };
+			this.candidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], duplicates: [], duplicateWarnings: [] };
 			this.hasScanned = false;
-			this.page = 'result';
+			this.renderContents();
 		} finally {
 			if (generation === this.scanGeneration) {
 				this.scanning = false;
 				this.scanElapsedMs = performance.now() - this.scanStartedAt;
 				window.clearInterval(this.scanTimer);
+				const now = performance.now();
+				const current = this.scanStages[this.scanProgress.stage];
+				if (current?.startedAt) current.elapsedMs = now - current.startedAt;
 				this.scanStages.forEach((item) => { item.state = 'done'; });
+				this.updateScanStageRows();
 				this.renderContents();
 			}
 		}
@@ -130,12 +153,18 @@ export class OrphanCleanupPanel {
 			this.renderScanDashboard();
 			return;
 		}
-		if (!this.hasScanned) { this.renderScanWelcome(); return; }
-		if (this.page === 'result') { this.renderScanResult(); return; }
-		this.renderDetailsHeader();
+		if (!this.hasScanned) {
+			this.renderTabs();
+			this.renderScanWelcome();
+			return;
+		}
 		this.renderTabs();
 		if (this.showHelp) this.renderHelp();
 		if (this.processed) this.renderProcessedSummary();
+		if (this.activeTab === 'overview') {
+			this.renderOverview();
+			return;
+		}
 		this.renderList();
 		this.renderActions();
 	}
@@ -154,46 +183,67 @@ export class OrphanCleanupPanel {
 		const dashboard = this.contentEl.createDiv({ cls: 'orphan-cleanup-scan-dashboard' });
 		dashboard.createDiv({ cls: 'orphan-cleanup-scan-orb', text: '⌁' });
 		dashboard.createEl('h2', { text: '正在体检资料库…' });
-		dashboard.createEl('p', { text: '请稍候，扫描完成后会显示可处理的问题。', cls: 'orphan-cleanup-scan-detail' });
+		dashboard.createEl('p', { text: '扫描完成后会直接显示可处理的问题。', cls: 'orphan-cleanup-scan-detail' });
 		dashboard.createDiv({ text: `用时 ${formatScanDuration(this.scanElapsedMs)}`, cls: 'orphan-cleanup-scan-elapsed' });
+		const progress = dashboard.createDiv({ cls: 'orphan-cleanup-scan-progress' });
+		progress.createDiv({ cls: 'orphan-cleanup-scan-progress-track' }).createDiv({ cls: 'orphan-cleanup-scan-progress-bar' });
+		progress.createDiv({ cls: 'orphan-cleanup-scan-progress-meta' });
+		progress.createDiv({ cls: 'orphan-cleanup-scan-current-file' });
 		const list = dashboard.createDiv({ cls: 'orphan-cleanup-scan-stages' });
 		for (const stage of this.scanStages) {
 			const row = list.createDiv({ cls: `orphan-cleanup-scan-stage is-${stage.state}` });
+			row.dataset.stageIndex = String(this.scanStages.indexOf(stage));
 			row.createSpan({ cls: 'orphan-cleanup-scan-stage-icon', text: stage.state === 'done' ? '✓' : stage.state === 'scanning' ? '…' : '○' });
-			row.createSpan({ text: stage.label });
+			row.createSpan({ cls: 'orphan-cleanup-scan-stage-label', text: stage.label });
+			row.createSpan({ cls: 'orphan-cleanup-scan-stage-duration', text: formatScanDuration(stage.elapsedMs) });
 			row.createSpan({ cls: 'orphan-cleanup-scan-stage-state', text: stage.state === 'done' ? '完成' : stage.state === 'scanning' ? '扫描中' : '等待中' });
+		}
+		this.updateScanProgress();
+	}
+
+	private updateScanProgress() {
+		if (!this.scanning) return;
+		const { processed, total, stage, currentFile } = this.scanProgress;
+		const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+		const bar = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-progress-bar');
+		if (bar) bar.style.width = `${percent}%`;
+		this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-progress-meta')?.setText(`${this.scanStages[stage]?.label ?? '扫描中'}：${processed}/${total || '…'}（${percent}%）`);
+		this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-current-file')?.setText(currentFile ? `当前文件：${currentFile}` : '正在准备扫描…');
+	}
+
+	private updateScanStageRows() {
+		const now = performance.now();
+		for (const row of Array.from(this.contentEl.querySelectorAll<HTMLElement>('.orphan-cleanup-scan-stage'))) {
+			const index = Number(row.dataset.stageIndex);
+			const stage = this.scanStages[index];
+			if (!stage) continue;
+			const elapsedMs = stage.state === 'scanning' && stage.startedAt ? now - stage.startedAt : stage.elapsedMs;
+			row.className = `orphan-cleanup-scan-stage is-${stage.state}`;
+			row.querySelector('.orphan-cleanup-scan-stage-icon')?.setText(stage.state === 'done' ? '✓' : stage.state === 'scanning' ? '…' : '○');
+			row.querySelector('.orphan-cleanup-scan-stage-duration')?.setText(formatScanDuration(elapsedMs));
+			row.querySelector('.orphan-cleanup-scan-stage-state')?.setText(stage.state === 'done' ? '完成' : stage.state === 'scanning' ? '扫描中' : '等待中');
 		}
 	}
 
-	private renderScanResult() {
-		const total = this.candidates.images.length + this.candidates.attachments.length + this.candidates.emptyFiles.length + this.candidates.folders.length + this.candidates.brokenLinks.length + this.candidates.nativeLinks.length + this.candidates.brokenNoteLinks.length;
-		const dashboard = this.contentEl.createDiv({ cls: 'orphan-cleanup-scan-result' });
-		dashboard.createDiv({ cls: 'orphan-cleanup-scan-result-icon', text: total ? '!' : '✓' });
-		const copy = dashboard.createDiv({ cls: 'orphan-cleanup-scan-result-copy' });
-		copy.createEl('h2', { text: total ? '体检完成，发现可处理项目' : '体检完成，资料库状态良好' });
-		copy.createEl('p', { text: `本次扫描用时 ${formatScanDuration(this.scanElapsedMs)}，共发现 ${total} 项结果。` });
-		const counts = dashboard.createDiv({ cls: 'orphan-cleanup-scan-result-counts' });
-		for (const [label, count] of [['未引用图片', this.candidates.images.length], ['未引用附件', this.candidates.attachments.length], ['失效链接', this.candidates.brokenLinks.length + this.candidates.brokenNoteLinks.length], ['原生图片链接', this.candidates.nativeLinks.length], ['空文件/文件夹', this.candidates.emptyFiles.length + this.candidates.folders.length]] as const) {
-			const item = counts.createDiv({ cls: 'orphan-cleanup-scan-result-count' });
+	private renderOverview() {
+		const total = this.candidates.images.length + this.candidates.attachments.length + this.candidates.emptyFiles.length + this.candidates.folders.length + this.candidates.brokenLinks.length + this.candidates.nativeLinks.length + this.candidates.brokenNoteLinks.length + this.candidates.duplicates.length;
+		const overview = this.contentEl.createDiv({ cls: 'orphan-cleanup-overview' });
+		overview.createEl('h2', { text: total ? '体检完成，发现可处理项目' : '体检完成，资料库状态良好' });
+		overview.createEl('p', { text: `本次扫描用时 ${formatScanDuration(this.scanElapsedMs)}，共发现 ${total} 项结果。`, cls: 'orphan-cleanup-overview-detail' });
+		const counts = overview.createDiv({ cls: 'orphan-cleanup-overview-counts' });
+		for (const [label, count] of [['未引用图片', this.candidates.images.length], ['未引用附件', this.candidates.attachments.length], ['失效链接', this.candidates.brokenLinks.length + this.candidates.brokenNoteLinks.length], ['原生图片链接', this.candidates.nativeLinks.length], ['空文件/文件夹', this.candidates.emptyFiles.length + this.candidates.folders.length], ['重复文件组', this.candidates.duplicates.length]] as const) {
+			const item = counts.createDiv({ cls: 'orphan-cleanup-overview-count' });
 			item.createEl('strong', { text: String(count) });
 			item.createSpan({ text: label });
 		}
-		const rescan = dashboard.createEl('button', { text: '重新扫描' });
+		const rescan = overview.createEl('button', { text: '重新扫描', cls: 'mod-cta' });
 		rescan.addEventListener('click', () => void this.scan());
-		const details = dashboard.createEl('button', { text: '查看详细清理', cls: 'mod-cta' });
-		details.addEventListener('click', () => { this.page = 'details'; this.renderContents(); });
-	}
-
-	private renderDetailsHeader() {
-		const header = this.contentEl.createDiv({ cls: 'orphan-cleanup-details-header' });
-		const back = header.createEl('button', { text: '← 返回体检结果' });
-		back.addEventListener('click', () => { this.page = 'result'; this.renderContents(); });
-		header.createEl('strong', { text: '详细清理项目' });
 	}
 
 	private renderTabs() {
 		const tabs = this.contentEl.createDiv({ cls: 'orphan-cleanup-tabs' });
 		for (const [tab, label, count] of [
+			['overview', '体检首页', 0],
 			['images', '未引用图片', this.candidates.images.length],
 			['attachments', '未引用附件', this.candidates.attachments.length],
 			['broken-links', '失效图片链接', this.candidates.brokenLinks.length],
@@ -201,6 +251,7 @@ export class OrphanCleanupPanel {
 			['broken-note-links', '失效笔记链接', this.candidates.brokenNoteLinks.length],
 			['empty-files', '空文件', this.candidates.emptyFiles.length],
 			['folders', '空文件夹', this.candidates.folders.length],
+			['duplicates', '重复文件', this.candidates.duplicates.length],
 		] as const) {
 			const button = tabs.createEl('button', {
 				text: `${label}（${count}）`,
@@ -222,6 +273,7 @@ export class OrphanCleanupPanel {
 			this.renderContents();
 		});
 	}
+
 
 	private renderHelp() {
 		const help = this.contentEl.createDiv({ cls: 'orphan-cleanup-help' });
@@ -245,6 +297,17 @@ export class OrphanCleanupPanel {
 		const content = list.createDiv({ cls: 'orphan-cleanup-scroll' });
 		this.addRefreshControl(toolbar);
 		this.addReportControls(toolbar);
+		if (currentTab === 'duplicates') {
+			if (this.candidates.duplicateWarnings.length) {
+				content.createDiv({ text: `有 ${this.candidates.duplicateWarnings.length} 个文件读取失败，仅展示成功计算哈希的结果。`, cls: 'orphan-cleanup-warning' });
+			}
+			const page = this.pageFor(currentTab, this.candidates.duplicates.length);
+			const pageItems = this.candidates.duplicates.slice(page * CLEANUP_PAGE_SIZE, (page + 1) * CLEANUP_PAGE_SIZE);
+			if (!pageItems.length) content.createEl('p', { text: '没有发现重复文件。', cls: 'orphan-cleanup-empty' });
+			else this.renderDuplicateGroups(content, pageItems);
+			this.renderPagination(toolbar, this.candidates.duplicates.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
+			return;
+		}
 		if (this.activeTab === 'images' || this.activeTab === 'attachments') this.addGroupingControl(toolbar);
 
 		if (currentTab === 'broken-links' || currentTab === 'native-links' || currentTab === 'broken-note-links') {
@@ -318,6 +381,106 @@ export class OrphanCleanupPanel {
 		this.renderPagination(toolbar, items.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
 	}
 
+	private renderDuplicateGroups(container: HTMLElement, groups: DuplicateFileGroup[]) {
+		for (const group of groups) {
+			const section = container.createDiv({ cls: 'orphan-cleanup-duplicate-group' });
+			section.createEl('h3', { text: `${group.files.length} 个文件 · ${formatBytes(group.size)}` });
+			section.createDiv({ text: `SHA-256：${group.hash}`, cls: 'orphan-cleanup-detail' });
+			const table = section.createEl('table', { cls: 'orphan-cleanup-table orphan-cleanup-duplicate-table' });
+			const header = table.createEl('thead').createEl('tr');
+			for (const text of ['文件', '所在笔记', '所在文件夹', '状态', '操作']) header.createEl('th', { text });
+			const body = table.createEl('tbody');
+			for (const file of group.files) {
+				const row = body.createEl('tr');
+				const fileCell = row.createEl('td', { cls: 'orphan-cleanup-path' });
+				if (isImageFile(file.extension)) {
+					const preview = fileCell.createEl('img', { attr: { alt: `${file.path} 预览`, loading: 'lazy' }, cls: 'orphan-cleanup-duplicate-preview' });
+					const target = this.app.vault.getAbstractFileByPath(file.path);
+					if (target instanceof TFile) preview.src = this.app.vault.getResourcePath(target);
+					preview.title = '点击预览';
+					preview.addEventListener('click', () => { if (target instanceof TFile) new ImagePreviewModal(this.app, [target], 0, async () => {}).open(); });
+				}
+				const link = fileCell.createEl('a', { text: file.path, cls: 'orphan-cleanup-link' });
+				link.addEventListener('click', (event) => { event.preventDefault(); void this.app.workspace.openLinkText(file.path, '', 'tab'); });
+				const notesCell = row.createEl('td', { cls: 'orphan-cleanup-detail' });
+				if (file.referencingNotes.length) {
+					for (const [index, note] of file.referencingNotes.entries()) {
+						if (index) notesCell.appendText('、');
+						const noteLink = notesCell.createEl('a', { text: note, cls: 'orphan-cleanup-link' });
+						noteLink.addEventListener('click', (event) => { event.preventDefault(); void this.app.workspace.openLinkText(note, '', 'tab'); });
+					}
+				} else notesCell.setText('未发现引用');
+				const folderCell = row.createEl('td', { cls: 'orphan-cleanup-detail' });
+				const folderPath = parentFolder(file.path);
+				if (!folderPath) folderCell.setText('根目录');
+				else {
+					const folderLink = folderCell.createEl('a', { text: folderPath, cls: 'orphan-cleanup-link' });
+					folderLink.addEventListener('click', (event) => {
+						event.preventDefault();
+						const folder = this.app.vault.getAbstractFileByPath(folderPath);
+						if (folder instanceof TFolder) openFolderInVault(this.app, folder);
+					});
+				}
+				row.createEl('td', { text: `${file.extension.toUpperCase() || '无扩展名'} · ${file.referenced ? '已被引用' : '未发现引用'}`, cls: 'orphan-cleanup-detail' });
+				const actions = row.createEl('td');
+				const locate = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
+				setIcon(locate, 'locate-fixed'); locate.title = '在笔记中定位'; locate.setAttribute('aria-label', '在笔记中定位');
+				locate.addEventListener('click', () => void this.locateDuplicateReference(file));
+				if (isImageFile(file.extension)) {
+					const clean = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
+					setIcon(clean, 'eraser'); clean.title = '清理图片链接'; clean.setAttribute('aria-label', '清理图片链接');
+					clean.addEventListener('click', () => void this.cleanDuplicateLinks(file));
+					const remove = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
+					setIcon(remove, 'trash-2'); remove.title = '删除图片'; remove.setAttribute('aria-label', '删除图片');
+					remove.addEventListener('click', () => void this.deleteDuplicateFile(file));
+				}
+				const openFolder = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
+				setIcon(openFolder, 'folder-open'); openFolder.title = '打开所在文件夹'; openFolder.setAttribute('aria-label', '打开所在文件夹');
+				openFolder.addEventListener('click', () => { const target = this.app.vault.getAbstractFileByPath(file.path); if (target) openInSystemFolder(this.app, target); });
+			}
+		}
+	}
+
+	private async locateDuplicateReference(file: DuplicateFileGroup['files'][number]) {
+		const note = file.referencingNotes[0];
+		if (!note) { new Notice('没有找到引用此文件的笔记。'); return; }
+		await this.app.workspace.openLinkText(note, '', false, { state: { mode: 'source' } });
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view?.file || view.file.path !== note) { new Notice(`已打开引用笔记：${note}`); return; }
+		const cache = this.app.metadataCache.getFileCache(view.file);
+		const reference = [...cache?.embeds ?? [], ...cache?.links ?? []].find((item) => {
+			if (!item.original.startsWith('!')) return false;
+			return this.app.metadataCache.getFirstLinkpathDest(item.link.split('#', 1)[0] ?? '', note)?.path === file.path;
+		});
+		if (!reference) { new Notice(`已打开引用笔记：${note}`); return; }
+		const from = view.editor.offsetToPos(reference.position.start.offset);
+		const to = view.editor.offsetToPos(reference.position.end.offset);
+		view.editor.setSelection(from, to);
+		view.editor.scrollIntoView({ from, to }, true);
+		new Notice(`已在笔记中定位：${note}`);
+	}
+
+	private async cleanDuplicateLinks(file: DuplicateFileGroup['files'][number]) {
+		const result = await removeImageReferencesForFile(this.app, file.path);
+		new Notice(`已清理 ${result.removed} 条图片链接${result.failed.length ? `，失败 ${result.failed.length} 个文件` : ''}。`);
+		if (result.removed) await this.scan(true);
+	}
+
+	private async deleteDuplicateFile(file: DuplicateFileGroup['files'][number]) {
+		if (!await new CleanupConfirmationModal(this.app, 1, 0, 0, 0).waitForConfirmation()) return;
+		const target = this.app.vault.getAbstractFileByPath(file.path);
+		if (!(target instanceof TFile)) { new Notice('文件不存在，请重新扫描。'); return; }
+		try {
+			await this.app.fileManager.trashFile(target);
+			this.candidates.duplicates = this.candidates.duplicates
+				.map((group) => ({ ...group, files: group.files.filter((item) => item.path !== file.path) }))
+				.filter((group) => group.files.length > 1);
+			this.selections.delete(file.path);
+			this.renderContents();
+			new Notice(`已移入回收站：${file.path}`);
+		} catch (error) { new Notice(`删除失败：${reasonFor(error)}`); }
+	}
+
 	private addSelectionControls(
 		container: HTMLElement,
 		pageCount: number,
@@ -376,7 +539,7 @@ export class OrphanCleanupPanel {
 	}
 
 	private addReportControls(container: HTMLElement) {
-		const report = () => buildCleanupReport({ generatedAt: new Date().toLocaleString('zh-CN'), images: this.candidates.images.map((item) => item.path), attachments: this.candidates.attachments.map((item) => item.path), emptyFiles: this.candidates.emptyFiles.map((item) => item.path), folders: this.candidates.folders.map((item) => item.path), brokenLinks: this.candidates.brokenLinks.map(({ sourcePath, original, linkPath }) => ({ sourcePath, original, linkPath })), nativeLinks: this.candidates.nativeLinks.map((item) => ({ sourcePath: item.sourcePath, original: item.original, status: convertNativeImageLink(item) ?? item.reason ?? '未解析目标' })), brokenNoteLinks: this.candidates.brokenNoteLinks.map(({ sourcePath, original, linkPath, syntax }) => ({ sourcePath, original, linkPath, syntax })), processed: this.processed });
+		const report = () => buildCleanupReport({ generatedAt: new Date().toLocaleString('zh-CN'), images: this.candidates.images.map((item) => item.path), attachments: this.candidates.attachments.map((item) => item.path), emptyFiles: this.candidates.emptyFiles.map((item) => item.path), folders: this.candidates.folders.map((item) => item.path), brokenLinks: this.candidates.brokenLinks.map(({ sourcePath, original, linkPath }) => ({ sourcePath, original, linkPath })), nativeLinks: this.candidates.nativeLinks.map((item) => ({ sourcePath: item.sourcePath, original: item.original, status: convertNativeImageLink(item) ?? item.reason ?? '未解析目标' })), brokenNoteLinks: this.candidates.brokenNoteLinks.map(({ sourcePath, original, linkPath, syntax }) => ({ sourcePath, original, linkPath, syntax })), duplicates: this.candidates.duplicates, duplicateWarnings: this.candidates.duplicateWarnings, processed: this.processed });
 		const copy = container.createEl('button', { text: '复制报告' });
 		copy.addEventListener('click', () => void (async () => { try { await navigator.clipboard.writeText(report()); new Notice('报告已复制。'); } catch (error) { new Notice(`复制报告失败：${reasonFor(error)}`); } })());
 		const exportButton = container.createEl('button', { text: '导出报告' });
@@ -870,11 +1033,11 @@ export class OrphanCleanupModal extends Modal {
 	}
 }
 
-async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onStage?: (stage: number) => void): Promise<CleanupCandidates> {
+async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void): Promise<CleanupCandidates> {
 	const extensions = parseExtensions(imageExtensions);
 	const ignoredFolders = parseIgnoredFolders(ignoredFoldersValue);
 	const visibleFiles = app.vault.getFiles().filter((file) => !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders));
-	onStage?.(1);
+	onProgress?.({ stage: 0, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	const attachmentFiles = visibleFiles.filter((file) => !['md', 'canvas'].includes(file.extension.toLowerCase()));
 	const images = attachmentFiles.filter((file) => extensions.has(file.extension.toLowerCase()));
 	const attachments = attachmentFiles.filter((file) => !extensions.has(file.extension.toLowerCase()));
@@ -883,23 +1046,25 @@ async function findCleanupCandidates(app: App, imageExtensions: string, ignoredF
 		if (!sourcePath.toLowerCase().endsWith('.md')) continue;
 		for (const path of Object.keys(destinations)) referenced.add(path);
 	}
-	for (const canvas of app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas')) {
+	const canvases = app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
+	for (const [index, canvas] of canvases.entries()) {
 		for (const path of await referencedByCanvas(app, canvas)) referenced.add(path);
+		onProgress?.({ stage: 1, processed: index + 1, total: canvases.length || 1, currentFile: canvas.path });
 	}
-	onStage?.(2);
+	onProgress?.({ stage: 2, processed: 0, total: app.vault.getMarkdownFiles().length });
 	// Conservative textual pass: HTML image tags, frontmatter path values, and
 	// code-block text do not appear in resolvedLinks. Any textual mention of the
 	// file name or path counts as a reference so that such images are never
 	// flagged as orphans.
-	await markFilesReferencedByText(app, [...images, ...attachments], referenced);
-	onStage?.(3);
-	const emptyFiles = (await findEmptyFiles(visibleFiles, extensions, app)).filter((file) => !referenced.has(file.path));
+	await markFilesReferencedByText(app, [...images, ...attachments], referenced, (processed, total, currentFile) => onProgress?.({ stage: 2, processed, total, currentFile }));
+	const emptyFiles = (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }))).filter((file) => !referenced.has(file.path));
 	const folders = findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
-	onStage?.(4);
+	onProgress?.({ stage: 3, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	const brokenLinks = findBrokenImageLinks(app, imageExtensions);
 	const nativeLinks = findNativeImageLinks(app, imageExtensions);
-	const brokenNoteLinks = findBrokenNoteLinks(app, imageExtensions);
-	onStage?.(5);
+		const brokenNoteLinks = findBrokenNoteLinks(app, imageExtensions);
+		onProgress?.({ stage: 5, processed: 0, total: 1 });
+		const duplicateResult = await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress }));
 	return {
 		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
 		attachments: attachments.filter((file) => !referenced.has(file.path)).sort(byPath),
@@ -908,12 +1073,15 @@ async function findCleanupCandidates(app: App, imageExtensions: string, ignoredF
 		brokenLinks,
 		nativeLinks,
 		brokenNoteLinks,
+		duplicates: duplicateResult.groups,
+		duplicateWarnings: duplicateResult.warnings,
 	};
 }
 
-async function findEmptyFiles(files: TFile[], imageExtensions: Set<string>, app: App): Promise<TFile[]> {
+async function findEmptyFiles(files: TFile[], imageExtensions: Set<string>, app: App, onProgress?: (processed: number, total: number, currentFile: string) => void): Promise<TFile[]> {
 	const result: TFile[] = [];
-	for (const file of files) {
+	for (const [index, file] of files.entries()) {
+		onProgress?.(index + 1, files.length, file.path);
 		const extension = file.extension.toLowerCase();
 		if (extension === 'canvas') continue;
 		if (file.stat.size === 0 && !imageExtensions.has(extension) && !COMMON_IMAGE_EXTENSIONS.has(extension)) { result.push(file); continue; }
@@ -924,7 +1092,7 @@ async function findEmptyFiles(files: TFile[], imageExtensions: Set<string>, app:
 	return result.sort(byPath);
 }
 
-async function markFilesReferencedByText(app: App, images: TFile[], referenced: Set<string>): Promise<void> {
+async function markFilesReferencedByText(app: App, images: TFile[], referenced: Set<string>, onProgress?: (processed: number, total: number, currentFile: string) => void): Promise<void> {
 	const remaining = images.filter((image) => !referenced.has(image.path));
 	if (remaining.length === 0) return;
 	const byBasename = new Map<string, string[]>();
@@ -938,7 +1106,9 @@ async function markFilesReferencedByText(app: App, images: TFile[], referenced: 
 		byPath.set(image.path.toLowerCase(), image.path);
 		if (needsRawTextSearch(image.name)) exoticNames.push(key);
 	}
-	for (const file of app.vault.getMarkdownFiles()) {
+	const markdownFiles = app.vault.getMarkdownFiles();
+	for (const [index, file] of markdownFiles.entries()) {
+		onProgress?.(index + 1, markdownFiles.length, file.path);
 		const content = await app.vault.cachedRead(file);
 		for (const token of pathLikeTokens(content)) {
 			for (const candidate of pathTokenCandidates(token.replace(/^[./\\]+/, ''))) {
@@ -1051,10 +1221,20 @@ function openInSystemFolder(app: App, item: TAbstractFile) {
 	}
 }
 
+function openFolderInVault(app: App, folder: TFolder) {
+	const explorer = app.workspace.getLeavesOfType('file-explorer')[0]?.view as { revealInFolder?: (file: TAbstractFile) => void } | undefined;
+	if (explorer?.revealInFolder) explorer.revealInFolder(folder);
+	else openInSystemFolder(app, folder);
+}
+
 function formatBytes(bytes: number) {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImageFile(extension: string) {
+	return COMMON_IMAGE_EXTENSIONS.has(extension.toLowerCase());
 }
 
 function reasonFor(error: unknown) {
