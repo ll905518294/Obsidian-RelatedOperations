@@ -623,15 +623,7 @@ export class OrphanCleanupPanel {
 					const attachmentFiles = visibleFiles.filter((file) => !['md', 'canvas'].includes(file.extension.toLowerCase()));
 					const images = attachmentFiles.filter((file) => extensions.has(file.extension.toLowerCase()));
 					const attachments = attachmentFiles.filter((file) => !extensions.has(file.extension.toLowerCase()));
-					const referenced = new Set<string>();
-					for (const [sourcePath, destinations] of Object.entries(this.app.metadataCache.resolvedLinks)) {
-						if (!sourcePath.toLowerCase().endsWith('.md')) continue;
-						for (const path of Object.keys(destinations)) referenced.add(path);
-					}
-					const canvases = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
-					for (const canvas of canvases) {
-						for (const path of await referencedByCanvas(this.app, canvas)) referenced.add(path);
-					}
+					const referenced = await this.buildReferencedSet();
 					await markFilesReferencedByText(this.app, [...images, ...attachments], referenced);
 					if (tab === 'images') {
 						this.candidates.images = images.filter((file) => !referenced.has(file.path)).sort(byPath);
@@ -653,15 +645,7 @@ export class OrphanCleanupPanel {
 					const extensions = parseExtensions(this.settings.orphanImageExtensions);
 					const ignoredFolders = parseIgnoredFolders(this.settings.orphanIgnoredFolders);
 					const visibleFiles = this.app.vault.getFiles().filter((file) => !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders));
-					const referenced = new Set<string>();
-					for (const [sourcePath, destinations] of Object.entries(this.app.metadataCache.resolvedLinks)) {
-						if (!sourcePath.toLowerCase().endsWith('.md')) continue;
-						for (const path of Object.keys(destinations)) referenced.add(path);
-					}
-					const canvases = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
-					for (const canvas of canvases) {
-						for (const path of await referencedByCanvas(this.app, canvas)) referenced.add(path);
-					}
+					const referenced = await this.buildReferencedSet();
 					await markFilesReferencedByText(this.app, [], referenced);
 					this.candidates.emptyFiles = (await findEmptyFiles(visibleFiles, extensions, this.app)).filter((file) => !referenced.has(file.path));
 					break;
@@ -1208,6 +1192,19 @@ export class OrphanCleanupPanel {
 		this.processed = { success: converted, skipped, failed: failures };
 		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
 		await this.scan();
+	}
+
+	private async buildReferencedSet(): Promise<Set<string>> {
+		const referenced = new Set<string>();
+		for (const [sourcePath, destinations] of Object.entries(this.app.metadataCache.resolvedLinks)) {
+			if (!sourcePath.toLowerCase().endsWith('.md')) continue;
+			for (const path of Object.keys(destinations)) referenced.add(path);
+		}
+		const canvases = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
+		for (const canvas of canvases) {
+			for (const path of await referencedByCanvas(this.app, canvas)) referenced.add(path);
+		}
+		return referenced;
 	}
 }
 
