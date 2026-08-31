@@ -1,5 +1,5 @@
 import type { App, TFile } from 'obsidian';
-import { hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils.ts';
+import { hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils';
 
 export interface DuplicateFileItem {
 	path: string;

@@ -5,7 +5,7 @@ import { selectCurrentCleanupItems } from './cleanup-selection';
 import { brokenLinkKey, findBrokenImageLinks, findBrokenLinkOffset, removeSelectedBrokenLinks, type BrokenImageLink } from './broken-image-links';
 import { brokenNoteLinkKey, createMissingNotes, findBrokenNoteLinks, findBrokenNoteLinkOffset, removeSelectedBrokenNoteLinks, type BrokenNoteLink } from './broken-note-links';
 import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkKey, nativeImageLinkOffset, replaceNativeImageLinks, revalidateNativeImageLink, type NativeImageLink } from './native-image-links';
-import { findDuplicateFiles, removeImageReferencesForFile, type DuplicateFileGroup } from './duplicate-files.ts';
+import { findDuplicateFiles, removeImageReferencesForFile, type DuplicateFileGroup } from './duplicate-files';
 import type { OrphanCleanupCache } from './settings';
 import type { RelatedOperationsSettings } from './settings';
 

@@ -638,7 +638,7 @@ class MoveConfirmationModal extends Modal {
 	onOpen() {
 		this.titleEl.setText('确认整理笔记');
 		this.contentEl.empty();
-			this.contentEl.createEl('p', { text: `即将整理 ${this.movableCount} 篇笔记到：` });
+		this.contentEl.createEl('p', { text: `即将整理 ${this.movableCount} 篇笔记到：` });
 		this.contentEl.createEl('p', { text: this.targetFolder, cls: 'related-operations-confirm-target' });
 		if (this.conflictCount > 0) {
 			this.contentEl.createEl('p', {
