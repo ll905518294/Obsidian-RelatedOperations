@@ -3,14 +3,16 @@ import type RelatedOperationsPlugin from './main';
 import { LinkStatsPropertyNames, LinkStatsSettings } from './link-stats';
 
 export interface RelatedOperationsSettings extends LinkStatsSettings {
-	groupingMode: 'none' | 'source' | 'path';
+	groupBySource: boolean;
+	groupByPath: boolean;
 	hideCompliant: boolean;
 	orphanImageExtensions: string;
 	orphanIgnoredFolders: string;
 }
 
 export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
-	groupingMode: 'source',
+	groupBySource: true,
+	groupByPath: false,
 	hideCompliant: true,
 	orphanImageExtensions: 'png, jpg, jpeg, gif, webp, svg, bmp, avif, ico',
 	orphanIgnoredFolders: '',
@@ -20,7 +22,6 @@ export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	outgoingProperty: 'related-operations-out-links',
 	bidirectionalProperty: 'related-operations-bidirectional-links',
 };
-
 
 export class RelatedOperationsSettingTab extends PluginSettingTab {
 	constructor(app: App, private readonly plugin: RelatedOperationsPlugin) {
@@ -59,16 +60,21 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 				heading: '关联笔记整理默认行为',
 				items: [
 					{
-						name: '默认分组方式',
-						desc: '打开关联笔记整理时选择列表的分组方式。',
+						name: '默认按源笔记分组',
+						desc: '打开移动面板时，按源笔记显示关联条目。',
+						control: { type: 'toggle', key: 'groupBySource' },
+					},
+					{
+						name: '默认按当前路径分组',
+						desc: '仅在未启用按源笔记分组时生效。',
 						control: {
-							type: 'dropdown',
-							key: 'groupingMode',
-							options: { none: '不分组', source: '按源笔记分组', path: '按当前路径分组' },
+							type: 'toggle',
+							key: 'groupByPath',
+							disabled: () => this.plugin.settings.groupBySource,
 						},
 					},
 					{
-						name: '默认隐藏已在目标文件夹的笔记',
+						name: '默认隐藏符合目标的条目',
 						desc: '已经位于最终目标文件夹的关联笔记默认不显示。',
 						control: { type: 'toggle', key: 'hideCompliant' },
 					},

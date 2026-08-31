@@ -17,12 +17,13 @@ export class RelatedNotesPanel {
 	private readonly selections = new Map<string, boolean>();
 	private relatedNotes: RelatedNote[];
 	private groups: Record<'outgoing' | 'incoming' | 'both', RelatedNote[]>;
-	private targetFolder = '';
+	private baseFolder = '';
+	private subfolder = '';
 	private activeGroup: 'outgoing' | 'incoming' | 'both' = 'outgoing';
-	private groupingMode: 'none' | 'source' | 'path';
+	private groupByPath: boolean;
+	private groupBySource: boolean;
 	private hideCompliant: boolean;
 	private readonly showSourceColumn: boolean;
-	private moveButton?: HTMLButtonElement;
 
 	constructor(
 		private readonly app: App,
@@ -38,7 +39,8 @@ export class RelatedNotesPanel {
 	) {
 		this.relatedNotes = [...relatedNotes];
 		this.showSourceColumn = sourceCount > 1;
-		this.groupingMode = settings?.groupingMode ?? 'source';
+		this.groupBySource = settings?.groupBySource ?? true;
+		this.groupByPath = settings?.groupByPath ?? false;
 		this.hideCompliant = settings?.hideCompliant ?? true;
 		this.groups = this.buildGroups();
 	}
@@ -55,7 +57,8 @@ export class RelatedNotesPanel {
 		this.containerEl.empty();
 		this.containerEl.addClass('related-operations-panel');
 		this.containerEl.toggleClass('has-source-column', this.showSourceColumn);
-		this.targetFolder = joinVaultPath(this.parentFolder(this.sourceFile.path), 'Pages');
+		this.baseFolder = this.parentFolder(this.sourceFile.path);
+		this.subfolder = 'Pages';
 		const header = this.containerEl.createDiv({ cls: 'related-operations-header' });
 		this.renderSelectedSourceSummary(header);
 		this.renderTargetControls(header);
@@ -103,28 +106,22 @@ export class RelatedNotesPanel {
 	private sortForDisplay(a: RelatedNote, b: RelatedNote) {
 		const sourceCompare = a.sourceFile.path.localeCompare(b.sourceFile.path);
 		const folderCompare = this.parentFolder(a.file.path).localeCompare(this.parentFolder(b.file.path));
-		return this.groupingMode === 'source'
+		return this.groupBySource
 			? sourceCompare || folderCompare || a.file.path.localeCompare(b.file.path)
 			: folderCompare || sourceCompare || a.file.path.localeCompare(b.file.path);
 	}
 
 	private renderTargetControls(container: HTMLElement) {
 		const target = container.createDiv({ cls: 'related-operations-target-row' });
-		this.addFolderInput(target, '目标文件夹', this.targetFolder, 'related-operations-target-folder', (value) => {
-			this.targetFolder = value;
+		this.addFolderInput(target, '基础目标文件夹', this.baseFolder, 'related-operations-base-folder', (value) => {
+			this.baseFolder = value;
+			this.updateSubfolderSuggestions();
 			this.updatePreviews();
 		});
-		const shortcuts = target.createDiv({ cls: 'related-operations-target-shortcuts' });
-		for (const [label, value] of [['当前目录', this.parentFolder(this.sourceFile.path)], ['源笔记名目录', joinVaultPath(this.parentFolder(this.sourceFile.path), this.sourceFile.basename)], ['当前目录/Pages', joinVaultPath(this.parentFolder(this.sourceFile.path), 'Pages')]] as const) {
-			const button = shortcuts.createEl('button', { text: label });
-			button.type = 'button';
-			button.addEventListener('click', () => {
-				this.targetFolder = value;
-				const input = this.containerEl.querySelector<HTMLInputElement>('.related-operations-target-folder');
-				if (input) input.value = value;
-				this.updatePreviews();
-			});
-		}
+		this.addFolderInput(target, '子文件夹（可选）', this.subfolder, 'related-operations-subfolder', (value) => {
+			this.subfolder = value;
+			this.updatePreviews();
+		});
 		target.createSpan({ text: '→', cls: 'related-operations-target-arrow' });
 		const preview = target.createDiv({ cls: 'related-operations-final-target-inline' });
 		preview.createEl('strong', { text: '目标：' });
@@ -144,7 +141,7 @@ export class RelatedNotesPanel {
 		const input = field.createEl('input', { type: 'text', value });
 		input.addClass(className);
 		const suggestions = field.createDiv({ cls: 'related-operations-folder-suggestions' });
-		const relative = false;
+		const relative = className === 'related-operations-subfolder';
 		input.addEventListener('focus', () => {
 			this.populateFolderSuggestions(suggestions, input, relative);
 			suggestions.addClass('is-visible');
@@ -181,8 +178,6 @@ export class RelatedNotesPanel {
 				this.renderList();
 			});
 		}
-		const hint = tabs.createSpan({ text: '双向链接表示同时存在出链和入链，不计入独立总数。', cls: 'related-operations-tabs-hint' });
-		hint.setAttribute('aria-label', '双向链接说明');
 	}
 
 	private uniqueCount(group: RelatedNote[]) {
@@ -195,36 +190,45 @@ export class RelatedNotesPanel {
 		const actions = this.containerEl.querySelector('.related-operations-actions');
 		this.containerEl.insertBefore(wrapper, actions ?? null);
 		const currentGroup = this.groups[this.activeGroup];
-		const displayToolbar = wrapper.createDiv({ cls: 'related-operations-list-toolbar related-operations-display-toolbar' });
-		const displayOptions = displayToolbar.createDiv({ cls: 'related-operations-display-options' });
+		const toolbar = wrapper.createDiv({ cls: 'related-operations-list-toolbar' });
+		const displayOptions = toolbar.createEl('details', { cls: 'related-operations-display-options' });
+		displayOptions.createEl('summary', { text: '显示选项' });
 		const displayOptionsBody = displayOptions.createDiv({ cls: 'related-operations-display-options-body' });
-		const grouping = displayOptionsBody.createEl('select', { cls: 'related-operations-grouping-select' });
-		for (const [value, label] of [['none', '不分组'], ['source', '按源笔记分组'], ['path', '按当前路径分组']] as const) {
-			grouping.createEl('option', { value, text: label });
-		}
-		grouping.value = this.sourceCount === 1 && this.groupingMode === 'source' ? 'none' : this.groupingMode;
-		if (this.sourceCount === 1) grouping.querySelector('option[value="source"]')?.remove();
-		grouping.addEventListener('change', () => {
-			this.groupingMode = grouping.value as 'none' | 'source' | 'path';
-			if (this.settings) this.settings.groupingMode = this.groupingMode;
+		this.addToggle(displayOptionsBody, '按源笔记分组', 'related-operations-source-toggle', this.groupBySource, (checked) => {
+			this.groupBySource = checked;
+			if (this.settings) this.settings.groupBySource = checked;
+			void this.saveSettings?.();
+			this.renderList();
+		});
+		const pathToggle = this.addToggle(displayOptionsBody, '按当前路径分组', 'related-operations-path-toggle', this.groupByPath, (checked) => {
+			this.groupByPath = checked;
+			if (this.settings) this.settings.groupByPath = checked;
+			void this.saveSettings?.();
+			this.renderList();
+		});
+		pathToggle.disabled = this.groupBySource;
+		this.addToggle(displayOptionsBody, '隐藏符合目标的条目', 'related-operations-hide-toggle', this.hideCompliant, (checked) => {
+			this.hideCompliant = checked;
+			if (this.settings) this.settings.hideCompliant = checked;
 			void this.saveSettings?.();
 			this.renderList();
 		});
 		const hiddenCount = this.uniqueCount(currentGroup.filter((note) => this.isAlreadyAtTarget(note.file)));
-		const hideButton = displayOptionsBody.createEl('button', {
-			text: this.hideCompliant ? `显示已在目标文件夹的笔记（${hiddenCount}）` : `隐藏已在目标文件夹的笔记${hiddenCount > 0 ? `（${hiddenCount}）` : ''}`,
-			cls: 'related-operations-hide-button',
-		});
-		hideButton.type = 'button';
-		hideButton.setAttribute('aria-pressed', String(this.hideCompliant));
-		hideButton.addEventListener('click', () => {
-			this.hideCompliant = !this.hideCompliant;
-			if (this.settings) this.settings.hideCompliant = this.hideCompliant;
-			void this.saveSettings?.();
-			this.renderList();
-		});
-		const selectionToolbar = displayToolbar;
-		const selectAllMovable = selectionToolbar.createEl('button', { text: '全选所有可移动笔记', cls: 'related-operations-select-all-action' });
+		if (hiddenCount > 0 && this.hideCompliant) {
+			const showHidden = toolbar.createEl('button', {
+				text: `符合目标：${hiddenCount} 条`,
+				cls: 'related-operations-hidden-count',
+			});
+			showHidden.type = 'button';
+			showHidden.title = '点击显示符合目标的条目';
+			showHidden.addEventListener('click', () => {
+				this.hideCompliant = false;
+				if (this.settings) this.settings.hideCompliant = false;
+				void this.saveSettings?.();
+				this.renderList();
+			});
+		}
+		const selectAllMovable = toolbar.createEl('button', { text: '全选可移动', cls: 'related-operations-select-all-action' });
 		selectAllMovable.type = 'button';
 		selectAllMovable.title = '选择所有标签页中可移动的关联笔记';
 		selectAllMovable.addEventListener('click', () => {
@@ -235,7 +239,7 @@ export class RelatedNotesPanel {
 			this.refreshSelectAll();
 			this.updateSelectionSummary();
 		});
-		const clearSelection = selectionToolbar.createEl('button', { text: '清空选择' });
+		const clearSelection = toolbar.createEl('button', { text: '清空选择' });
 		clearSelection.type = 'button';
 		clearSelection.addEventListener('click', () => {
 			this.selections.clear();
@@ -243,17 +247,16 @@ export class RelatedNotesPanel {
 			this.refreshSelectAll();
 			this.updateSelectionSummary();
 		});
-		const selectAll = selectionToolbar.createEl('button', { text: '全选当前分组', cls: 'related-operations-select-all' });
-		selectAll.type = 'button';
-		selectAll.addEventListener('click', () => {
-			const movable = currentGroup.filter((note) => !this.isAlreadyAtTarget(note.file));
-			const allSelected = movable.length > 0 && movable.every((note) => this.selections.get(note.file.path) === true);
-			for (const note of movable) this.selections.set(note.file.path, !allSelected);
+		const selectAll = this.addToggle(toolbar, '全选当前分组', 'related-operations-select-all', false, (checked) => {
+			for (const note of currentGroup) {
+				if (!this.isAlreadyAtTarget(note.file)) this.selections.set(note.file.path, checked);
+			}
 			this.syncRowCheckboxes(currentGroup);
 			this.updateSelectAllState(selectAll, currentGroup);
 			this.updateSelectionSummary();
 		});
-		const selectionSummary = selectionToolbar.createSpan({ cls: 'related-operations-selection-summary' });
+		selectAll.addClass('related-operations-select-all');
+		const selectionSummary = toolbar.createSpan({ cls: 'related-operations-selection-summary' });
 		selectionSummary.setAttribute('aria-live', 'polite');
 		this.updateSelectAllState(selectAll, currentGroup);
 		this.updateSelectionSummary();
@@ -270,8 +273,7 @@ export class RelatedNotesPanel {
 			return;
 		}
 
-		const tableScroll = wrapper.createDiv({ cls: 'related-operations-table-scroll' });
-		const table = tableScroll.createEl('table', { cls: 'related-operations-table' });
+		const table = wrapper.createEl('table', { cls: 'related-operations-table' });
 		const thead = table.createEl('thead');
 		const header = thead.createEl('tr');
 		const headers = this.showSourceColumn
@@ -284,9 +286,9 @@ export class RelatedNotesPanel {
 		for (let index = 0; index < displayGroup.length; index++) {
 			const note = displayGroup[index];
 			if (!note) continue;
-			const groupLabel = this.groupingMode === 'source'
+			const groupLabel = this.groupBySource
 				? note.sourceFile.path
-				: this.groupingMode === 'path'
+				: this.groupByPath
 					? this.parentFolder(note.file.path) || '根目录'
 					: '';
 			if (groupLabel && groupLabel !== previousFolder) {
@@ -364,16 +366,14 @@ export class RelatedNotesPanel {
 			void this.app.workspace.openLinkText(this.sourceFile.path, this.sourceFile.path, false);
 		});
 		const moveButton = actions.createEl('button', { text: '移动选中笔记', cls: 'mod-cta' });
-		this.moveButton = moveButton;
 		moveButton.addEventListener('click', () => void this.moveSelected());
 		const cancelButton = actions.createEl('button', { text: '关闭' });
 		cancelButton.addEventListener('click', () => this.host.close());
-		this.updateMoveButton();
 	}
 
 	private refreshSelectAll() {
-		const button = this.containerEl.querySelector<HTMLButtonElement>('.related-operations-select-all');
-		if (button) this.updateSelectAllState(button, this.groups[this.activeGroup]);
+		const checkbox = this.containerEl.querySelector<HTMLInputElement>('.related-operations-select-all');
+		if (checkbox) this.updateSelectAllState(checkbox, this.groups[this.activeGroup]);
 	}
 
 	private syncRowCheckboxes(group: RelatedNote[]) {
@@ -397,22 +397,15 @@ export class RelatedNotesPanel {
 		const nameCounts = new Map<string, number>();
 		for (const [, name] of selected) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
 		const labels = selected.map(([path, name]) => (nameCounts.get(name) === 1 ? name : `${name}（${path}）`));
-		summary.setText(selected.length === 1 ? `已选：${labels[0]}（跨标签页）` : `已选 ${selected.length} 篇（跨标签页）`);
+		summary.setText(selected.length === 1 ? `已选：${labels[0]}` : `已选 ${selected.length} 篇`);
 		summary.setAttribute('title', labels.length > 0 ? labels.join('\n') : '尚未选择笔记');
-		this.updateMoveButton();
 	}
 
-	private updateMoveButton() {
-		if (this.moveButton) this.moveButton.disabled = !this.relatedNotes.some((note) => this.selections.get(note.file.path) === true && !this.isAlreadyAtTarget(note.file));
-	}
-
-	private updateSelectAllState(selectAll: HTMLButtonElement, group: RelatedNote[]) {
+	private updateSelectAllState(selectAll: HTMLInputElement, group: RelatedNote[]) {
 		const movable = group.filter((note) => !this.isAlreadyAtTarget(note.file));
 		const selected = movable.filter((note) => this.selections.get(note.file.path) === true).length;
-		const allSelected = movable.length > 0 && selected === movable.length;
-		selectAll.setText(allSelected ? '取消全选当前分组' : '全选当前分组');
-		selectAll.setAttribute('aria-pressed', String(allSelected));
-		selectAll.disabled = movable.length === 0;
+		selectAll.checked = movable.length > 0 && selected === movable.length;
+		selectAll.indeterminate = selected > 0 && selected < movable.length;
 	}
 
 	private updatePreviews() {
@@ -430,23 +423,23 @@ export class RelatedNotesPanel {
 			}
 			row.children[this.showSourceColumn ? 5 : 4]?.setText(this.destinationFor(note.file));
 		});
-		for (const [path, selected] of this.selections) {
-			if (selected) {
-				const note = this.relatedNotes.find((candidate) => candidate.file.path === path);
-				if (!note || this.isAlreadyAtTarget(note.file)) this.selections.delete(path);
-			}
-		}
-		this.syncRowCheckboxes(this.relatedNotes);
 		this.refreshSelectAll();
-		this.updateSelectionSummary();
+	}
+
+	private updateSubfolderSuggestions() {
+		const input = this.containerEl.querySelector<HTMLInputElement>('.related-operations-subfolder');
+		const suggestions = input?.parentElement?.querySelector<HTMLElement>('.related-operations-folder-suggestions');
+		if (input && suggestions) this.populateFolderSuggestions(suggestions, input, true);
 	}
 
 	private populateFolderSuggestions(container: HTMLElement, input: HTMLInputElement, relative: boolean) {
 		container.empty();
+		const base = normalizePath(this.baseFolder).replace(/\/$/, '');
 		const values = this.app.vault.getAllLoadedFiles()
 			.filter((file): file is TFolder => file instanceof TFolder)
 			.map((folder) => folder.path)
-			.filter((path) => relative ? false : true)
+			.filter((path) => relative ? (base ? path.startsWith(`${base}/`) : true) : true)
+			.map((path) => relative && base ? path.slice(base.length + 1) : path)
 			.filter((path) => path.toLowerCase().includes(input.value.trim().toLowerCase()));
 		for (const value of values.sort()) {
 			const option = container.createEl('button', { text: value, cls: 'related-operations-folder-suggestion' });
@@ -461,7 +454,9 @@ export class RelatedNotesPanel {
 	}
 
 	private finalTarget() {
-		return normalizePath(this.targetFolder.trim()).replace(/^\/+|\/+$/g, '');
+		const base = normalizePath(this.baseFolder.trim()).replace(/\/$/, '');
+		const sub = normalizePath(this.subfolder.trim()).replace(/^\//, '').replace(/\/$/, '');
+		return joinVaultPath(base, sub);
 	}
 
 	private destinationFor(file: TFile) {

@@ -4,10 +4,6 @@ export function joinVaultPath(base: string, sub: string): string {
 		.join('/');
 }
 
-export function groupingModeFromLegacy(raw: { groupBySource?: unknown; groupByPath?: unknown }): 'none' | 'source' | 'path' {
-	return raw.groupBySource === true ? 'source' : raw.groupByPath === true ? 'path' : 'none';
-}
-
 export function isVaultRelativePath(path: string): boolean {
 	const normalized = path.replace(/\\/g, '/');
 	return !normalized.includes('\0') && !normalized.startsWith('/') && !/^[a-z]:\//i.test(normalized) && !normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..');

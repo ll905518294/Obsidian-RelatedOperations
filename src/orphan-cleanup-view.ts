@@ -23,7 +23,7 @@ export class OrphanCleanupView extends ItemView {
 	}
 
 	getIcon() {
-		return 'plus-square';
+		return 'trash-2';
 	}
 
 	async onOpen() {
