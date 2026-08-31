@@ -380,7 +380,7 @@ export class OrphanCleanupPanel {
 				content.createEl('p', { text: note ? '没有发现失效笔记链接。' : native ? '没有发现原生图片链接。' : '没有发现失效图片链接。', cls: 'orphan-cleanup-empty' });
 				return;
 			}
-				if (note) this.renderBrokenNoteLinkList(content, pageItems as unknown as BrokenNoteLink[]); else native ? this.renderNativeLinkList(content, pageItems) : this.renderBrokenLinkList(content, pageItems);
+				if (note) this.renderBrokenNoteLinkList(content, pageItems as BrokenNoteLink[]); else native ? this.renderNativeLinkList(content, pageItems) : this.renderBrokenLinkList(content, pageItems);
 			this.renderPagination(toolbar, candidates.length, page, (next) => { this.pages.set(currentTab, next); this.renderContents(); });
 			return;
 		}
