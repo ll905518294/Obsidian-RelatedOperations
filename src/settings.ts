@@ -21,9 +21,6 @@ export interface OrphanCleanupCache {
 	};
 }
 
-const CACHE_VERSION = 1;
-const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
-
 export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	groupingMode: 'source',
 	hideCompliant: true,

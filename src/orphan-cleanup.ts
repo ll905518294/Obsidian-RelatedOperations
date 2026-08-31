@@ -627,7 +627,7 @@ export class OrphanCleanupPanel {
 						for (const path of Object.keys(destinations)) referenced.add(path);
 					}
 					const canvases = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
-					for (const [index, canvas] of canvases.entries()) {
+					for (const canvas of canvases) {
 						for (const path of await referencedByCanvas(this.app, canvas)) referenced.add(path);
 					}
 					await markFilesReferencedByText(this.app, [...images, ...attachments], referenced);
@@ -657,7 +657,7 @@ export class OrphanCleanupPanel {
 						for (const path of Object.keys(destinations)) referenced.add(path);
 					}
 					const canvases = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
-					for (const [index, canvas] of canvases.entries()) {
+					for (const canvas of canvases) {
 						for (const path of await referencedByCanvas(this.app, canvas)) referenced.add(path);
 					}
 					await markFilesReferencedByText(this.app, [], referenced);
