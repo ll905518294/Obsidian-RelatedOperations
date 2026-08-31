@@ -1199,7 +1199,13 @@ export class OrphanCleanupPanel {
 		let converted = 0, skipped = 0, failed = 0;
 		const failures: Array<{ path: string; reason: string }> = [];
 		const currentLinks = selected.map((link) => revalidateNativeImageLink(this.app, link));
-		for (const [path, links] of new Map([...currentLinks].reduce((map, link) => { const list = map.get(link.sourcePath) ?? []; list.push(link); map.set(link.sourcePath, list); return map; }, new Map<string, NativeImageLink[]>())) ) {
+		const grouped = new Map<string, NativeImageLink[]>();
+		for (const link of currentLinks) {
+			const list = grouped.get(link.sourcePath) ?? [];
+			list.push(link);
+			grouped.set(link.sourcePath, list);
+		}
+		for (const [path, links] of grouped) {
 			const file = this.app.vault.getFileByPath(path);
 			if (!file) { failed++; failures.push({ path, reason: '文件不存在' }); continue; }
 			try { await this.app.vault.process(file, (content) => { const result = replaceNativeImageLinks(content, links); converted += result.converted; skipped += result.skipped; return result.content; }); } catch (error) { failed++; failures.push({ path, reason: reasonFor(error) }); }
