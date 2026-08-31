@@ -76,6 +76,7 @@ export class OrphanCleanupPanel {
 	private showHelp = false;
 	private readonly pages = new Map<string, number>();
 	private processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
+	private readonly tabScanned = new Map<CleanupTab, boolean>();
 
 	constructor(
 		private readonly app: App,
@@ -99,6 +100,7 @@ export class OrphanCleanupPanel {
 		this.hasScanned = true;
 		this.processed = undefined;
 		this.pages.clear();
+		this.tabScanned.clear();
 		this.renderContents();
 	}
 
@@ -142,6 +144,7 @@ export class OrphanCleanupPanel {
 			this.noteLinkSelections.clear();
 			this.duplicateSelections.clear();
 		this.pages.clear();
+			this.tabScanned.clear();
 		const startedAt = performance.now();
 		this.scanStages = ['扫描资料库文件', '分析引用关系', '检查文本引用', '检查空文件与文件夹', '检查链接健康度', '检查重复文件'].map((label, index) => ({ label, state: index === 0 ? 'scanning' : 'pending', elapsedMs: 0, startedAt: index === 0 ? startedAt : undefined }));
 		this.scanProgress = { stage: 0, processed: 0, total: 0 };
@@ -594,8 +597,99 @@ export class OrphanCleanupPanel {
 
 	private addRefreshControl(container: HTMLElement) {
 		const refresh = container.createEl('button', { text: '刷新' });
-		refresh.title = '重新扫描当前清理窗口';
-		refresh.addEventListener('click', () => void this.scan());
+		refresh.title = '刷新当前页面';
+		refresh.addEventListener('click', () => void this.refreshCurrentTab());
+	}
+
+	private async refreshCurrentTab() {
+		await this.scanTab(this.activeTab);
+		this.saveCacheToSettings();
+		this.renderContents();
+	}
+
+	private async scanTab(tab: CleanupTab) {
+		if (this.tabScanned.get(tab)) return;
+		this.tabScanned.set(tab, true);
+		const oldCandidates = { ...this.candidates };
+		try {
+			switch (tab) {
+				case 'images':
+				case 'attachments': {
+					const extensions = parseExtensions(this.settings.orphanImageExtensions);
+					const ignoredFolders = parseIgnoredFolders(this.settings.orphanIgnoredFolders);
+					const visibleFiles = this.app.vault.getFiles().filter((file) => !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders));
+					const attachmentFiles = visibleFiles.filter((file) => !['md', 'canvas'].includes(file.extension.toLowerCase()));
+					const images = attachmentFiles.filter((file) => extensions.has(file.extension.toLowerCase()));
+					const attachments = attachmentFiles.filter((file) => !extensions.has(file.extension.toLowerCase()));
+					const referenced = new Set<string>();
+					for (const [sourcePath, destinations] of Object.entries(this.app.metadataCache.resolvedLinks)) {
+						if (!sourcePath.toLowerCase().endsWith('.md')) continue;
+						for (const path of Object.keys(destinations)) referenced.add(path);
+					}
+					const canvases = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
+					for (const [index, canvas] of canvases.entries()) {
+						for (const path of await referencedByCanvas(this.app, canvas)) referenced.add(path);
+					}
+					await markFilesReferencedByText(this.app, [...images, ...attachments], referenced);
+					if (tab === 'images') {
+						this.candidates.images = images.filter((file) => !referenced.has(file.path)).sort(byPath);
+					} else {
+						this.candidates.attachments = attachments.filter((file) => !referenced.has(file.path)).sort(byPath);
+					}
+					break;
+				}
+				case 'broken-links':
+					this.candidates.brokenLinks = findBrokenImageLinks(this.app, this.settings.orphanImageExtensions);
+					break;
+				case 'native-links':
+					this.candidates.nativeLinks = findNativeImageLinks(this.app, this.settings.orphanImageExtensions);
+					break;
+				case 'broken-note-links':
+					this.candidates.brokenNoteLinks = findBrokenNoteLinks(this.app, this.settings.orphanImageExtensions);
+					break;
+				case 'empty-files': {
+					const extensions = parseExtensions(this.settings.orphanImageExtensions);
+					const ignoredFolders = parseIgnoredFolders(this.settings.orphanIgnoredFolders);
+					const visibleFiles = this.app.vault.getFiles().filter((file) => !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders));
+					const referenced = new Set<string>();
+					for (const [sourcePath, destinations] of Object.entries(this.app.metadataCache.resolvedLinks)) {
+						if (!sourcePath.toLowerCase().endsWith('.md')) continue;
+						for (const path of Object.keys(destinations)) referenced.add(path);
+					}
+					const canvases = this.app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
+					for (const [index, canvas] of canvases.entries()) {
+						for (const path of await referencedByCanvas(this.app, canvas)) referenced.add(path);
+					}
+					await markFilesReferencedByText(this.app, [], referenced);
+					this.candidates.emptyFiles = (await findEmptyFiles(visibleFiles, extensions, this.app)).filter((file) => !referenced.has(file.path));
+					break;
+				}
+				case 'folders': {
+					const ignoredFolders = parseIgnoredFolders(this.settings.orphanIgnoredFolders);
+					this.candidates.folders = findRecursivelyEmptyFolders(this.app.vault.getRoot(), ignoredFolders).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
+					break;
+				}
+				case 'duplicates': {
+					const result = await findDuplicateFiles(this.app, this.settings.orphanIgnoredFolders);
+					this.candidates.duplicates = result.groups;
+					this.candidates.duplicateWarnings = result.warnings;
+					break;
+				}
+			}
+		} catch (error) {
+			this.candidates = oldCandidates;
+			new Notice(`刷新 ${this.getTabLabel(tab)} 失败：${reasonFor(error)}`);
+		}
+	}
+
+	private getTabLabel(tab: CleanupTab): string {
+		const labels: Record<string, string> = {
+			images: '未引用图片', attachments: '未引用附件',
+			'broken-links': '失效图片链接', 'native-links': '原生图片链接',
+			'broken-note-links': '失效笔记链接', 'empty-files': '空文件',
+			'folders': '空文件夹', 'duplicates': '重复文件',
+		};
+		return labels[tab] ?? tab;
 	}
 
 	private addReportControls(container: HTMLElement) {
