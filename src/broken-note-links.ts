@@ -1,4 +1,4 @@
-import type { App, CachedMetadata, Pos } from 'obsidian';
+import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
 
 export interface BrokenNoteLink {
 	sourcePath: string;
@@ -12,9 +12,9 @@ export function brokenNoteLinkKey(link: BrokenNoteLink) {
 	return `${link.sourcePath}\u0000${link.position.start.offset}:${link.position.end.offset}`;
 }
 
-export function findBrokenNoteLinks(app: App, imageExtensions: string): BrokenNoteLink[] {
+export function findBrokenNoteLinks(app: App, imageExtensions: string, files: TFile[] = app.vault.getMarkdownFiles()): BrokenNoteLink[] {
 	const images = parseExtensions(imageExtensions);
-	return app.vault.getMarkdownFiles().flatMap((file) => {
+	return files.flatMap((file) => {
 		const cache = app.metadataCache.getFileCache(file);
 		return cache ? findBrokenNoteLinksInCache(file.path, cache, images, app) : [];
 	}).sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.position.start.offset - b.position.start.offset);

@@ -1,4 +1,4 @@
-import type { App, CachedMetadata, Pos } from 'obsidian';
+import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
 
 export interface BrokenImageLink {
 	sourcePath: string;
@@ -19,10 +19,9 @@ export function brokenLinkKey(link: BrokenImageLink) {
 	return `${link.sourcePath}\u0000${link.position.start.offset}:${link.position.end.offset}`;
 }
 
-export function findBrokenImageLinks(app: App, imageExtensions: string): BrokenImageLink[] {
+export function findBrokenImageLinks(app: App, imageExtensions: string, files: TFile[] = app.vault.getMarkdownFiles()): BrokenImageLink[] {
 	const extensions = parseImageExtensions(imageExtensions);
-	return app.vault
-		.getMarkdownFiles()
+	return files
 		.flatMap((file) => {
 			const cache = app.metadataCache.getFileCache(file);
 			return cache ? findBrokenImageLinksInCache(file.path, cache, extensions, app) : [];

@@ -4,6 +4,28 @@ export interface LinkStatsValue {
 	bidirectional: number;
 }
 
+export function findChangedLinkPaths(
+	previous: Record<string, Record<string, number>>,
+	current: Record<string, Record<string, number>>,
+): Set<string> {
+	const changed = new Set<string>();
+	const sources = new Set([...Object.keys(previous), ...Object.keys(current)]);
+	for (const source of sources) {
+		const before = previous[source] ?? {};
+		const after = current[source] ?? {};
+		const targets = new Set([...Object.keys(before), ...Object.keys(after)]);
+		let different = false;
+		for (const target of targets) {
+			if ((before[target] ?? 0) !== (after[target] ?? 0)) {
+				different = true;
+				changed.add(target);
+			}
+		}
+		if (different) changed.add(source);
+	}
+	return changed;
+}
+
 export function findLinkStatsPropertyNameConflicts(
 	frontmatter: Record<string, unknown> | undefined,
 	oldNames: readonly string[],

@@ -24,7 +24,8 @@ try {
 	if ((Get-FileSha256 (Join-Path $root 'main.js')) -ne (Get-FileSha256 (Join-Path $root 'plugin\main.js'))) { throw 'artifact hash mismatch' }
 	$pluginsRoot = Join-Path $root 'plugins'
 	$validPlugin = Join-Path $pluginsRoot 'demo'
-	$backup = "$validPlugin.backup"
+	$backup = Get-DeploymentBackupPath $validPlugin
+	if ((Split-Path -Leaf (Split-Path -Parent $backup)) -ne 'plugin-backups' -or (Split-Path -Leaf $backup) -ne 'demo.backup') { throw 'backup must be outside the plugins directory' }
 	New-Item -ItemType Directory -Path $validPlugin, $backup -Force | Out-Null
 	Set-Content (Join-Path $backup 'data.json') '{"restored":true}'
 	Restore-DeploymentBackup $validPlugin $backup

@@ -17,9 +17,9 @@ export function revalidateNativeImageLink(app: App, link: NativeImageLink): Nati
 	return { ...link, file: app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath) ?? undefined };
 }
 
-export function findNativeImageLinks(app: App, imageExtensions: string): NativeImageLink[] {
+export function findNativeImageLinks(app: App, imageExtensions: string, files: TFile[] = app.vault.getMarkdownFiles()): NativeImageLink[] {
 	const extensions = new Set(imageExtensions.split(/[,，\s]+/).map((x) => x.replace(/^\./, '').toLowerCase()).filter(Boolean));
-	return app.vault.getMarkdownFiles().flatMap((file) => {
+	return files.flatMap((file) => {
 		const cache = app.metadataCache.getFileCache(file);
 		return cache ? findInCache(app, file.path, cache, extensions) : [];
 	}).sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.position.start.offset - b.position.start.offset);

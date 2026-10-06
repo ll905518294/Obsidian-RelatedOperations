@@ -119,11 +119,16 @@ function Invoke-ObsidianRestart([string]$CliPath, [string]$VaultPath) {
         throw "Obsidian did not complete a stable restart: $VaultPath"
     }
 }
+function Get-DeploymentBackupPath([string]$PluginDir) {
+    $resolvedPluginDir = [IO.Path]::GetFullPath($PluginDir)
+    $configDir = Split-Path -Parent (Split-Path -Parent $resolvedPluginDir)
+    return Join-Path $configDir ('plugin-backups\' + (Split-Path -Leaf $resolvedPluginDir) + '.backup')
+}
 function Restore-DeploymentBackup([string]$PluginDir, [string]$BackupDir) {
     if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) { return }
     $resolvedPluginDir = [IO.Path]::GetFullPath($PluginDir)
     $resolvedBackupDir = [IO.Path]::GetFullPath($BackupDir)
-    $expectedBackupDir = "$resolvedPluginDir.backup"
+    $expectedBackupDir = Get-DeploymentBackupPath $resolvedPluginDir
     if (-not $resolvedBackupDir.Equals($expectedBackupDir, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to restore: backup directory does not match plugin directory: $resolvedBackupDir"
     }
@@ -145,7 +150,7 @@ function Invoke-DeployAndRestart {
         if (-not $resolvedObsidian) { throw "Obsidian launch command not found: $ObsidianCommand" }
         $cliPath = $resolvedObsidian.Source
         $pluginDir = Join-Path $vault ('.obsidian\plugins\' + $pluginId)
-        $backupDir = "$pluginDir.backup"
+        $backupDir = Get-DeploymentBackupPath $pluginDir
         Write-Host "[2/5] Target vault: $vault"
 		if ($CheckOnly) {
 			$targetState = if (Test-Path -LiteralPath $pluginDir -PathType Container) { 'existing, will update' } else { 'missing, will install' }
@@ -153,6 +158,14 @@ function Invoke-DeployAndRestart {
 			return
 		}
         Write-Host '[3/5] Preparing build artifacts...'
+        $backupRoot = Split-Path -Parent $backupDir
+        New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+        $legacyBackupDir = "$pluginDir.backup"
+        if (Test-Path -LiteralPath $legacyBackupDir -PathType Container) {
+            $legacyDestination = Join-Path $backupRoot ($pluginId + '.legacy-' + [guid]::NewGuid())
+            Move-Item -LiteralPath $legacyBackupDir -Destination $legacyDestination
+            Write-Host "Moved legacy backup outside plugins: $legacyDestination"
+        }
         if (Test-Path -LiteralPath $pluginDir) {
             if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }
             Copy-Item -LiteralPath $pluginDir -Destination $backupDir -Recurse -Force

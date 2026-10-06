@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findDuplicateFiles } from '../src/duplicate-files.ts';
+import { findDuplicateFiles, removeFileReferencesForFiles } from '../src/duplicate-files.ts';
 
 function appFor(files, contents, resolvedLinks = {}) {
 	return {
@@ -38,4 +38,24 @@ test('excludes hidden, ignored, Canvas and single-file groups, and records read 
 	}, 'ignored');
 	assert.deepEqual(result.groups, []);
 	assert.deepEqual(result.warnings, [{ path: 'bad.bin', reason: '拒绝访问' }]);
+});
+
+test('removes image and regular file references before duplicate deletion', async () => {
+	const note = { path: 'note.md', extension: 'md' };
+	let content = '![[photo.png]] and [document](document.pdf)';
+	const files = [{ path: 'photo.png' }, { path: 'document.pdf' }];
+	const app = {
+		vault: {
+			getMarkdownFiles: () => [note],
+			process: async (_file, callback) => { content = callback(content); },
+		},
+		metadataCache: {
+			getFileCache: () => ({ embeds: [{ original: '![[photo.png]]', link: 'photo.png', position: { start: { offset: 0 }, end: { offset: 14 } } }], links: [{ original: '[document](document.pdf)', link: 'document.pdf', position: { start: { offset: 19 }, end: { offset: 43 } } }] }),
+			getFirstLinkpathDest: (path) => files.find((file) => file.path === path),
+		},
+	};
+	const result = await removeFileReferencesForFiles(app, files.map((file) => file.path));
+	assert.equal(result.failed.length, 0);
+	assert.equal(result.removed, 2);
+	assert.equal(content, ' and ');
 });

@@ -1,5 +1,5 @@
 import type { App, TFile } from 'obsidian';
-import { hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils';
+import { hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils.ts';
 
 export interface DuplicateFileItem {
 	path: string;
@@ -72,15 +72,15 @@ export async function findDuplicateFiles(
 	};
 }
 
-export async function removeImageReferencesForFile(app: App, filePath: string): Promise<{ removed: number; failed: string[] }> {
+export async function removeFileReferencesForFiles(app: App, filePaths: Iterable<string>): Promise<{ removed: number; failed: string[] }> {
+	const targets = new Set(filePaths);
 	let removed = 0;
 	const failed: string[] = [];
 	for (const source of app.vault.getMarkdownFiles()) {
 		const cache = app.metadataCache.getFileCache(source);
 		const references = [...cache?.embeds ?? [], ...cache?.links ?? []].filter((reference) => {
-			if (!reference.original.startsWith('!')) return false;
 			const target = app.metadataCache.getFirstLinkpathDest(reference.link.split('#', 1)[0] ?? '', source.path);
-			return target?.path === filePath;
+			return target && targets.has(target.path);
 		});
 		if (!references.length) continue;
 		try {
@@ -99,6 +99,10 @@ export async function removeImageReferencesForFile(app: App, filePath: string): 
 		}
 	}
 	return { removed, failed };
+}
+
+export async function removeImageReferencesForFile(app: App, filePath: string) {
+	return removeFileReferencesForFiles(app, [filePath]);
 }
 
 function referencingNotesFor(path: string, app: App): string[] {

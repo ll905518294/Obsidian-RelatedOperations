@@ -30,8 +30,9 @@
 4. 检查 `manifest.json` 版本与 `versions.json` 映射一致。
 
 ## 5. 回滚
-- 部署脚本会把旧插件目录保存为同级 `.backup`；复制或重启失败时自动尝试恢复。
-- 若需人工恢复，确认备份路径为目标插件目录后缀 `.backup`，再恢复并重新加载 Obsidian。
+- 部署脚本会把旧插件目录保存为 `.obsidian/plugin-backups/<plugin-id>.backup`；复制或重启失败时自动尝试恢复。
+- 备份必须位于 `plugins` 目录之外，否则 Obsidian 会发现同 ID 的备份并可能加载旧代码。部署会将历史同级 `.backup` 移入 `plugin-backups`，保留为独立历史备份。
+- 若需人工恢复，确认备份与目标插件 ID 一致，再恢复并重新加载 Obsidian。
 
 ## 6. 关键路径
 - 源码：`src/`

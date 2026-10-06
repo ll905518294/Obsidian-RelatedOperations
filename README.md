@@ -43,7 +43,7 @@ Use the left ribbon **打开 Vault 体检与清理** icon or the command with th
 - After image cleanup, select **重新扫描** before cleaning folders that have only just become empty.
 - Before moving a selected resource to the local trash, the plugin rescans its cleanup status. Resources that were referenced, changed, or removed after the original scan are skipped.
 - Reports: **复制报告** copies the current scan to the clipboard; **导出报告** writes a Markdown report such as `related-operations-report-20260829-120000.md` to the vault root. Reports contain paths and link details, not note bodies. The latest batch summary is shown in the result window and is not persisted as a log file.
-- Duplicate files: the **重复文件** tab groups non-hidden, non-ignored Markdown, image, and attachment files by exact SHA-256 content hash after a file-size precheck; Canvas files and single-file groups are excluded. Duplicate results are read-only in this version: paths can be opened and included in reports, but no files are moved or deleted. Results are labeled **安全处理** (existing reversible cleanup), **需确认** (note edits or note creation), or **仅提示** (duplicate groups and scan warnings).
+- Duplicate files: the **重复文件** tab groups non-hidden, non-ignored Markdown, image, and attachment files by exact SHA-256 content hash after a file-size precheck; Canvas files and single-file groups are excluded. Before selected duplicate files are moved to the Obsidian trash, matching links in Markdown notes are removed; a failed note edit prevents deletion. The table supports group selection and shared image previews.
 
 ## Link-count properties
 
@@ -53,7 +53,7 @@ The optional setting **写入关联数量到属性** is disabled by default. Whe
 - `related-operations-out-links`
 - `related-operations-bidirectional-links`
 
-Use the command **刷新全库笔记关系数量** to update all Markdown notes immediately. Automatic updates are debounced and only write files when a value changes.
+Use the command **刷新全库笔记关系数量** to update all Markdown notes immediately. Automatic updates are debounced, compare the resolved-link cache, and check only edited notes and endpoints of changed links. Files are written only when a value changes. Periodic checks use the same incremental path.
 
 When applying custom property names, the plugin refuses names already used by other frontmatter fields so existing note metadata is not overwritten.
 
