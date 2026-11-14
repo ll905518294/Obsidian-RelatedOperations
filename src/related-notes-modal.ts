@@ -1,5 +1,5 @@
 import { App, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
-import { RelatedNote, relationLabel } from './related-notes';
+import { RelatedNote, defaultTargetFolder, relationLabel } from './related-notes';
 import { RelatedOperationsSettings } from './settings';
 import { isVaultRelativePath, joinVaultPath } from './core-utils';
 
@@ -21,6 +21,7 @@ export class RelatedNotesPanel {
 	private activeGroup: 'outgoing' | 'incoming' | 'both' = 'outgoing';
 	private groupingMode: 'none' | 'source' | 'path';
 	private hideCompliant: boolean;
+	private merging: boolean;
 	private readonly showSourceColumn: boolean;
 	private moveButton?: HTMLButtonElement;
 
@@ -40,6 +41,7 @@ export class RelatedNotesPanel {
 		this.showSourceColumn = sourceCount > 1;
 		this.groupingMode = settings?.groupingMode ?? 'source';
 		this.hideCompliant = settings?.hideCompliant ?? true;
+		this.merging = false;
 		this.groups = this.buildGroups();
 	}
 
@@ -115,7 +117,7 @@ export class RelatedNotesPanel {
 			this.updatePreviews();
 		});
 		const shortcuts = target.createDiv({ cls: 'related-operations-target-shortcuts' });
-		for (const [label, value] of [['当前目录', this.parentFolder(this.sourceFile.path)], ['源笔记名目录', joinVaultPath(this.parentFolder(this.sourceFile.path), this.sourceFile.basename)], ['当前目录/Pages', joinVaultPath(this.parentFolder(this.sourceFile.path), 'Pages')]] as const) {
+		for (const [label, value] of [['当前目录', this.parentFolder(this.sourceFile.path)], ['源笔记名目录', defaultTargetFolder(this.sourceFile)], ['当前目录/Pages', joinVaultPath(this.parentFolder(this.sourceFile.path), 'Pages')]] as const) {
 			const button = shortcuts.createEl('button', { text: label });
 			button.type = 'button';
 			button.addEventListener('click', () => {
@@ -199,11 +201,27 @@ export class RelatedNotesPanel {
 		const displayOptions = displayToolbar.createDiv({ cls: 'related-operations-display-options' });
 		const displayOptionsBody = displayOptions.createDiv({ cls: 'related-operations-display-options-body' });
 		const hiddenCount = this.uniqueCount(currentGroup.filter((note) => this.isAlreadyAtTarget(note.file)));
+		const mergeButton = displayOptionsBody.createEl('button', {
+			text: this.merging ? '按来源分行展示（关闭合并）' : '合并同一目标笔记',
+			cls: 'related-operations-merge-button',
+		});
+		mergeButton.type = 'button';
+		mergeButton.title = '多个来源指向同一目标笔记时，将其合并为一行。';
+		mergeButton.setAttribute('aria-pressed', String(this.merging));
+		mergeButton.addEventListener('click', () => {
+			this.merging = !this.merging;
+			this.renderList();
+		});
 		const grouping = displayOptionsBody.createEl('select', { cls: 'related-operations-grouping-select' });
 		for (const [value, label] of [['none', '不分组'], ['source', '按源笔记分组'], ['path', '按当前路径分组']] as const) {
 			grouping.createEl('option', { value, text: label });
 		}
-		grouping.value = this.sourceCount === 1 && this.groupingMode === 'source' ? 'none' : this.groupingMode;
+		// Merged rows can span several source notes, so source grouping would
+		// fight the merge; fall back to no grouping while merging.
+		const effectiveGrouping = (this.merging || this.sourceCount === 1) && this.groupingMode === 'source'
+			? 'none'
+			: this.groupingMode;
+		grouping.value = effectiveGrouping;
 		if (this.sourceCount === 1) grouping.querySelector('option[value="source"]')?.remove();
 		grouping.addEventListener('change', () => {
 			this.groupingMode = grouping.value as 'none' | 'source' | 'path';
@@ -270,6 +288,20 @@ export class RelatedNotesPanel {
 			return;
 		}
 
+		// In merge mode, collapse notes that share the same target file into a
+		// single row. Selections are keyed by file path, so merging only changes
+		// the displayed rows: counts, select-all and the move list still treat
+		// each target file once.
+		const mergedRows = this.merging
+			? [...displayGroup.reduce((rows, note) => {
+				const row = rows.get(note.file.path);
+				if (row) row.push(note);
+				else rows.set(note.file.path, [note]);
+				return rows;
+			}, new Map<string, RelatedNote[]>()).values()]
+			: null;
+		const displayRows = mergedRows ?? displayGroup.map((note) => [note]);
+
 		const tableScroll = wrapper.createDiv({ cls: 'related-operations-table-scroll' });
 		const table = tableScroll.createEl('table', { cls: 'related-operations-table' });
 		const thead = table.createEl('thead');
@@ -281,12 +313,14 @@ export class RelatedNotesPanel {
 		const tbody = table.createEl('tbody');
 		let previousFolder = '';
 		let previousSource = '';
-		for (let index = 0; index < displayGroup.length; index++) {
-			const note = displayGroup[index];
+		for (let index = 0; index < displayRows.length; index++) {
+			const notes = displayRows[index];
+			if (!notes || notes.length === 0) continue;
+			const note = notes[0];
 			if (!note) continue;
-			const groupLabel = this.groupingMode === 'source'
+			const groupLabel = effectiveGrouping === 'source'
 				? note.sourceFile.path
-				: this.groupingMode === 'path'
+				: effectiveGrouping === 'path'
 					? this.parentFolder(note.file.path) || '根目录'
 					: '';
 			if (groupLabel && groupLabel !== previousFolder) {
@@ -312,10 +346,33 @@ export class RelatedNotesPanel {
 				this.updateSelectionSummary();
 			});
 			if (this.showSourceColumn) {
-				if (note.sourceFile.path !== previousSource) {
+				if (this.merging) {
+					const sourceCell = notes.length > 1
+						? row.createEl('td', { cls: 'related-operations-merge-sources' })
+						: row.createEl('td');
+					if (notes.length === 1) {
+						const sourceLink = sourceCell.createEl('a', {
+							text: note.sourceFile.basename,
+							cls: 'related-operations-note-link',
+						});
+						sourceLink.title = note.sourceFile.path;
+						sourceLink.addEventListener('click', (event) => {
+							event.preventDefault();
+							void this.app.workspace.openLinkText(note.sourceFile.path, this.sourceFile.path, 'tab');
+						});
+					} else {
+						const sourcesButton = sourceCell.createEl('a', { text: `${notes.length} 个来源`, cls: 'related-operations-note-link' });
+						sourcesButton.title = [...new Set(notes.map((item) => item.sourceFile.path))].join('\n');
+						sourcesButton.addEventListener('click', (event) => {
+							event.preventDefault();
+							void this.app.workspace.openLinkText(note.sourceFile.path, this.sourceFile.path, 'tab');
+						});
+					}
+					previousSource = note.sourceFile.path;
+				} else if (note.sourceFile.path !== previousSource) {
 					const sourceCell = row.createEl('td');
 					let rowSpan = 1;
-					while (displayGroup[index + rowSpan]?.sourceFile.path === note.sourceFile.path) rowSpan++;
+					while (displayRows[index + rowSpan]?.[0]?.sourceFile.path === note.sourceFile.path) rowSpan++;
 					sourceCell.rowSpan = rowSpan;
 					const sourceLink = sourceCell.createEl('a', {
 						text: note.sourceFile.basename,
@@ -326,8 +383,8 @@ export class RelatedNotesPanel {
 						event.preventDefault();
 						void this.app.workspace.openLinkText(note.sourceFile.path, this.sourceFile.path, 'tab');
 					});
+					previousSource = note.sourceFile.path;
 				}
-				previousSource = note.sourceFile.path;
 			}
 			const nameCell = row.createEl('td');
 			const link = nameCell.createEl('a', { text: note.file.basename, cls: 'related-operations-note-link' });
@@ -337,9 +394,21 @@ export class RelatedNotesPanel {
 				void this.app.workspace.openLinkText(note.file.path, this.sourceFile.path, 'tab');
 			});
 			row.createEl('td', { text: note.file.path, cls: 'related-operations-path' });
-			row.createEl('td', { text: relationLabel(note.relation) });
+			row.createEl('td', {
+				text: this.merging
+					? this.mergedRelationLabel(notes)
+					: relationLabel(note.relation),
+			});
 			row.createEl('td', { text: this.destinationFor(note.file), cls: 'related-operations-path' });
 		}
+	}
+
+	private mergedRelationLabel(notes: RelatedNote[]): string {
+		const relations = new Set(notes.map((note) => note.relation));
+		const hasOutgoing = relations.has('outgoing') || relations.has('both');
+		const hasIncoming = relations.has('incoming') || relations.has('both');
+		if (hasOutgoing && hasIncoming) return '出链 + 入链';
+		return hasOutgoing ? '出链' : '入链';
 	}
 
 	private addToggle(
@@ -397,7 +466,7 @@ export class RelatedNotesPanel {
 		const nameCounts = new Map<string, number>();
 		for (const [, name] of selected) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
 		const labels = selected.map(([path, name]) => (nameCounts.get(name) === 1 ? name : `${name}（${path}）`));
-		summary.setText(selected.length === 1 ? `已选：${labels[0]}（跨标签页）` : `已选 ${selected.length} 篇（跨标签页）`);
+		summary.setText(selected.length === 1 ? `已选 1 篇（跨标签页）：${labels[0]}` : `已选 ${selected.length} 篇（跨标签页）`);
 		summary.setAttribute('title', labels.length > 0 ? labels.join('\n') : '尚未选择笔记');
 		this.updateMoveButton();
 	}
@@ -419,7 +488,7 @@ export class RelatedNotesPanel {
 		const finalTarget = this.finalTarget();
 		this.containerEl.querySelector('.related-operations-final-target-text')?.setText(finalTarget || '（当前笔记所在文件夹）');
 		this.containerEl.querySelectorAll<HTMLElement>('.related-operations-table tr[data-related-path]').forEach((row) => {
-			const note = this.groups[this.activeGroup].find((candidate) => this.relatedKey(candidate) === row.dataset.relatedKey);
+			const note = this.groups[this.activeGroup].find((candidate) => candidate.file.path === row.dataset.relatedPath);
 			if (!note) return;
 			const alreadyAtTarget = this.isAlreadyAtTarget(note.file);
 			row.toggleClass('is-already-target', alreadyAtTarget);

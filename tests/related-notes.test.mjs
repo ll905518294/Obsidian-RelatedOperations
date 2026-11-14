@@ -222,3 +222,23 @@ test('ignores resolved keys that are not files', () => {
 	};
 	assert.deepEqual(getRelatedNotesForFiles(app, [source]), []);
 });
+
+// The incoming pass must build the reverse map in one sweep over resolvedLinks
+// and reuse the already-resolved linking source, instead of resolving each
+// (source, target) edge again inside the association step. A dense vault where
+// every source links to every requested target would otherwise issue ~sources×targets
+// duplicate lookups.
+test('resolves each incoming linking source once, not once per target', () => {
+	const targets = Array.from({ length: 30 }, (_, i) => note(`t/note-${i}.md`));
+	const sources = Array.from({ length: 60 }, (_, i) => note(`s/note-${i}.md`));
+	const resolved = Object.fromEntries(sources.map((s) => [s.path, Object.fromEntries(targets.map((t) => [t.path, 1]))]));
+	const byPath = new Map([...targets, ...sources].map((f) => [f.path, f]));
+	let lookups = 0;
+	const app = {
+		metadataCache: { resolvedLinks: resolved },
+		vault: { getAbstractFileByPath: (path) => { lookups++; return byPath.get(path) ?? null; } },
+	};
+	const result = getRelatedNotesForFiles(app, targets);
+	assert.equal(result.length, targets.length * sources.length);
+	assert.ok(lookups <= 60, `resolved ${lookups} paths; expected one resolve per linking source (60), not per edge (3660)`);
+});

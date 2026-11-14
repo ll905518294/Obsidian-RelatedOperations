@@ -250,3 +250,90 @@ test('per-source relations stay exact when a target is linked both ways across s
 	const tabs = el.querySelectorAll('.related-operations-tab').map((tab) => tab.textContent);
 	assert.deepEqual(tabs, ['出链 (1)', '入链 (1)', '双向链接 (0)']);
 });
+
+// Default (merge off) keeps the per-source view: the same target appears once
+// per source row, as before the merge option existed.
+test('merge view is off by default and keeps per-source rows', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('dst/t.md');
+	const relatedNotes = [
+		{ file: t, relation: 'outgoing', sourceFile: a },
+		{ file: t, relation: 'outgoing', sourceFile: b },
+	];
+	const { el } = panelFor(relatedNotes, [a, b]);
+	const mergeButton = el.querySelector('.related-operations-merge-button');
+	assert.equal(mergeButton.getAttribute('aria-pressed'), 'false');
+	const rows = () => el.querySelectorAll('tr[data-related-path]');
+	assert.equal(rows().length, 2);
+});
+
+// Turning the merge option on collapses the same target from multiple sources
+// into a single row while leaving tab counts (already deduped by path) unchanged.
+test('merge view collapses the same target into one row with a source count', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('dst/t.md');
+	const other = file('dst/other.md');
+	const relatedNotes = [
+		{ file: t, relation: 'outgoing', sourceFile: a },
+		{ file: t, relation: 'outgoing', sourceFile: b },
+		{ file: other, relation: 'outgoing', sourceFile: a },
+	];
+	const { el } = panelFor(relatedNotes, [a, b]);
+	const tabsBefore = el.querySelectorAll('.related-operations-tab').map((tab) => tab.textContent);
+	el.querySelector('.related-operations-merge-button').fire('click');
+	const rows = el.querySelectorAll('tr[data-related-path]');
+	assert.equal(rows.length, 2);
+	assert.equal(rows.some((row) => row.querySelector('td[colspan]')), false);
+	assert.ok(el.querySelectorAll('tr[data-related-path]').length === 2);
+	const tabsAfter = el.querySelectorAll('.related-operations-tab').map((tab) => tab.textContent);
+	assert.deepEqual(tabsAfter, tabsBefore);
+	const targetCells = () => el.querySelectorAll('tr[data-related-path]').map((row) => row.querySelector('.related-operations-path')?.textContent);
+	assert.deepEqual(targetCells().filter(Boolean).sort(), ['dst/other.md', 'dst/t.md']);
+	const sourceCols = el.querySelectorAll('tr[data-related-path] .related-operations-merge-sources').map((cell) => cell.textContent);
+	assert.ok(sourceCols.includes('2 个来源'));
+});
+
+// Merged select-all selects each unique target exactly once.
+test('merged view select-all picks each unique target once', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('Pages/t.md');
+	const other = file('dst/other.md');
+	const relatedNotes = [
+		{ file: t, relation: 'outgoing', sourceFile: a },
+		{ file: t, relation: 'outgoing', sourceFile: b },
+		{ file: other, relation: 'outgoing', sourceFile: a },
+	];
+	const { panel, el } = panelFor(relatedNotes, [a, b]);
+	el.querySelector('.related-operations-merge-button').fire('click');
+	el.querySelector('.related-operations-select-all').fire('click');
+	const selectedPaths = [...panel.selections.entries()].filter(([, on]) => on).map(([path]) => path);
+	assert.deepEqual(selectedPaths.sort(), ['Pages/t.md', 'dst/other.md']);
+});
+
+// The "源笔记名目录" shortcut resolves through defaultTargetFolder's contract
+// (parent/<basename>) so the exported helper is actually used and cannot go stale.
+test('source-note-folder shortcut derives parent/basename target', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a]);
+	const shortcut = el.querySelectorAll('.related-operations-target-shortcuts button').find((b) => b.textContent === '源笔记名目录');
+	const input = el.querySelector('.related-operations-target-folder');
+	shortcut.fire('click');
+	assert.equal(input.value, 'src/a');
+});
+
+// The tab-wide qualifier belongs to the selection, not to the note name: a
+// single selection must read "已选 1 篇（跨标签页）：<name>", not "<name>（跨标签页）".
+test('single selection summary qualifies the selection, not the note name', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a]);
+	const checkbox = el.querySelector('tr[data-related-path]').querySelector('input[type="checkbox"]');
+	checkbox.checked = true;
+	checkbox.fire('change');
+	const summary = el.querySelector('.related-operations-selection-summary').textContent;
+	assert.equal(summary, '已选 1 篇（跨标签页）：t');
+});

@@ -16,55 +16,60 @@ export function getRelatedNotesForFiles(app: App, sourceFiles: TFile[]): Related
 	const resolvedLinks = app.metadataCache.resolvedLinks;
 	const relationByKey = new Map<string, {
 		sourceFile: TFile;
-		targetPath: string;
+		targetFile: TFile;
 		relations: Set<'outgoing' | 'incoming'>;
 	}>();
-	const sourcePaths = new Set(sourceFiles.map((file) => file.path));
+	const sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
+	const sourcePaths = new Set(sourceByPath.keys());
 
-	const addRelation = (sourceFile: TFile, targetPath: string, relation: 'outgoing' | 'incoming') => {
-		const file = app.vault.getAbstractFileByPath(targetPath);
-		if (!(file instanceof TFile) || file.extension.toLowerCase() !== 'md') return;
-		if (sourcePaths.has(file.path)) return;
-		const key = `${sourceFile.path}\u0000${file.path}`;
+	const addRelation = (sourceFile: TFile, targetFile: TFile, relation: 'outgoing' | 'incoming') => {
+		if (sourcePaths.has(targetFile.path)) return;
+		const key = `${sourceFile.path}\u0000${targetFile.path}`;
 		const association = relationByKey.get(key) ?? {
 			sourceFile,
-			targetPath: file.path,
+			targetFile,
 			relations: new Set<'outgoing' | 'incoming'>(),
 		};
 		association.relations.add(relation);
 		relationByKey.set(key, association);
 	};
 
+	const resolveMarkdown = (path: string): TFile | null => {
+		const file = app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile) || file.extension.toLowerCase() !== 'md') return null;
+		return file;
+	};
+
 	for (const sourceFile of sourceFiles) {
 		for (const path of Object.keys(resolvedLinks[sourceFile.path] ?? {})) {
-			addRelation(sourceFile, path, 'outgoing');
+			const targetFile = resolveMarkdown(path);
+			if (targetFile) addRelation(sourceFile, targetFile, 'outgoing');
 		}
 	}
 
-	const sourceByPath = new Map(sourceFiles.map((file) => [file.path, file]));
+	// Walk resolvedLinks once to discover which linking sources point at a
+	// requested note. Resolving each linking source once avoids re-resolving the
+	// same source for every requested target it links to.
 	for (const [linkingPath, destinations] of Object.entries(resolvedLinks)) {
 		const linkingFile = app.vault.getAbstractFileByPath(linkingPath);
 		if (!(linkingFile instanceof TFile) || linkingFile.extension.toLowerCase() !== 'md') continue;
 		for (const targetPath of Object.keys(destinations)) {
 			const sourceFile = sourceByPath.get(targetPath);
-			if (sourceFile && linkingPath !== sourceFile.path) {
-				addRelation(sourceFile, linkingPath, 'incoming');
+			if (sourceFile && linkingFile.path !== sourceFile.path) {
+				addRelation(sourceFile, linkingFile, 'incoming');
 			}
 		}
 	}
 
 	return [...relationByKey.values()]
-		.map(({ sourceFile, targetPath, relations }) => {
-			const file = app.vault.getAbstractFileByPath(targetPath);
-			if (!(file instanceof TFile)) return null;
+		.map(({ sourceFile, targetFile, relations }) => {
 			const relation: RelationType = relations.size === 2
 				? 'both'
 				: relations.has('outgoing')
 					? 'outgoing'
 					: 'incoming';
-			return { file, relation, sourceFile };
+			return { file: targetFile, relation, sourceFile };
 		})
-		.filter((note): note is RelatedNote => note !== null)
 		.sort((a, b) => a.file.path.localeCompare(b.file.path));
 }
 
