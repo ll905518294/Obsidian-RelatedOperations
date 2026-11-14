@@ -5,7 +5,7 @@ import { findBrokenNoteLinks } from '../broken-note-links';
 import { findNativeImageLinks } from '../native-image-links';
 import { findDuplicateFiles, removeFileReferencesForFiles, removeImageReferencesForFile, type DuplicateFileGroup } from '../duplicate-files';
 import type { OrphanCleanupCache, RelatedOperationsSettings } from '../settings';
-import { CLEANUP_CATEGORIES, type CleanupCandidates, type CleanupTab, type ImageGrouping, type OrphanCleanupHost, type OrphanCleanupOptions, type OrphanImageExtensions, type ScanCategoryTab, type ScanProgress, type ScanStage } from './cleanup-types';
+import { CLEANUP_CATEGORIES, type CleanupCandidates, type CleanupScanError, type CleanupTab, type ImageGrouping, type OrphanCleanupHost, type OrphanCleanupOptions, type OrphanImageExtensions, type ScanCategoryTab, type ScanProgress, type ScanStage } from './cleanup-types';
 import { byPath, reasonFor } from './cleanup-actions';
 import { findCleanupCandidates, findEmptyFiles, findRecursivelyEmptyFolders, markFilesReferencedByText, referencedByCanvas } from './cleanup-scan';
 import { CleanupConfirmationModal } from './cleanup-modals';
@@ -13,6 +13,7 @@ import { categoryStatus, renderHelp, renderOverview, renderProcessedSummary, ren
 import { renderActions, renderList, updateSelectionSummary } from './cleanup-list-ui';
 import { revalidateCleanupSelection } from './cleanup-flows';
 import { reportCleanupInvariants } from './cleanup-invariants';
+import { captureViewSnapshot, restoreViewSnapshot } from './cleanup-focus';
 export class OrphanCleanupPanel extends Component {
 	candidates: CleanupCandidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], duplicates: [], duplicateWarnings: [] };
 	selections = new Set<string>();
@@ -34,6 +35,8 @@ export class OrphanCleanupPanel extends Component {
 	showHelp = false;
 	pages = new Map<string, number>();
 	processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
+	lastScanError?: CleanupScanError;
+	private lastRenderedView?: string;
 	dirtyTabs = new Set<CleanupTab>();
 	dirtyVersions = new Map<CleanupTab, number>();
 	scannedTabs = new Set<CleanupTab>();
@@ -160,6 +163,7 @@ export class OrphanCleanupPanel extends Component {
 
 	async scan(preserveProcessed = false) {
 		if (this.scanning || this.scanningTabs.size > 0) return;
+		this.lastScanError = undefined;
 		const generation = ++this.scanGeneration;
 		if (!preserveProcessed) this.processed = undefined;
 		this.scanning = true;
@@ -212,12 +216,18 @@ export class OrphanCleanupPanel extends Component {
 			this.candidates = candidates;
 			this.hasScanned = true;
 			for (const category of CLEANUP_CATEGORIES) this.scannedTabs.add(category.tab);
+			this.lastScanError = undefined;
 			this.renderContents();
 		} catch (error) {
 			if (generation !== this.scanGeneration) return;
-			new Notice(`扫描失败：${reasonFor(error)}`);
+			const reason = reasonFor(error);
+			new Notice(`扫描失败：${reason}`);
 			this.hasScanned = this.scannedTabs.size > 0;
+			const failedTabs = CLEANUP_CATEGORIES
+				.filter((category) => !this.scannedTabs.has(category.tab))
+				.map((category) => category.tab);
 			for (const category of CLEANUP_CATEGORIES) if (!this.scannedTabs.has(category.tab)) this.markTabDirty(category.tab);
+			this.lastScanError = { reason, failedTabs };
 			this.renderContents();
 		} finally {
 			if (generation === this.scanGeneration) {
@@ -234,18 +244,27 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	renderContents() {
+		const snapshot = captureViewSnapshot(this.contentEl);
+		const view = this.renderedViewKey();
+		const sameView = this.lastRenderedView === view;
 		this.contentEl.empty();
 		this.renderTabs();
 		if (this.showHelp) this.renderHelp();
 		if (this.processed) this.renderProcessedSummary();
 		if (this.activeTab === 'overview') {
 			this.renderOverview();
-			reportCleanupInvariants(this);
-			return;
+		} else {
+			this.renderList();
+			this.renderActions();
 		}
-		this.renderList();
-		this.renderActions();
 		reportCleanupInvariants(this);
+		if (snapshot) restoreViewSnapshot(this.contentEl, snapshot, sameView);
+		this.lastRenderedView = view;
+	}
+
+	private renderedViewKey() {
+		const page = this.activeTab === 'overview' ? 0 : this.pages.get(this.activeTab) ?? 0;
+		return `${this.activeTab}:${page}`;
 	}
 
 	async cleanDuplicateLinks(file: DuplicateFileGroup['files'][number]) {

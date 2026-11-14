@@ -39,6 +39,11 @@ export type ScanProgress = { stage: number; processed: number; total: number; cu
 export type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'native-links' | 'broken-note-links' | 'empty-files' | 'folders' | 'duplicates';
 export type ScanCategoryTab = Exclude<CleanupTab, 'overview'>;
 
+export interface CleanupScanError {
+	reason: string;
+	failedTabs: CleanupTab[];
+}
+
 export const CLEANUP_CATEGORIES: Array<{ tab: ScanCategoryTab; label: string; description: string; icon: string }> = [
 	{ tab: 'images', label: '未引用图片', description: '未被任何笔记引用的图片资源', icon: 'image' },
 	{ tab: 'attachments', label: '未引用附件', description: '未被引用的非图片附件', icon: 'paperclip' },
@@ -78,6 +83,7 @@ export interface CleanupViewContext {
 	attachmentGrouping: ImageGrouping;
 	pages: Map<string, number>;
 	processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
+	lastScanError?: CleanupScanError;
 	scan(): Promise<void>;
 	scanCategory(tab: ScanCategoryTab): Promise<void>;
 	scanTab(tab: CleanupTab): Promise<void>;

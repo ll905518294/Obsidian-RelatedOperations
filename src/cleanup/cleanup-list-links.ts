@@ -4,6 +4,7 @@ import { brokenLinkKey, findBrokenLinkOffset, type BrokenImageLink } from '../br
 import { brokenNoteLinkKey, findBrokenNoteLinkOffset, type BrokenNoteLink } from '../broken-note-links';
 import { convertNativeImageLink, nativeImageLinkKey, nativeImageLinkOffset, type NativeImageLink } from '../native-image-links';
 import { updateSelectionSummary } from './cleanup-list-actions';
+import { associateCheckbox } from './cleanup-a11y';
 
 export function renderBrokenLinkList(host: CleanupViewContext, container: HTMLElement, links: BrokenImageLink[]) {
 	const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
@@ -35,7 +36,8 @@ export function renderNativeLinkList(host: CleanupViewContext, container: HTMLEl
 			event.preventDefault();
 			void host.app.workspace.openLinkText(link.sourcePath, '', 'tab');
 		});
-		row.createEl('td', { text: link.original, cls: 'orphan-cleanup-detail' });
+		const originalCell = row.createEl('td', { text: link.original, cls: 'orphan-cleanup-detail' });
+		associateCheckbox(checkbox, [source, originalCell]);
 		row.createEl('td', {
 			text: convertNativeImageLink(link) ?? link.reason ?? '未解析目标',
 			cls: 'orphan-cleanup-detail',
@@ -58,7 +60,8 @@ export function renderBrokenNoteLinkList(host: CleanupViewContext, container: HT
 		checkbox.addEventListener('change', () => { if (checkbox.checked) host.noteLinkSelections.add(brokenNoteLinkKey(item)); else host.noteLinkSelections.delete(brokenNoteLinkKey(item)); updateSelectionSummary(host); });
 		const source = row.createEl('td').createEl('a', { text: item.sourcePath, cls: 'orphan-cleanup-link' });
 		source.addEventListener('click', (event) => { event.preventDefault(); void host.app.workspace.openLinkText(item.sourcePath, '', 'tab'); });
-		row.createEl('td', { text: item.original, cls: 'orphan-cleanup-detail' });
+		const originalCell = row.createEl('td', { text: item.original, cls: 'orphan-cleanup-detail' });
+		associateCheckbox(checkbox, [source, originalCell]);
 		row.createEl('td', { text: item.linkPath, cls: 'orphan-cleanup-detail' });
 		row.createEl('td', { text: item.syntax, cls: 'orphan-cleanup-detail' });
 		const actions = row.createEl('td');
@@ -87,6 +90,7 @@ export function renderBrokenLinkRow(host: CleanupViewContext, body: HTMLElement,
 	});
 	const linkCell = row.createEl('td', { cls: 'orphan-cleanup-detail' });
 	linkCell.createEl('code', { text: link.original });
+	associateCheckbox(checkbox, [source, linkCell]);
 	row.createEl('td', { text: link.linkPath, cls: 'orphan-cleanup-detail' });
 	const actionCell = row.createEl('td');
 	const locate = actionCell.createEl('button', { text: '定位', cls: 'orphan-cleanup-locate' });

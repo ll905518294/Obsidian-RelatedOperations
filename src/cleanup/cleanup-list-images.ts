@@ -3,6 +3,7 @@ import type { CleanupViewContext, ImageGrouping } from './cleanup-types';
 import { byPath, formatBytes, openInSystemFolder, parentFolder } from './cleanup-actions';
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
+import { associateCheckbox } from './cleanup-a11y';
 
 export function renderImageGrid(host: CleanupViewContext, container: HTMLElement, items: TFile[], allItems: TFile[]) {
 	const grid = container.createDiv({ cls: 'orphan-cleanup-grid' });
@@ -45,11 +46,13 @@ export function renderImageCard(host: CleanupViewContext, container: HTMLElement
 	preview.addEventListener('error', () => {
 		preview.replaceWith(card.createSpan({ text: '无法预览', cls: 'orphan-cleanup-preview-failed' }));
 	});
-	card.createEl('a', { text: file.name, cls: 'orphan-cleanup-image-name' }).addEventListener('click', (event) => {
+	const name = card.createEl('a', { text: file.name, cls: 'orphan-cleanup-image-name' });
+	name.addEventListener('click', (event) => {
 		event.preventDefault();
 		void host.app.workspace.openLinkText(file.path, '', 'tab');
 	});
 	card.createSpan({ text: formatBytes(file.stat.size), cls: 'orphan-cleanup-image-size' });
+	associateCheckbox(checkbox, [name]);
 }
 
 export function addGroupingControl(host: CleanupViewContext, container: HTMLElement) {
@@ -105,6 +108,7 @@ export function renderItemRow(host: CleanupViewContext, body: HTMLElement, item:
 		event.preventDefault();
 		void host.app.workspace.openLinkText(item.path, '', 'tab');
 	});
+	associateCheckbox(checkbox, [link]);
 	row.createEl('td', {
 		text: item instanceof TFile ? (host.activeTab === 'attachments' ? `${item.extension.toUpperCase()} · ${formatBytes(item.stat.size)}` : formatBytes(item.stat.size)) : '仅包含空子文件夹或没有子项',
 		cls: 'orphan-cleanup-detail',

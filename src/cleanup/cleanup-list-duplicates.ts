@@ -4,6 +4,7 @@ import type { DuplicateFileGroup } from '../duplicate-files';
 import { formatBytes, isImageFile, openFolderInVault, openInSystemFolder, parentFolder } from './cleanup-actions';
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
+import { associateCheckbox } from './cleanup-a11y';
 
 export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLElement, groups: DuplicateFileGroup[]) {
 	for (const group of groups) {
@@ -53,6 +54,7 @@ export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLE
 			const fileCell = row.createEl('td', { cls: 'orphan-cleanup-path' });
 			const link = fileCell.createEl('a', { text: file.path, cls: 'orphan-cleanup-link' });
 			link.addEventListener('click', (event) => { event.preventDefault(); void host.app.workspace.openLinkText(file.path, '', 'tab'); });
+			associateCheckbox(checkbox, [link]);
 			const notesCell = row.createEl('td', { cls: 'orphan-cleanup-detail' });
 			if (file.referencingNotes.length) {
 				for (const [index, note] of file.referencingNotes.entries()) {

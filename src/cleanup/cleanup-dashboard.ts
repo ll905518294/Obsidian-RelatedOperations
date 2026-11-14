@@ -61,6 +61,8 @@ export function renderOverview(view: CleanupViewContext) {
 	const progress = hero.createDiv({ cls: 'orphan-cleanup-dashboard-progress' });
 	progress.createDiv({ cls: 'orphan-cleanup-dashboard-progress-ring' }).createSpan({ text: `${scanned}/${CLEANUP_CATEGORIES.length}` });
 
+	renderScanError(view, home);
+
 	const priority = CLEANUP_CATEGORIES
 		.filter((category) => view.scanning || categoryCount(view.candidates, category.tab) > 0)
 		.sort((a, b) => view.scanning
@@ -94,6 +96,18 @@ export function renderOverview(view: CleanupViewContext) {
 		for (const category of pending) renderDashboardCategory(view, pendingList, category, false);
 	}
 	updateScanProgress(view);
+}
+
+function renderScanError(view: CleanupViewContext, container: HTMLElement) {
+	const error = view.lastScanError;
+	if (!error) return;
+	const banner = container.createDiv({ cls: 'orphan-cleanup-scan-error' });
+	banner.setAttribute('role', 'alert');
+	const failedLabels = CLEANUP_CATEGORIES
+		.filter((category) => error.failedTabs.includes(category.tab))
+		.map((category) => category.label);
+	banner.createEl('strong', { text: failedLabels.length ? `上次扫描未完成：${failedLabels.join('、')}` : '上次扫描未完成' });
+	banner.createSpan({ text: `${error.reason} 请点击「${view.hasScanned ? '重新扫描全部' : '开始扫描'}」重试。` });
 }
 
 export function renderDashboardCategory(view: CleanupViewContext, container: HTMLElement, category: (typeof CLEANUP_CATEGORIES)[number], priority: boolean) {
