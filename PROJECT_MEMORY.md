@@ -3,7 +3,7 @@
 > 只记录已验证、长期有效且可复用的项目事实；当前任务进度写入 `HANDOFF.md`。
 
 ## 项目概览
-- 名称：Vault Doctor（插件 id：`vault-doctor`；仓库目录：`Obsidian-RelatedOperations`）
+- 名称：Vault Doctor（插件 id：`vault-doctor`；GitHub 仓库与本地目录：`obsidian-vault-doctor`）
 - 目标与非目标：检查 Vault 健康状况、整理关联笔记、清理未引用资源；不覆盖已有文件，不自动删除文件。
 - 技术栈：TypeScript、Obsidian API、esbuild、Node.js 原生测试。
 
