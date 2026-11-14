@@ -48,6 +48,12 @@ jobs:
                   npm ci
                   npm run build
 
+            - name: Lint
+              run: npm run lint
+
+            - name: Test
+              run: npm test
+
             - name: Check for optional styles
               id: styles
               run: |
@@ -68,5 +74,4 @@ jobs:
 
                   gh release create "$tag" \
                     --title="$tag" \
-                    --draft \
                     main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}

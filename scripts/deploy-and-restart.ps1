@@ -4,7 +4,8 @@ param(
     [string]$ProjectRoot = '',
     [string]$ObsidianCommand = 'obsidian.com',
     [int]$StartupTimeoutSeconds = 20,
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [switch]$NoRollbackOnFail
 )
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) { $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath) }
 Set-StrictMode -Version Latest
@@ -177,12 +178,16 @@ function Invoke-DeployAndRestart {
             if ($deployedStamp -lt $buildStamp) { throw "Deployed main.js is older than build output: $deployedStamp < $buildStamp" }
         } catch {
             $copyError = $_
-            Write-Warning 'Deployment copy failed; attempting to restore previous version...'
-            try {
-                Restore-DeploymentBackup $pluginDir $backupDir
-                Write-Warning 'Previous plugin version restored from backup.'
-            } catch {
-                Write-Warning "Backup restore also failed: $($_.Exception.Message)"
+            if ($NoRollbackOnFail) {
+                Write-Warning 'Deployment copy failed; rollback disabled (-NoRollbackOnFail), leaving current files in place for inspection.'
+            } else {
+                Write-Warning 'Deployment copy failed; attempting to restore previous version...'
+                try {
+                    Restore-DeploymentBackup $pluginDir $backupDir
+                    Write-Warning 'Previous plugin version restored from backup.'
+                } catch {
+                    Write-Warning "Backup restore also failed: $($_.Exception.Message)"
+                }
             }
             throw $copyError
         }
@@ -191,7 +196,9 @@ function Invoke-DeployAndRestart {
             Invoke-ObsidianRestart $cliPath $vault
         } catch {
             $restartError = $_
-            if (Test-Path -LiteralPath $backupDir -PathType Container) {
+            if ($NoRollbackOnFail) {
+                Write-Warning 'Obsidian restart failed; rollback disabled (-NoRollbackOnFail), leaving the new files in place for inspection.'
+            } elseif (Test-Path -LiteralPath $backupDir -PathType Container) {
                 Write-Warning 'Obsidian restart failed; attempting to restore previous plugin version...'
                 try {
                     Restore-DeploymentBackup $pluginDir $backupDir
