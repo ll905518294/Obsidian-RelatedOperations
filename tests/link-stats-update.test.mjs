@@ -184,6 +184,31 @@ test('updateLinkStats writes a duplicated file path only once', async () => {
 	assert.equal(fm['a.md'].in, 0);
 });
 
+// processFrontMatter is Obsidian's supported frontmatter API; our callback only
+// assigns the three stat keys and must leave unrelated values (multiline text,
+// nested objects added by other plugins) untouched.
+test('updateLinkStats preserves unrelated frontmatter values', async () => {
+	const a = file('a.md');
+	const fm = {
+		'a.md': {
+			title: '多行\n标题',
+			meta: { nested: [1, 2], flag: true },
+			in: 9,
+			out: 0,
+			both: 0,
+		},
+	};
+	const { app } = setup([a], fm);
+	assert.equal(await updateLinkStats(app, [a], settings), 1);
+	assert.deepEqual(fm['a.md'], {
+		title: '多行\n标题',
+		meta: { nested: [1, 2], flag: true },
+		in: 0,
+		out: 0,
+		both: 0,
+	});
+});
+
 test('migrate writes a duplicated file path only once', async () => {
 	const a = file('a.md');
 	const fm = { 'a.md': { oldIn: 1 } };

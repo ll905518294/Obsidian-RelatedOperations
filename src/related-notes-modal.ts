@@ -1,5 +1,5 @@
 import { App, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
-import { RelatedNote, RelationType, defaultTargetFolder, relationLabel } from './related-notes';
+import { getRelatedNotesForFiles, RelatedNote, RelationType, defaultTargetFolder, relationLabel } from './related-notes';
 import { RelatedOperationsSettings } from './settings';
 import { isVaultRelativePath, joinVaultPath } from './core-utils';
 
@@ -11,6 +11,7 @@ interface MoveResult {
 	succeeded: string[];
 	skipped: string[];
 	failed: Array<{ path: string; reason: string }>;
+	moved: Array<{ from: string; to: string }>;
 }
 
 export class RelatedNotesPanel {
@@ -24,6 +25,8 @@ export class RelatedNotesPanel {
 	private merging: boolean;
 	private readonly showSourceColumn: boolean;
 	private moveButton?: HTMLButtonElement;
+	private undoButton?: HTMLButtonElement;
+	private lastMove: Array<{ from: string; to: string }> = [];
 
 	constructor(
 		private readonly app: App,
@@ -458,9 +461,19 @@ export class RelatedNotesPanel {
 		const moveButton = actions.createEl('button', { text: '移动选中笔记', cls: 'mod-cta' });
 		this.moveButton = moveButton;
 		moveButton.addEventListener('click', () => void this.moveSelected());
+		const undoButton = actions.createEl('button', { text: '撤销本次移动', cls: 'related-operations-undo' });
+		this.undoButton = undoButton;
+		undoButton.addEventListener('click', () => void this.undoLastMove());
 		const cancelButton = actions.createEl('button', { text: '关闭' });
 		cancelButton.addEventListener('click', () => this.host.close());
 		this.updateMoveButton();
+		this.updateUndoButton();
+	}
+
+	private updateUndoButton() {
+		if (!this.undoButton) return;
+		this.undoButton.disabled = this.lastMove.length === 0;
+		this.undoButton.setText(this.lastMove.length > 0 ? `撤销本次移动（${this.lastMove.length}）` : '撤销本次移动');
 	}
 
 	private refreshSelectAll() {
@@ -602,11 +615,55 @@ export class RelatedNotesPanel {
 		if (!confirmed) return;
 		const result = await this.moveFiles(targetFolder, movable, conflicts.map((file) => file.path));
 		new Notice(this.formatResult(result));
-		if (result.failed.length === 0) {
-			this.host.close();
-			return;
-		}
 		this.pruneMovedNotes(new Set(result.succeeded));
+		this.updateUndoButton();
+	}
+
+	private async undoLastMove() {
+		if (this.lastMove.length === 0) return;
+		const restored: string[] = [];
+		const skipped: string[] = [];
+		const failed: Array<{ path: string; reason: string }> = [];
+		const remaining: Array<{ from: string; to: string }> = [];
+		for (const record of [...this.lastMove].reverse()) {
+			const file = this.app.vault.getAbstractFileByPath(record.to);
+			if (!(file instanceof TFile)) {
+				failed.push({ path: record.to, reason: '文件已不存在或已被重命名' });
+				remaining.push(record);
+				continue;
+			}
+			if (this.pathExistsCaseInsensitive(record.from)) {
+				skipped.push(record.from);
+				remaining.push(record);
+				continue;
+			}
+			try {
+				const folder = this.parentFolder(record.from);
+				if (folder) await this.ensureFolder(folder);
+				await this.app.fileManager.renameFile(file, record.from);
+				restored.push(record.from);
+			} catch (error) {
+				failed.push({ path: record.from, reason: error instanceof Error ? error.message : '未知错误' });
+				remaining.push(record);
+			}
+		}
+		this.lastMove = remaining.reverse();
+		const lines = [`已撤销：${restored.length}`, `已跳过：${skipped.length}`, `失败：${failed.length}`];
+		if (skipped.length) lines.push(`跳过文件：${skipped.join('、')}`);
+		if (failed.length) lines.push(`失败文件：${failed.map((item) => `${item.path}（${item.reason}）`).join('、')}`);
+		new Notice(lines.join('\n'));
+		this.recomputeRelatedNotes();
+	}
+
+	private recomputeRelatedNotes() {
+		this.relatedNotes = getRelatedNotesForFiles(this.app, this.sourceFiles);
+		for (const path of [...this.selections.keys()]) {
+			if (!this.relatedNotes.some((note) => note.file.path === path)) this.selections.delete(path);
+		}
+		this.groups = this.buildGroups();
+		this.renderTabs();
+		this.renderList();
+		this.updateUndoButton();
 	}
 
 	private pruneMovedNotes(movedPaths: Set<string>) {
@@ -626,7 +683,7 @@ export class RelatedNotesPanel {
 	}
 
 	private async moveFiles(targetFolder: string, selected: TFile[], initiallySkipped: string[] = []): Promise<MoveResult> {
-		const result: MoveResult = { succeeded: [], skipped: initiallySkipped, failed: [] };
+		const result: MoveResult = { succeeded: [], skipped: initiallySkipped, failed: [], moved: [] };
 		try {
 			await this.ensureFolder(targetFolder);
 		} catch {
@@ -640,12 +697,18 @@ export class RelatedNotesPanel {
 				continue;
 			}
 			try {
+				const previousPath = file.path;
 				await this.app.fileManager.renameFile(file, destination);
 				result.succeeded.push(file.path);
+				result.moved.push({ from: previousPath, to: destination });
 			} catch (error) {
 				const reason = error instanceof Error ? error.message : '未知错误';
 				result.failed.push({ path: file.path, reason });
 			}
+		}
+		if (result.moved.length > 0) {
+			this.lastMove = result.moved;
+			this.updateUndoButton();
 		}
 		return result;
 	}

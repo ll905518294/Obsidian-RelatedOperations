@@ -139,15 +139,14 @@ const bundle = await build({
 const { RelatedNotesPanel, RelatedNotesView, TFile, TFolder, Notice } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 function makeApp(files) {
-	const byPath = new Map(files.map((f) => [f.path, f]));
 	const renamed = [];
 	return {
 		app: {
 			metadataCache: { resolvedLinks: {}, getFileCache: () => ({}) },
 			vault: {
 				getAllLoadedFiles: () => files,
-				getAbstractFileByPath: (p) => byPath.get(p) ?? null,
-				createFolder: async (p) => { const f = new TFolder(p); files.push(f); byPath.set(p, f); },
+				getAbstractFileByPath: (p) => files.find((f) => f.path === p) ?? null,
+				createFolder: async (p) => { files.push(new TFolder(p)); },
 			},
 			fileManager: { renameFile: async (file, dest) => { renamed.push([file.path, dest]); file.path = dest; } },
 			workspace: { openLinkText: async () => {} },
@@ -415,4 +414,98 @@ test('merged relation cell shows which source is outgoing and which is incoming'
 	assert.match(cell.textContent, /a：出链 \+ 入链/);
 	assert.match(cell.textContent, /b：出链/);
 	assert.equal(el.querySelectorAll('th').length, 6, 'merging must not add a column');
+});
+
+test('moveFiles skips an existing same-name destination instead of renaming over it', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const occupant = file('archive/t.md');
+	const { panel, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t, occupant] });
+	const result = await panel.moveFiles('archive', [t]);
+	assert.deepEqual(result.succeeded, []);
+	assert.deepEqual(result.skipped, ['dst/t.md']);
+	assert.deepEqual(renamed, []);
+	assert.equal(t.path, 'dst/t.md');
+	assert.equal(occupant.path, 'archive/t.md');
+});
+
+test('moveSelected reports same-name conflicts without calling renameFile', async () => {
+	Notice.messages = [];
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const occupant = file('archive/t.md');
+	const { panel, el, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t, occupant] });
+	panel.selections.set('dst/t.md', true);
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	await panel.moveSelected();
+	assert.deepEqual(renamed, []);
+	assert.match(Notice.messages.at(-1), /存在冲突/);
+	assert.equal(t.path, 'dst/t.md');
+});
+
+test('undoLastMove returns the last batch to the original paths', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	await panel.moveFiles('archive', [t]);
+	assert.equal(t.path, 'archive/t.md');
+	await panel.undoLastMove();
+	assert.equal(t.path, 'dst/t.md');
+	assert.deepEqual(renamed, [['dst/t.md', 'archive/t.md'], ['archive/t.md', 'dst/t.md']]);
+});
+
+test('undoLastMove refuses to overwrite a file that reappeared at the original path', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	await panel.moveFiles('archive', [t]);
+	const occupant = file('dst/t.md');
+	panel.app.vault.getAllLoadedFiles().push(occupant);
+	await panel.undoLastMove();
+	assert.equal(t.path, 'archive/t.md');
+	assert.equal(occupant.path, 'dst/t.md');
+	assert.deepEqual(renamed, [['dst/t.md', 'archive/t.md']]);
+});
+
+test('target folder input lists matching vault folders', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const folders = [new TFolder('archive'), new TFolder('archive/2026'), new TFolder('notes')];
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t, ...folders] });
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'arch';
+	input.fire('input');
+	const suggestions = el.querySelectorAll('.related-operations-folder-suggestion').map((button) => button.textContent).sort();
+	assert.deepEqual(suggestions, ['archive', 'archive/2026']);
+});
+
+test('large multi-source batch keeps dedupe, select-all, merge and move list correct', async (t) => {
+	const sources = Array.from({ length: 100 }, (_, i) => file(`src/source-${i}.md`));
+	const targets = Array.from({ length: 500 }, (_, i) => file(`dst/target-${i}.md`));
+	const relatedNotes = [];
+	for (let i = 0; i < sources.length; i++) {
+		for (let k = 0; k < 20; k++) {
+			relatedNotes.push({ file: targets[(i * 5 + k) % targets.length], relation: 'outgoing', sourceFile: sources[i] });
+		}
+	}
+	const renderStart = performance.now();
+	const { panel, el, renamed } = panelFor(relatedNotes, sources, { files: [...sources, ...targets] });
+	const renderMs = performance.now() - renderStart;
+	assert.equal(el.querySelectorAll('.related-operations-tab')[0].textContent, '出链 (500)');
+	el.querySelector('.related-operations-select-all-action').fire('click');
+	assert.equal([...panel.selections.values()].filter(Boolean).length, 500);
+	const mergeStart = performance.now();
+	el.querySelector('.related-operations-merge-button').fire('click');
+	const mergeMs = performance.now() - mergeStart;
+	assert.equal(el.querySelectorAll('tr[data-related-path]').length, 500);
+	const uniqueTargets = [...new Map(relatedNotes.map((note) => [note.file.path, note.file])).values()];
+	const moveStart = performance.now();
+	const result = await panel.moveFiles('archive', [...uniqueTargets, ...uniqueTargets]);
+	const moveMs = performance.now() - moveStart;
+	assert.equal(result.succeeded.length, 500);
+	assert.equal(renamed.length, 500);
+	assert.ok(renderMs < 5000 && mergeMs < 5000 && moveMs < 5000);
+	t.diagnostic(`large batch: render=${renderMs.toFixed(1)}ms merge=${mergeMs.toFixed(1)}ms move=${moveMs.toFixed(1)}ms`);
 });
