@@ -39,8 +39,14 @@ export async function findDuplicateFiles(
 		!isIgnoredPath(file.path, ignoredFolders),
 	);
 	const referenced = new Set<string>();
-	for (const destinations of Object.values(app.metadataCache.resolvedLinks)) {
-		for (const path of Object.keys(destinations)) referenced.add(path);
+	const referencingByPath = new Map<string, Set<string>>();
+	for (const [source, destinations] of Object.entries(app.metadataCache.resolvedLinks)) {
+		for (const path of Object.keys(destinations)) {
+			referenced.add(path);
+			const sources = referencingByPath.get(path) ?? new Set<string>();
+			sources.add(source);
+			referencingByPath.set(path, sources);
+		}
 	}
 	const bySize = new Map<number, TFile[]>();
 	for (const file of files) {
@@ -57,7 +63,7 @@ export async function findDuplicateFiles(
 			const hash = await digestFile(app, file);
 			const key = `${file.stat.size}:${hash}`;
 			const items = hashGroups.get(key) ?? [];
-			items.push({ path: file.path, extension: file.extension, size: file.stat.size, mtime: file.stat.mtime, referenced: referenced.has(file.path), referencingNotes: referencingNotesFor(file.path, app) });
+			items.push({ path: file.path, extension: file.extension, size: file.stat.size, mtime: file.stat.mtime, referenced: referenced.has(file.path), referencingNotes: [...(referencingByPath.get(file.path) ?? [])].sort((a, b) => a.localeCompare(b)) });
 			hashGroups.set(key, items);
 		} catch (error) {
 			warnings.push({ path: file.path, reason: error instanceof Error ? error.message : '无法读取文件内容' });
@@ -103,13 +109,6 @@ export async function removeFileReferencesForFiles(app: App, filePaths: Iterable
 
 export async function removeImageReferencesForFile(app: App, filePath: string) {
 	return removeFileReferencesForFiles(app, [filePath]);
-}
-
-function referencingNotesFor(path: string, app: App): string[] {
-	return Object.entries(app.metadataCache.resolvedLinks)
-		.filter(([, destinations]) => Object.prototype.hasOwnProperty.call(destinations, path))
-		.map(([source]) => source)
-		.sort((a, b) => a.localeCompare(b));
 }
 
 async function digestFile(app: App, file: TFile): Promise<string> {

@@ -59,3 +59,55 @@ test('removes image and regular file references before duplicate deletion', asyn
 	assert.equal(result.removed, 2);
 	assert.equal(content, ' and ');
 });
+
+test('does not hash single-file size groups so unique files skip expensive reads', async () => {
+	let reads = 0;
+	const files = [
+		{ path: 'solo.md', extension: 'md', stat: { size: 7, mtime: 1 } },
+		{ path: 'dup1.bin', extension: 'bin', stat: { size: 5, mtime: 1 } },
+		{ path: 'dup2.bin', extension: 'bin', stat: { size: 5, mtime: 2 } },
+	];
+	const result = await findDuplicateFiles({
+		vault: { getFiles: () => files, readBinary: async (file) => { reads++; return new Uint8Array([9, 9, 9, 9, 9]); } },
+		metadataCache: { resolvedLinks: {} },
+	});
+	assert.equal(reads, 2);
+	assert.equal(result.groups.length, 1);
+	assert.deepEqual(result.groups[0].files.map((file) => file.path), ['dup1.bin', 'dup2.bin']);
+});
+
+test('treats zero-byte files with identical content as duplicates', async () => {
+	const files = [
+		{ path: 'a.txt', extension: 'txt', stat: { size: 0, mtime: 1 } },
+		{ path: 'b.txt', extension: 'txt', stat: { size: 0, mtime: 2 } },
+	];
+	const result = await findDuplicateFiles({
+		vault: { getFiles: () => files, readBinary: async () => new Uint8Array(0) },
+		metadataCache: { resolvedLinks: {} },
+	});
+	assert.equal(result.groups.length, 1);
+	assert.equal(result.groups[0].size, 0);
+	assert.deepEqual(result.groups[0].files.map((file) => file.path), ['a.txt', 'b.txt']);
+	assert.deepEqual(result.warnings, []);
+});
+
+test('reports referencing notes once per duplicate without rescanning per file', async () => {
+	const files = [
+		{ path: 'a.png', extension: 'png', stat: { size: 3, mtime: 1 } },
+		{ path: 'b.png', extension: 'png', stat: { size: 3, mtime: 2 } },
+	];
+	const result = await findDuplicateFiles({
+		vault: { getFiles: () => files, readBinary: async () => new Uint8Array([1, 2, 3]) },
+		metadataCache: {
+			resolvedLinks: {
+				'note-one.md': { 'a.png': 1 },
+				'note-two.md': { 'a.png': 1, 'b.png': 1 },
+			},
+		},
+	});
+	const byPath = Object.fromEntries(result.groups[0].files.map((file) => [file.path, file]));
+	assert.deepEqual(byPath['a.png'].referencingNotes, ['note-one.md', 'note-two.md']);
+	assert.deepEqual(byPath['b.png'].referencingNotes, ['note-two.md']);
+	assert.equal(byPath['a.png'].referenced, true);
+	assert.equal(byPath['b.png'].referenced, true);
+});

@@ -106,6 +106,30 @@ test('removes multiple selected links safely', () => {
 	assert.equal(result.removed, 2);
 });
 
+test('removes multiple links that share one line from right to left', () => {
+	const first = '![a](broken(a).png)';
+	const second = '![b](other.png)';
+	const content = `${first} ${second}\nAfter`;
+	const links = [
+		{ sourcePath: 'note.md', original: first, linkPath: 'broken(a).png', position: position(0, first.length) },
+		{ sourcePath: 'note.md', original: second, linkPath: 'other.png', position: position(first.length + 1, first.length + 1 + second.length) },
+	];
+	const result = removeBrokenImageLinks(content, links);
+	// Removing the right link first empties the shared line, so the left link is
+	// then deleted as whole-line removal — both rows collapse to a single break.
+	assert.equal(result.content, 'After');
+	assert.deepEqual({ removed: result.removed, skipped: result.skipped }, { removed: 2, skipped: 0 });
+});
+
+test('removes a link whose path contains nested parentheses alone on a line', () => {
+	const original = '![x](broken(a).png)';
+	const content = `Intro\n${original}\nOutro`;
+	const link = { sourcePath: 'note.md', original, linkPath: 'broken(a).png', position: position(content.indexOf(original), content.indexOf(original) + original.length) };
+	const result = removeBrokenImageLinks(content, [link]);
+	assert.equal(result.content, 'Intro\nOutro');
+	assert.deepEqual({ removed: result.removed, skipped: result.skipped }, { removed: 1, skipped: 0 });
+});
+
 test('skips a cached position that no longer matches the note', () => {
 	const original = '[missing](missing.png)';
 	const link = {
@@ -140,6 +164,15 @@ test('generates a stable key per source occurrence', () => {
 test('findBrokenLinkOffset does not return a stale shifted match for the bang wrapper', () => {
 	const link = { sourcePath: 'note.md', original: '[[a.png]]', linkPath: 'a.png', position: position(5, 16) };
 	assert.equal(findBrokenLinkOffset('![[a.png]]', link), null);
+});
+
+test('findBrokenLinkOffset refuses to guess between repeated identical links', () => {
+	const original = '![x](m.png)';
+	const shifted = `Z${original} and ${original}`;
+	const secondStart = shifted.lastIndexOf(original);
+	// Cached offset from before the prepend no longer matches the note content.
+	const stale = { sourcePath: 'note.md', original, linkPath: 'm.png', position: position(secondStart - 1, secondStart - 1 + original.length) };
+	assert.equal(findBrokenLinkOffset(shifted, stale), null);
 });
 
 test('does not remove an image link after its target is restored', async () => {

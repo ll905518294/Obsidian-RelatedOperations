@@ -90,16 +90,20 @@ export function findBrokenLinkOffset(
 	}
 
 	const isBangLink = link.original.startsWith('!');
-	for (const candidate of [link.original]) {
-		const found = content.indexOf(candidate);
-		if (found < 0) continue;
+	let match: { start: number; end: number } | null = null;
+	let matches = 0;
+	for (let found = content.indexOf(link.original); found >= 0; found = content.indexOf(link.original, found + 1)) {
 		// A plain broken link (`[[x.png]]`) must not be relocated inside a live
 		// image embed (`![[x.png]]`), otherwise removal would corrupt the image.
 		const precededByBang = found > 0 && content.charCodeAt(found - 1) === 0x21;
 		if (!isBangLink && precededByBang) continue;
-		return { start: found, end: found + candidate.length };
+		matches++;
+		// Guessing between identical occurrences could target the wrong link;
+		// let the caller rescan when the cached position is stale.
+		if (matches > 1) return null;
+		match = { start: found, end: found + link.original.length };
 	}
-	return null;
+	return match;
 }
 
 export async function removeSelectedBrokenLinks(

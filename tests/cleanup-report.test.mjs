@@ -26,3 +26,17 @@ test('collapses newlines inside table cells so rows stay intact', () => {
 	assert.ok(!brokenRow.includes('\r'));
 	assert.ok(brokenRow.includes('表格\\|分隔符'));
 });
+
+test('escapes backticks and keeps optional sections when counts are zero', () => {
+	const report = buildCleanupReport({
+		generatedAt: 't', images: [], folders: [], brokenLinks: [], nativeLinks: [],
+		duplicates: [], duplicateWarnings: [],
+		processed: { success: 0, skipped: 0, failed: [{ path: 'a`b.md', reason: 'x' }] },
+	});
+	const failedRow = report.split('\n').find((line) => line.startsWith('| 失败原因 |'));
+	assert.ok(failedRow.includes('a\\`b.md'));
+	assert.match(report, /未引用附件：0/);
+	assert.match(report, /空文件：0/);
+	assert.match(report, /失效笔记链接：0/);
+	assert.match(report, /重复文件组：0/);
+});

@@ -73,7 +73,7 @@ function parseNative(original: string): { target: string; alias: string; reason?
 	const parts = match[1]!.split('|');
 	const target = parts.shift()!.trim();
 	const extras = parts.map((part) => part.trim()).filter(Boolean);
-	if (extras.some((part) => /^\d+(?:x\d+)?$/.test(part))) return { target, alias: '', reason: '包含尺寸参数' };
+	if (extras.some((part) => /\d+x\d+/i.test(part) || /^\d+(?=\s|$)/.test(part))) return { target, alias: '', reason: '包含尺寸参数' };
 	return { target, alias: extras[0] ?? '' };
 }
 

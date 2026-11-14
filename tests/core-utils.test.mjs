@@ -87,6 +87,25 @@ test('falls back when a validated setting is invalid', () => {
 	});
 });
 
+test('normalizeSettings falls back to defaults for non-object or unknown-only input', () => {
+	const defaults = { a: 1, b: 'x' };
+	assert.deepEqual(normalizeSettings(defaults, []), defaults);
+	assert.deepEqual(normalizeSettings(defaults, null), defaults);
+	assert.deepEqual(normalizeSettings(defaults, 'raw'), defaults);
+	assert.deepEqual(normalizeSettings(defaults, { z: 99 }), defaults);
+});
+
+test('normalizeSettings drops unknown keys and wrong-typed values', () => {
+	const defaults = { a: 1, b: 'x', c: true };
+	assert.deepEqual(normalizeSettings(defaults, { a: 5, z: 'nope' }), { a: 5, b: 'x', c: true });
+	assert.deepEqual(normalizeSettings(defaults, { a: 'str', b: 7, c: 'yes' }), defaults);
+});
+
+test('normalizeSettings applies validators that reject empty distinct value', () => {
+	const defaults = { b: 'default' };
+	assert.deepEqual(normalizeSettings(defaults, { b: '' }, { b: (value) => typeof value === 'string' && value.trim() !== '' }), defaults);
+});
+
 test('detects hidden path segments in any position', () => {
 	assert.equal(hasHiddenPathSegment('.obsidian/plugins/demo'), true);
 	assert.equal(hasHiddenPathSegment('notes/.trash'), true);
@@ -129,11 +148,39 @@ test('parses configurable extensions without case or leading dots', () => {
 	assert.deepEqual([...parseExtensions('PNG, .jpg JICO')].sort(), ['jico', 'jpg', 'png']);
 });
 
+test('parseExtensions collapses empty separators and duplicate extensions', () => {
+	assert.deepEqual([...parseExtensions(' png, ,,  png .PNG jpg ')], ['png', 'jpg']);
+});
+
+test('parseExtensions ignores invalid tokens', () => {
+	assert.deepEqual([...parseExtensions(',, . , png !exe 123 ')], ['png', '123']);
+});
+
+test('current settings keep legacy grouping source precedence and reject old fields', () => {
+	assert.equal(groupingModeFromLegacy({ groupBySource: true }), 'source');
+	assert.equal(groupingModeFromLegacy({ groupByPath: true }), 'path');
+	assert.equal(groupingModeFromLegacy({ groupBySource: true, groupByPath: false }), 'source');
+	assert.equal(groupingModeFromLegacy({}), 'none');
+});
+
 test('normalizes ignored folders and matches descendants only', () => {
 	assert.deepEqual(parseIgnoredFolders(' /assets/，archive\\old\n assets '), ['assets', 'archive/old']);
 	assert.equal(isIgnoredPath('assets/photo.png', ['assets']), true);
 	assert.equal(isIgnoredPath('Assets/Photo.PNG', ['assets']), true);
 	assert.equal(isIgnoredPath('assets2/photo.png', ['assets']), false);
+});
+
+test('ignored-folder matching tolerates trailing slashes and nested prefixes', () => {
+	assert.equal(isIgnoredPath('notes/photo.png/', ['notes']), true);
+	assert.equal(isIgnoredPath('notes/photo.png', ['notes/']), true);
+	assert.equal(isIgnoredPath('archive/old/a.png', ['archive/old']), true);
+	assert.equal(isIgnoredPath('archive/oldish/a.png', ['archive/old']), false);
+	assert.equal(isIgnoredPath('notes2/photo.png', ['notes']), false);
+});
+
+test('isPathInFolder tolerates a trailing slash on the folder path', () => {
+	assert.equal(isPathInFolder('notes/a.md', 'notes/'), true);
+	assert.equal(isPathInFolder('notes2/a.md', 'notes/'), false);
 });
 
 test('recovers the file name from prose prefixes and folder paths', () => {

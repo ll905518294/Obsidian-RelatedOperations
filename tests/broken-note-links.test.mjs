@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMissingNotes, missingNotePath } from '../src/broken-note-links.ts';
+import { createMissingNotes, missingNotePath, removeBrokenNoteLinks } from '../src/broken-note-links.ts';
 
 const link = {
 	sourcePath: 'note.md',
@@ -29,4 +29,21 @@ test('does not create a note when the selected broken link was removed after sca
 test('rejects Windows drive-relative paths from missing note creation', () => {
 	const drive = { sourcePath: 'note.md', linkPath: 'C:target', original: '[[C:target]]', position: { start: { offset: 0 }, end: { offset: 11 } }, syntax: 'wiki' };
 	assert.equal(missingNotePath(drive), null);
+});
+
+test('removes multiple wiki links sharing one line and nested anchors', () => {
+	const link = (offset) => {
+		const original = '[[missing]]';
+		return { sourcePath: 'note.md', original, linkPath: 'missing', position: { start: { offset }, end: { offset: offset + original.length } }, syntax: 'wiki' };
+	};
+	const content = '[[missing]] and [[missing]] and after';
+	const target = '[[missing]]';
+	const a = content.indexOf(target);
+	const b = content.indexOf(target, a + target.length);
+	const l1 = { ...link(a), position: { start: { offset: a }, end: { offset: a + target.length } } };
+	const l2 = { ...link(b), position: { start: { offset: b }, end: { offset: b + target.length } } };
+	const result = removeBrokenNoteLinks(content, [l1, l2]);
+	assert.equal(result.content, ' and  and after');
+	assert.equal(result.removed, 2);
+	assert.equal(result.skipped, 0);
 });
