@@ -1,7 +1,7 @@
 {
 	"id": "Obsidian-RelatedOperations",
 	"name": "Obsidian-Manager",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"minAppVersion": "1.13.0",
 	"description": "检查笔记关系、未引用资源和失效链接，并安全整理关联笔记。",
 	"isDesktopOnly": false
