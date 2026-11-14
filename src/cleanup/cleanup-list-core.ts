@@ -2,7 +2,7 @@ import { TAbstractFile, TFile } from 'obsidian';
 import type { CleanupViewContext } from './cleanup-types';
 import { CLEANUP_PAGE_SIZE } from './cleanup-types';
 import { brokenLinkKey } from '../broken-image-links';
-import { brokenNoteLinkKey, type BrokenNoteLink } from '../broken-note-links';
+import { brokenNoteLinkKey } from '../broken-note-links';
 import { convertNativeImageLink, nativeImageLinkKey } from '../native-image-links';
 import { addReportControls } from './cleanup-flows';
 import { clampPageIndex, pageCount } from './cleanup-selectors';
@@ -49,22 +49,13 @@ export function renderList(host: CleanupViewContext) {
 	if (currentTab === 'broken-links' || currentTab === 'native-links' || currentTab === 'broken-note-links') {
 		const native = currentTab === 'native-links';
 		const note = currentTab === 'broken-note-links';
-		const candidates = note ? host.candidates.brokenNoteLinks : native ? host.candidates.nativeLinks : host.candidates.brokenLinks;
-		const page = pageFor(host, currentTab, candidates.length);
-		const pageItems = candidates.slice(page * CLEANUP_PAGE_SIZE, (page + 1) * CLEANUP_PAGE_SIZE);
-			addSelectionControls(toolbar, pageItems.length, candidates.length,
-					() => pageItems.forEach((item) => { if (note) host.noteLinkSelections.add(brokenNoteLinkKey(item as unknown as BrokenNoteLink)); else if (native) host.nativeSelections.add(nativeImageLinkKey(item)); else host.linkSelections.add(brokenLinkKey(item)); }),
-					() => candidates.forEach((item) => { if (note) host.noteLinkSelections.add(brokenNoteLinkKey(item as unknown as BrokenNoteLink)); else if (native) { if (convertNativeImageLink(item)) host.nativeSelections.add(nativeImageLinkKey(item)); } else host.linkSelections.add(brokenLinkKey(item)); }),
-					() => pageItems.forEach((item) => { if (note) host.noteLinkSelections.delete(brokenNoteLinkKey(item as unknown as BrokenNoteLink)); else if (native) host.nativeSelections.delete(nativeImageLinkKey(item)); else host.linkSelections.delete(brokenLinkKey(item)); }),
-			() => { if (note) host.noteLinkSelections.clear(); else if (native) host.nativeSelections.clear(); else host.linkSelections.clear(); },
-			() => { syncPageCheckboxes(content, true); updateSelectionSummary(host); },
-			() => { syncPageCheckboxes(content, false); updateSelectionSummary(host); });
-		if (candidates.length === 0) {
-			content.createEl('p', { text: note ? '没有发现失效笔记链接。' : native ? '没有发现原生图片链接。' : '没有发现失效图片链接。', cls: 'orphan-cleanup-empty' });
-			return;
+		if (note) {
+			renderLinkTab(host, toolbar, content, host.candidates.brokenNoteLinks, host.noteLinkSelections, brokenNoteLinkKey, '没有发现失效笔记链接。', (items) => renderBrokenNoteLinkList(host, content, items));
+		} else if (native) {
+			renderLinkTab(host, toolbar, content, host.candidates.nativeLinks, host.nativeSelections, nativeImageLinkKey, '没有发现原生图片链接。', (items) => renderNativeLinkList(host, content, items), (item) => Boolean(convertNativeImageLink(item)));
+		} else {
+			renderLinkTab(host, toolbar, content, host.candidates.brokenLinks, host.linkSelections, brokenLinkKey, '没有发现失效图片链接。', (items) => renderBrokenLinkList(host, content, items));
 		}
-			if (note) renderBrokenNoteLinkList(host, content, pageItems as BrokenNoteLink[]); else native ? renderNativeLinkList(host, content, pageItems) : renderBrokenLinkList(host, content, pageItems);
-		renderPagination(toolbar, candidates.length, page, (next) => { host.pages.set(currentTab, next); host.renderContents(); });
 		return;
 	}
 
@@ -140,6 +131,34 @@ export function addSelectionControls(
 	const clearAllButton = container.createEl('button', { text: '取消全部选择' });
 	clearAllButton.disabled = totalCount === 0;
 	clearAllButton.addEventListener('click', () => { clearAll(); refreshAfterClear(); });
+}
+
+function renderLinkTab<T>(
+	host: CleanupViewContext,
+	toolbar: HTMLElement,
+	content: HTMLElement,
+	allItems: T[],
+	selected: Set<string>,
+	keyOf: (item: T) => string,
+	emptyText: string,
+	render: (items: T[]) => void,
+	selectable?: (item: T) => boolean,
+) {
+	const page = pageFor(host, host.activeTab, allItems.length);
+	const pageItems = allItems.slice(page * CLEANUP_PAGE_SIZE, (page + 1) * CLEANUP_PAGE_SIZE);
+	addSelectionControls(toolbar, pageItems.length, allItems.length,
+		() => pageItems.forEach((item) => selected.add(keyOf(item))),
+		() => allItems.forEach((item) => { if (!selectable || selectable(item)) selected.add(keyOf(item)); }),
+		() => pageItems.forEach((item) => selected.delete(keyOf(item))),
+		() => selected.clear(),
+		() => { syncPageCheckboxes(content, true); updateSelectionSummary(host); },
+		() => { syncPageCheckboxes(content, false); updateSelectionSummary(host); });
+	if (allItems.length === 0) {
+		content.createEl('p', { text: emptyText, cls: 'orphan-cleanup-empty' });
+		return;
+	}
+	render(pageItems);
+	renderPagination(toolbar, allItems.length, page, (next) => { host.pages.set(host.activeTab, next); host.renderContents(); });
 }
 
 export function syncPageCheckboxes(list: HTMLElement, checked: boolean) {

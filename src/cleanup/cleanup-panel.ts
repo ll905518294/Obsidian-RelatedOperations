@@ -12,6 +12,7 @@ import { CleanupConfirmationModal } from './cleanup-modals';
 import { categoryStatus, renderHelp, renderOverview, renderProcessedSummary, renderTabs, tabEntries, updateScanProgress } from './cleanup-dashboard';
 import { renderActions, renderList, updateSelectionSummary } from './cleanup-list-ui';
 import { revalidateCleanupSelection } from './cleanup-flows';
+import { reportCleanupInvariants } from './cleanup-invariants';
 export class OrphanCleanupPanel extends Component {
 	candidates: CleanupCandidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], duplicates: [], duplicateWarnings: [] };
 	selections = new Set<string>();
@@ -239,10 +240,12 @@ export class OrphanCleanupPanel extends Component {
 		if (this.processed) this.renderProcessedSummary();
 		if (this.activeTab === 'overview') {
 			this.renderOverview();
+			reportCleanupInvariants(this);
 			return;
 		}
 		this.renderList();
 		this.renderActions();
+		reportCleanupInvariants(this);
 	}
 
 	async cleanDuplicateLinks(file: DuplicateFileGroup['files'][number]) {
