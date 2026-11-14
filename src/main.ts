@@ -4,19 +4,14 @@ import { getRelatedNotesForFiles } from './related-notes';
 import { RELATED_NOTES_VIEW_TYPE, RelatedNotesView } from './related-notes-view';
 import { NotebookNavigatorApi } from './notebook-navigator-api';
 import { DEFAULT_SETTINGS, RelatedOperationsSettingTab, RelatedOperationsSettings } from './settings';
-import { findLinkStatsPropertyConflicts, LinkStatsPropertyNames, migrateLinkStatsProperties, updateLinkStats } from './link-stats';
-import { findChangedLinkPaths } from './link-stats-core';
+import { collectLinkStatsPropertyEntries, removeLinkStatsPropertyEntries, HISTORICAL_LINK_STATS_PROPERTY_NAMES } from './link-stats-cleanup';
+import { confirmLinkStatsCleanup } from './link-stats-cleanup-modal';
 import { OrphanCleanupModal } from './orphan-cleanup';
 import { ORPHAN_CLEANUP_VIEW_TYPE, OrphanCleanupView } from './orphan-cleanup-view';
 import { groupingModeFromLegacy, isPathInFolder, normalizeSettings } from './core-utils';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
-	private linkStatsUpdaterStarted = false;
-	private linkStatsUpdate?: Promise<number>;
-	private linkStatsDebounceTimer = 0;
-	private linkStatsResolvedSnapshot?: Record<string, Record<string, number>>;
-	private pendingLinkStatsPaths = new Set<string>();
 	settings!: RelatedOperationsSettings;
 	async onload() {
 		const propertyName = (value: unknown) => typeof value === 'string' && value.trim().length > 0 && !/[\r\n]/.test(value);
@@ -40,7 +35,6 @@ export default class RelatedOperationsPlugin extends Plugin {
 			loaded.bidirectionalProperty = DEFAULT_SETTINGS.bidirectionalProperty;
 		}
 		this.settings = loaded;
-		this.registerLinkStatsUpdater();
 		this.registerView(RELATED_NOTES_VIEW_TYPE, (leaf) => new RelatedNotesView(leaf, this.settings, () => this.saveSettings()));
 		this.registerView(ORPHAN_CLEANUP_VIEW_TYPE, (leaf) => new OrphanCleanupView(leaf, this.settings, () => this.saveSettings()));
 		this.addSettingTab(new RelatedOperationsSettingTab(this.app, this));
@@ -58,17 +52,9 @@ export default class RelatedOperationsPlugin extends Plugin {
 			},
 		});
 		this.addCommand({
-			id: 'refresh-related-link-properties',
-			name: '刷新全库笔记关系数量',
-			callback: async () => {
-				if (!this.settings.enabled) {
-					new Notice('请先在设置中启用关联数量属性。');
-					return;
-				}
-				const count = await this.updateAllLinkStatsOrNotice();
-				if (count === null) return;
-				new Notice(`已更新 ${count} 篇笔记的关联数量属性。`);
-			},
+			id: 'remove-link-stats-properties',
+			name: '清除关联数量属性',
+			callback: () => void this.removeLinkStatsProperties(),
 		});
 		this.addCommand({
 			id: 'scan-and-clean-orphan-resources',
@@ -286,112 +272,53 @@ export default class RelatedOperationsPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	async applyLinkStatsPropertyNames(nextNames: LinkStatsPropertyNames): Promise<{ migrated: number; updated: number; conflicts: Array<{ path: string; property: string }> }> {
-		const oldNames: LinkStatsPropertyNames = {
-			incomingProperty: this.settings.incomingProperty,
-			outgoingProperty: this.settings.outgoingProperty,
-			bidirectionalProperty: this.settings.bidirectionalProperty,
-		};
+	private async removeLinkStatsProperties(): Promise<void> {
+		const names = this.linkStatsCleanupNames();
 		const files = this.app.vault.getMarkdownFiles();
-		const conflicts = findLinkStatsPropertyConflicts(this.app, files, oldNames, nextNames);
-		if (conflicts.length) return { migrated: 0, updated: 0, conflicts };
-		const migrated = await migrateLinkStatsProperties(this.app, files, oldNames, nextNames);
-		Object.assign(this.settings, nextNames);
-		await this.saveSettings();
-		const updated = this.settings.enabled ? await this.updateAllLinkStats(true) : 0;
-		return { migrated, updated, conflicts: [] };
-	}
-
-	private registerLinkStatsUpdater() {
-		if (this.linkStatsUpdaterStarted) return;
-		this.linkStatsUpdaterStarted = true;
-		const schedule = () => {
-			if (!this.settings.enabled || !this.settings.autoUpdate) return;
-			window.clearTimeout(this.linkStatsDebounceTimer);
-			this.linkStatsDebounceTimer = window.setTimeout(() => {
-				this.linkStatsDebounceTimer = 0;
-				if (this.settings.enabled && this.settings.autoUpdate) void this.updateChangedLinkStatsOrNotice();
-			}, 800);
-		};
-		const scheduleForLinkRelevantChange = (file: TAbstractFile) => {
-			if (file instanceof TFile && file.extension.toLowerCase() === 'md') this.pendingLinkStatsPaths.add(file.path);
-			if (file instanceof TFolder || (file instanceof TFile && file.extension.toLowerCase() === 'md')) schedule();
-		};
-		this.registerEvent(this.app.metadataCache.on('changed', scheduleForLinkRelevantChange));
-		this.registerEvent(this.app.metadataCache.on('resolved', schedule));
-		this.registerEvent(this.app.vault.on('create', scheduleForLinkRelevantChange));
-		this.registerEvent(this.app.vault.on('delete', scheduleForLinkRelevantChange));
-		this.registerEvent(this.app.vault.on('rename', scheduleForLinkRelevantChange));
-		this.registerInterval(window.setInterval(() => {
-			if (this.settings.enabled && this.settings.autoUpdate) void this.updateChangedLinkStatsOrNotice();
-		}, 60_000));
-		this.register(() => window.clearTimeout(this.linkStatsDebounceTimer));
-		if (this.settings.enabled) void this.updateAllLinkStatsOrNotice();
-	}
-
-	refreshLinkStatsUpdater() {
-		this.registerLinkStatsUpdater();
-		if (this.settings.enabled) void this.updateAllLinkStatsOrNotice();
-	}
-
-	cancelPendingLinkStatsUpdate() {
-		window.clearTimeout(this.linkStatsDebounceTimer);
-		this.linkStatsDebounceTimer = 0;
-	}
-
-	private async updateAllLinkStats(force = false) {
-		if (!this.settings.enabled) return 0;
-		if (this.linkStatsUpdate) {
-			if (!force) return this.linkStatsUpdate;
-			await this.linkStatsUpdate;
+		const entries = collectLinkStatsPropertyEntries(
+			files.map((file) => ({
+				path: file.path,
+				frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter,
+			})),
+			names,
+		);
+		if (entries.length === 0) {
+			new Notice('未发现关联数量属性');
+			return;
 		}
-		const settings = { ...this.settings };
-		const files = this.app.vault.getMarkdownFiles();
-		const snapshot = snapshotResolvedLinks(this.app.metadataCache.resolvedLinks);
-		this.linkStatsUpdate = updateLinkStats(this.app, files, settings)
-			.then((updated) => { this.linkStatsResolvedSnapshot = snapshot; return updated; })
-			.finally(() => { this.linkStatsUpdate = undefined; });
-		return this.linkStatsUpdate;
-	}
+		const propertyCount = entries.reduce((sum, entry) => sum + entry.matchedKeys.length, 0);
+		const samplePaths = entries.slice(0, 3).map((entry) => entry.path);
+		if (!(await confirmLinkStatsCleanup(this.app, entries.length, propertyCount, samplePaths))) return;
 
-	private async updateChangedLinkStatsOrNotice(): Promise<number | null> {
+		let fileByPath: Map<string, TFile>;
 		try {
-			if (!this.settings.enabled) return 0;
-			while (this.linkStatsUpdate) await this.linkStatsUpdate;
-			if (!this.settings.enabled || !this.settings.autoUpdate) return 0;
-			const current = this.app.metadataCache.resolvedLinks;
-			if (!this.linkStatsResolvedSnapshot) return await this.updateAllLinkStats();
-			const changedPaths = findChangedLinkPaths(this.linkStatsResolvedSnapshot, current);
-			const pending = this.pendingLinkStatsPaths;
-			this.pendingLinkStatsPaths = new Set();
-			for (const path of pending) changedPaths.add(path);
-			const snapshot = snapshotResolvedLinks(current);
-			const files = this.app.vault.getMarkdownFiles().filter((file) => changedPaths.has(file.path));
-			if (files.length === 0) { this.linkStatsResolvedSnapshot = snapshot; return 0; }
-			const settings = { ...this.settings };
-			this.linkStatsUpdate = updateLinkStats(this.app, files, settings)
-				.then((updated) => { this.linkStatsResolvedSnapshot = snapshot; return updated; })
-				.catch((error: unknown) => { for (const path of pending) this.pendingLinkStatsPaths.add(path); throw error; })
-				.finally(() => { this.linkStatsUpdate = undefined; });
-			return await this.linkStatsUpdate;
+			fileByPath = new Map(this.app.vault.getMarkdownFiles().map((file) => [file.path, file]));
 		} catch (error) {
-			new Notice(`更新关联数量失败：${error instanceof Error ? error.message : '未知错误'}`);
-			return null;
+			new Notice(`读取笔记失败：${error instanceof Error ? error.message : '未知错误'}`);
+			return;
 		}
+		const summary = await removeLinkStatsPropertyEntries(entries, async (path, keys) => {
+			const file = fileByPath.get(path);
+			if (!file) throw new Error('文件不存在或已被移除');
+			await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+				for (const key of keys) delete frontmatter[key];
+			});
+		});
+		const failureSample = summary.failed.slice(0, 3).map((item) => `${item.path}（${item.reason}）`).join('、');
+		const failureSuffix = failureSample ? `：${failureSample}` : '';
+		new Notice(`清理 ${summary.cleaned} 篇 / 跳过 ${summary.skipped} 篇 / 失败 ${summary.failed.length} 篇${failureSuffix}`);
 	}
 
-	private async updateAllLinkStatsOrNotice(): Promise<number | null> {
-		try {
-			return await this.updateAllLinkStats();
-		} catch (error) {
-			new Notice(`更新关联数量失败：${error instanceof Error ? error.message : '未知错误'}`);
-			return null;
-		}
+	// Current configured names plus the historical defaults, deduplicated and
+	// filtered, so a one-time cleanup can find properties from any past release.
+	private linkStatsCleanupNames(): string[] {
+		return [...new Set([
+			this.settings.incomingProperty,
+			this.settings.outgoingProperty,
+			this.settings.bidirectionalProperty,
+			...Object.values(HISTORICAL_LINK_STATS_PROPERTY_NAMES),
+		])].filter((name) => typeof name === 'string' && name.trim().length > 0);
 	}
-}
-
-function snapshotResolvedLinks(resolved: Record<string, Record<string, number>>) {
-	return Object.fromEntries(Object.entries(resolved).map(([source, targets]) => [source, { ...targets }]));
 }
 
 function openInSystemFolder(app: Plugin['app'], item: TAbstractFile) {

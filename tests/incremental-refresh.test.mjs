@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { findChangedLinkPaths } from '../src/link-stats-core.ts';
 
 // Exercise the actual plugin and panel with Obsidian events and file writes stubbed.
 const stub = `
@@ -29,14 +28,14 @@ export const normalizePath = p => p;
 export const setIcon = () => {};
 `;
 const bundle = await build({
-	stdin: { contents: "export { default as Plugin } from './src/main.ts'; export { OrphanCleanupPanel as Panel } from './src/orphan-cleanup.ts'; export { TFile } from 'obsidian';", resolveDir: process.cwd() },
+	stdin: { contents: "export { OrphanCleanupPanel as Panel } from './src/orphan-cleanup.ts'; export { TFile } from 'obsidian';", resolveDir: process.cwd() },
 	bundle: true, write: false, format: 'esm', platform: 'node',
 	plugins: [{ name: 'obsidian-stub', setup(b) {
 		b.onResolve({ filter: /^obsidian$/ }, () => ({ path: 'obsidian', namespace: 'stub' }));
 		b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: stub }));
 	} }],
 });
-const { Plugin, Panel, TFile } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const { Panel, TFile } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 function events() {
 	const listeners = new Map();
 	return {
@@ -44,39 +43,6 @@ function events() {
 		emit(name, ...args) { for (const cb of listeners.get(name) ?? []) cb(...args); },
 	};
 }
-
-test('changed links include both endpoints and removed targets, leaving unrelated paths out', () => {
-	assert.deepEqual([...findChangedLinkPaths({ a: { b: 1 }, x: { y: 1 } }, { a: { c: 1 }, x: { y: 1 } })].sort(), ['a', 'b', 'c']);
-	assert.equal(findChangedLinkPaths({ a: { b: 1 } }, { a: { b: 1 } }).size, 0);
-});
-
-test('automatic edits and periodic checks avoid reading unrelated frontmatter', async () => {
-	const timers = new Map(); let id = 0; let tick;
-	globalThis.window = { setTimeout: cb => { timers.set(++id, cb); return id; }, clearTimeout: id => timers.delete(id), setInterval: cb => { tick = cb; return 1; } };
-	const metadata = events(), vault = events();
-	const files = ['a.md', 'b.md', 'unrelated.md'].map(path => new TFile(path));
-	const caches = Object.fromEntries(files.map(f => [f.path, { frontmatter: {} }]));
-	const checked = [];
-	const plugin = new Plugin();
-	plugin.app = { vault: { ...vault, getMarkdownFiles: () => files }, metadataCache: { ...metadata, resolvedLinks: {}, getFileCache: f => { checked.push(f.path); return caches[f.path]; } }, fileManager: { processFrontMatter: async (f, cb) => cb(caches[f.path].frontmatter) } };
-	plugin.settings = { enabled: true, autoUpdate: true, incomingProperty: 'in', outgoingProperty: 'out', bidirectionalProperty: 'both' };
-	plugin.registerLinkStatsUpdater(); await plugin.linkStatsUpdate; checked.length = 0;
-	plugin.app.metadataCache.resolvedLinks = { 'a.md': { 'b.md': 1 } };
-	vault.emit('modify', files[0]); metadata.emit('changed', files[0]); metadata.emit('resolved');
-	for (const cb of [...timers.values()]) cb(); timers.clear();
-	await plugin.linkStatsUpdate;
-	assert.deepEqual(checked.sort(), ['a.md', 'b.md']);
-	assert.equal(caches['b.md'].frontmatter.in, 1);
-	checked.length = 0; tick(); await plugin.linkStatsUpdate;
-	assert.deepEqual(checked, []);
-	metadata.emit('changed', files[0]);
-	for (const cb of [...timers.values()]) cb(); timers.clear();
-	await plugin.linkStatsUpdate;
-	assert.deepEqual(checked, ['a.md']);
-	plugin.app.metadataCache.resolvedLinks = {}; await plugin.updateChangedLinkStatsOrNotice();
-	assert.equal(caches['b.md'].frontmatter.in, 0);
-	plugin.unload(); delete globalThis.window;
-});
 
 test('panel updates edited source only and repeated current-tab refresh is effective', async () => {
 	globalThis.window = { setTimeout };

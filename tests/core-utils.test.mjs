@@ -24,7 +24,6 @@ test('migrates legacy grouping settings with source taking precedence', () => {
 	assert.equal(groupingModeFromLegacy({ groupBySource: true, groupByPath: true }), 'source');
 });
 import { createMissingNotes, findBrokenNoteLinks, missingNotePath, removeSelectedBrokenNoteLinks } from '../src/broken-note-links.ts';
-import { buildLinkStatsIndex } from '../src/link-stats-core.ts';
 
 test('joins a root target without introducing a leading slash', () => {
 	assert.equal(joinVaultPath('', 'Pages'), 'Pages');
@@ -49,26 +48,6 @@ test('rejects UNC-like share paths for vault-relative checks', () => {
 
 test('joins empty segments into an empty vault path', () => {
 	assert.equal(joinVaultPath('', ''), '');
-});
-
-test('counts incoming links from outside a single-file refresh set', () => {
-	const stats = buildLinkStatsIndex({
-		'other.md': { 'target.md': 1 },
-	}, new Set(['target.md']), new Set(['other.md', 'target.md']));
-	assert.deepEqual(stats.get('target.md'), { incoming: 1, outgoing: 0, bidirectional: 0 });
-});
-
-test('ignores non-Markdown sources in the resolved-link cache', () => {
-	const stats = buildLinkStatsIndex({ 'canvas': { 'target.md': 1 } }, new Set(['target.md']), new Set(['target.md']));
-	assert.deepEqual(stats.get('target.md'), { incoming: 0, outgoing: 0, bidirectional: 0 });
-});
-
-test('preserves bidirectional counts when refreshing a subset', () => {
-	const stats = buildLinkStatsIndex({
-		'one.md': { 'two.md': 1 },
-		'two.md': { 'one.md': 1 },
-	}, new Set(['one.md']), new Set(['one.md', 'two.md']));
-	assert.deepEqual(stats.get('one.md'), { incoming: 1, outgoing: 1, bidirectional: 1 });
 });
 
 test('keeps only persisted settings with the expected primitive type', () => {
