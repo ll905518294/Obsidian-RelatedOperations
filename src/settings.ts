@@ -8,13 +8,6 @@ export interface RelatedOperationsSettings {
 	orphanImageExtensions: string;
 	orphanIgnoredFolders: string;
 	orphanCleanupCache?: OrphanCleanupCache;
-	// The three link-count property names are no longer written or shown in the
-	// settings UI. They stay in the data model only so the one-time cleanup
-	// command can locate properties written before the feature was retired,
-	// including names a user customized earlier. Do not remove them as "dead".
-	incomingProperty: string;
-	outgoingProperty: string;
-	bidirectionalProperty: string;
 }
 
 export interface OrphanCleanupCache {
@@ -32,9 +25,6 @@ export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	hideCompliant: true,
 	orphanImageExtensions: 'png, jpg, jpeg, gif, webp, svg, bmp, avif, ico',
 	orphanIgnoredFolders: '',
-	incomingProperty: 'related-operations-in-links',
-	outgoingProperty: 'related-operations-out-links',
-	bidirectionalProperty: 'related-operations-bidirectional-links',
 };
 
 

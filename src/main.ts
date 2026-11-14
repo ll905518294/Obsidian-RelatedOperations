@@ -1,38 +1,34 @@
-import { FileSystemAdapter, Notice, Platform, Plugin, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { Notice, Platform, Plugin, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { RelatedNotesModal } from './related-notes-modal';
 import { getRelatedNotesForFiles } from './related-notes';
 import { RELATED_NOTES_VIEW_TYPE, RelatedNotesView } from './related-notes-view';
 import { NotebookNavigatorApi } from './notebook-navigator-api';
 import { DEFAULT_SETTINGS, RelatedOperationsSettingTab, RelatedOperationsSettings } from './settings';
-import { collectLinkStatsPropertyEntries, removeLinkStatsPropertyEntries, HISTORICAL_LINK_STATS_PROPERTY_NAMES } from './link-stats-cleanup';
-import { confirmLinkStatsCleanup } from './link-stats-cleanup-modal';
 import { OrphanCleanupModal } from './orphan-cleanup';
 import { ORPHAN_CLEANUP_VIEW_TYPE, OrphanCleanupView } from './orphan-cleanup-view';
+import { openInSystemFolder } from './cleanup/cleanup-actions';
 import { groupingModeFromLegacy, isPathInFolder, normalizeSettings } from './core-utils';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
 	settings!: RelatedOperationsSettings;
 	async onload() {
-		const propertyName = (value: unknown) => typeof value === 'string' && value.trim().length > 0 && !/[\r\n]/.test(value);
 		const rawSettings: unknown = await this.loadData();
-		const loaded = normalizeSettings(DEFAULT_SETTINGS, rawSettings, {
-			incomingProperty: propertyName,
-			outgoingProperty: propertyName,
-			bidirectionalProperty: propertyName,
-		});
+		const loaded = normalizeSettings(DEFAULT_SETTINGS, rawSettings);
 		if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
-			const legacy = rawSettings as { groupBySource?: unknown; groupByPath?: unknown };
-			if (typeof (rawSettings as { groupingMode?: unknown }).groupingMode !== 'string' && (typeof legacy.groupBySource === 'boolean' || typeof legacy.groupByPath === 'boolean')) {
+			const persisted = rawSettings as Record<string, unknown>;
+			const legacy = persisted as { groupBySource?: unknown; groupByPath?: unknown };
+			const groupingModeMigrated = typeof persisted.groupingMode !== 'string' && (typeof legacy.groupBySource === 'boolean' || typeof legacy.groupByPath === 'boolean');
+			if (groupingModeMigrated) {
 				loaded.groupingMode = groupingModeFromLegacy(legacy);
+			}
+			// Retired link-count fields (enabled/autoUpdate/property names) are
+			// dropped from data.json on the first load after upgrading.
+			const retiredFieldsSaved = ['enabled', 'autoUpdate', 'incomingProperty', 'outgoingProperty', 'bidirectionalProperty']
+				.some((key) => key in persisted);
+			if (groupingModeMigrated || retiredFieldsSaved) {
 				await this.saveData(loaded);
 			}
-		}
-		const propertyNames = [loaded.incomingProperty, loaded.outgoingProperty, loaded.bidirectionalProperty];
-		if (new Set(propertyNames).size !== propertyNames.length) {
-			loaded.incomingProperty = DEFAULT_SETTINGS.incomingProperty;
-			loaded.outgoingProperty = DEFAULT_SETTINGS.outgoingProperty;
-			loaded.bidirectionalProperty = DEFAULT_SETTINGS.bidirectionalProperty;
 		}
 		this.settings = loaded;
 		this.registerView(RELATED_NOTES_VIEW_TYPE, (leaf) => new RelatedNotesView(leaf, this.settings, () => this.saveSettings()));
@@ -50,11 +46,6 @@ export default class RelatedOperationsPlugin extends Plugin {
 				if (!checking) void this.openRelatedNotesWindow(sourceFiles);
 				return true;
 			},
-		});
-		this.addCommand({
-			id: 'remove-link-stats-properties',
-			name: '清除关联数量属性',
-			callback: () => void this.removeLinkStatsProperties(),
 		});
 		this.addCommand({
 			id: 'scan-and-clean-orphan-resources',
@@ -271,71 +262,5 @@ export default class RelatedOperationsPlugin extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
-
-	private async removeLinkStatsProperties(): Promise<void> {
-		const names = this.linkStatsCleanupNames();
-		const files = this.app.vault.getMarkdownFiles();
-		const entries = collectLinkStatsPropertyEntries(
-			files.map((file) => ({
-				path: file.path,
-				frontmatter: this.app.metadataCache.getFileCache(file)?.frontmatter,
-			})),
-			names,
-		);
-		if (entries.length === 0) {
-			new Notice('未发现关联数量属性');
-			return;
-		}
-		const propertyCount = entries.reduce((sum, entry) => sum + entry.matchedKeys.length, 0);
-		const samplePaths = entries.slice(0, 3).map((entry) => entry.path);
-		if (!(await confirmLinkStatsCleanup(this.app, entries.length, propertyCount, samplePaths))) return;
-
-		let fileByPath: Map<string, TFile>;
-		try {
-			fileByPath = new Map(this.app.vault.getMarkdownFiles().map((file) => [file.path, file]));
-		} catch (error) {
-			new Notice(`读取笔记失败：${error instanceof Error ? error.message : '未知错误'}`);
-			return;
-		}
-		const summary = await removeLinkStatsPropertyEntries(entries, async (path, keys) => {
-			const file = fileByPath.get(path);
-			if (!file) throw new Error('文件不存在或已被移除');
-			await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
-				for (const key of keys) delete frontmatter[key];
-			});
-		});
-		const failureSample = summary.failed.slice(0, 3).map((item) => `${item.path}（${item.reason}）`).join('、');
-		const failureSuffix = failureSample ? `：${failureSample}` : '';
-		new Notice(`清理 ${summary.cleaned} 篇 / 跳过 ${summary.skipped} 篇 / 失败 ${summary.failed.length} 篇${failureSuffix}`);
-	}
-
-	// Current configured names plus the historical defaults, deduplicated and
-	// filtered, so a one-time cleanup can find properties from any past release.
-	private linkStatsCleanupNames(): string[] {
-		return [...new Set([
-			this.settings.incomingProperty,
-			this.settings.outgoingProperty,
-			this.settings.bidirectionalProperty,
-			...Object.values(HISTORICAL_LINK_STATS_PROPERTY_NAMES),
-		])].filter((name) => typeof name === 'string' && name.trim().length > 0);
-	}
 }
 
-function openInSystemFolder(app: Plugin['app'], item: TAbstractFile) {
-	if (!Platform.isDesktopApp || !(app.vault.adapter instanceof FileSystemAdapter)) {
-		new Notice('仅桌面端的本地资料库支持打开所在文件夹。');
-		return;
-	}
-	const electron = (window as Window & {
-		require?: (module: string) => { shell?: { showItemInFolder(path: string): void; openPath?: (path: string) => Promise<string> } };
-	}).require?.('electron');
-	if (!electron?.shell) {
-		new Notice('当前环境无法打开系统文件夹。');
-		return;
-	}
-	const path = `${app.vault.adapter.getBasePath()}/${item.path}`;
-	if (item instanceof TFolder && electron.shell.openPath) void electron.shell.openPath(path).then((error) => { if (error) new Notice('打开文件夹失败。'); }, () => new Notice('打开文件夹失败。'));
-	else {
-		try { electron.shell.showItemInFolder(path); } catch { new Notice('打开文件夹失败。'); }
-	}
-}

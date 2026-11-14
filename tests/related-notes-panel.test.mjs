@@ -127,6 +127,7 @@ export class ItemView {
 export class Notice { constructor(message) { Notice.messages.push(message); } static messages = []; }
 export const normalizePath = (p) => String(p).replace(/^\\/+|\\/+$/g, '').replace(/\\/\\.\\//g, '/');
 export const Platform = {};
+export const PluginSettingTab = class { constructor(app, plugin) { this.app = app; this.plugin = plugin; } };
 `;
 const bundle = await build({
 	stdin: { contents: "export { RelatedNotesPanel } from './src/related-notes-modal.ts'; export { RelatedNotesView } from './src/related-notes-view.ts'; export { TFile, TFolder, Notice } from 'obsidian';", resolveDir: process.cwd() },

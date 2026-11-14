@@ -1,6 +1,6 @@
 import { App, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
 import { getRelatedNotesForFiles, RelatedNote, RelationType, defaultTargetFolder, relationLabel } from './related-notes';
-import { RelatedOperationsSettings } from './settings';
+import { DEFAULT_SETTINGS, RelatedOperationsSettings } from './settings';
 import { isVaultRelativePath, joinVaultPath } from './core-utils';
 
 export interface RelatedNotesHost {
@@ -44,8 +44,8 @@ export class RelatedNotesPanel {
 	) {
 		this.relatedNotes = [...relatedNotes];
 		this.showSourceColumn = sourceCount > 1;
-		this.groupingMode = settings?.groupingMode ?? 'source';
-		this.hideCompliant = settings?.hideCompliant ?? true;
+		this.groupingMode = settings?.groupingMode ?? DEFAULT_SETTINGS.groupingMode;
+		this.hideCompliant = settings?.hideCompliant ?? DEFAULT_SETTINGS.hideCompliant;
 		this.merging = initialMerging;
 		this.groups = this.buildGroups();
 	}
