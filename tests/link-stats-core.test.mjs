@@ -46,6 +46,26 @@ test('findChangedLinkPaths does not conflate paths that differ only by case', ()
 	);
 });
 
+// Rename/delete removes the old source key. A note that still resolves to the
+// removed path in the current snapshot (stale cache or auto-link-update off)
+// must still be refreshed, otherwise its stale incoming/outgoing counts linger
+// until the next full scan.
+test('findChangedLinkPaths refreshes notes that still link to a removed source path', () => {
+	const previous = {
+		'old/name.md': {},
+		'b.md': { 'old/name.md': 1 },
+		'c.md': { 'b.md': 1 },
+	};
+	const current = {
+		'b.md': { 'old/name.md': 1 },
+		'c.md': { 'b.md': 1 },
+	};
+	const changed = findChangedLinkPaths(previous, current);
+	assert.ok(changed.has('old/name.md'));
+	assert.ok(changed.has('b.md'), 'b.md still targets the removed path and must refresh');
+	assert.equal(changed.has('c.md'), false);
+});
+
 test('buildLinkStatsIndex ignores non-markdown endpoints', () => {
 	const stats = buildLinkStatsIndex(
 		{ 'note.md': { 'image.png': 1 }, 'image.png': { 'note.md': 1 } },

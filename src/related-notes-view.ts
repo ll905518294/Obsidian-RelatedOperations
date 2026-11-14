@@ -7,6 +7,7 @@ export const RELATED_NOTES_VIEW_TYPE = 'related-operations-view';
 
 export class RelatedNotesView extends ItemView {
 	private sourcePaths: string[] = [];
+	private mergeTargetView = false;
 	private panel?: RelatedNotesPanel;
 
 	constructor(
@@ -30,19 +31,20 @@ export class RelatedNotesView extends ItemView {
 	}
 
 	async setState(state: unknown, result: { history: boolean }) {
-		const nextState = state && typeof state === 'object' ? state as { sourcePath?: unknown; sourcePaths?: unknown } : {};
+		const nextState = state && typeof state === 'object' ? state as { sourcePath?: unknown; sourcePaths?: unknown; mergeTargetView?: unknown } : {};
 		const paths = Array.isArray(nextState.sourcePaths)
 			? nextState.sourcePaths.filter((path): path is string => typeof path === 'string' && path.length > 0)
 			: typeof nextState.sourcePath === 'string' && nextState.sourcePath.length > 0
 				? [nextState.sourcePath]
 				: this.sourcePaths;
 		this.sourcePaths = [...new Set(paths)];
+		if (typeof nextState.mergeTargetView === 'boolean') this.mergeTargetView = nextState.mergeTargetView;
 		await super.setState(state, result);
 		this.renderPanel();
 	}
 
 	getState() {
-		return { sourcePaths: this.sourcePaths };
+		return { sourcePaths: this.sourcePaths, mergeTargetView: this.mergeTargetView };
 	}
 
 	async onOpen() {
@@ -89,7 +91,10 @@ export class RelatedNotesView extends ItemView {
 		const sourceLabel = sourceFiles.length === 1 ? sourceFile.basename : `${sourceFiles.length} 篇源笔记`;
 		this.panel = new RelatedNotesPanel(this.app, this.contentEl, sourceFile, sourceFiles, related, {
 			close: () => this.leaf.detach(),
-		}, sourceLabel, sourceFiles.length, this.settings, this.saveSettings);
+		}, sourceLabel, sourceFiles.length, this.settings, this.saveSettings, this.mergeTargetView, (merging) => {
+			this.mergeTargetView = merging;
+			void this.app.workspace.requestSaveLayout();
+		});
 		this.panel.render();
 	}
 }

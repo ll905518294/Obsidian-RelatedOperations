@@ -1,5 +1,5 @@
 import { App, Modal, normalizePath, Notice, TFile, TFolder } from 'obsidian';
-import { RelatedNote, defaultTargetFolder, relationLabel } from './related-notes';
+import { RelatedNote, RelationType, defaultTargetFolder, relationLabel } from './related-notes';
 import { RelatedOperationsSettings } from './settings';
 import { isVaultRelativePath, joinVaultPath } from './core-utils';
 
@@ -36,12 +36,14 @@ export class RelatedNotesPanel {
 		private readonly sourceCount = sourceFiles.length,
 		private readonly settings?: RelatedOperationsSettings,
 		private readonly saveSettings?: () => Promise<void>,
+		initialMerging = false,
+		private readonly onMergingChange?: (merging: boolean) => void,
 	) {
 		this.relatedNotes = [...relatedNotes];
 		this.showSourceColumn = sourceCount > 1;
 		this.groupingMode = settings?.groupingMode ?? 'source';
 		this.hideCompliant = settings?.hideCompliant ?? true;
-		this.merging = false;
+		this.merging = initialMerging;
 		this.groups = this.buildGroups();
 	}
 
@@ -210,6 +212,7 @@ export class RelatedNotesPanel {
 		mergeButton.setAttribute('aria-pressed', String(this.merging));
 		mergeButton.addEventListener('click', () => {
 			this.merging = !this.merging;
+			this.onMergingChange?.(this.merging);
 			this.renderList();
 		});
 		const grouping = displayOptionsBody.createEl('select', { cls: 'related-operations-grouping-select' });
@@ -394,21 +397,41 @@ export class RelatedNotesPanel {
 				void this.app.workspace.openLinkText(note.file.path, this.sourceFile.path, 'tab');
 			});
 			row.createEl('td', { text: note.file.path, cls: 'related-operations-path' });
-			row.createEl('td', {
-				text: this.merging
-					? this.mergedRelationLabel(notes)
-					: relationLabel(note.relation),
-			});
+			if (this.merging) {
+				const relationCell = row.createEl('td', { cls: 'related-operations-relation' });
+				relationCell.createSpan({ text: this.mergedRelationLabel(notes), cls: 'related-operations-relation-main' });
+				const detail = this.mergedRelationDetail(notes);
+				if (detail.length > 1 && new Set(detail.map((item) => item.label)).size > 1) {
+					const detailText = detail.map((item) => `${item.name}：${item.label}`).join(' · ');
+					const detailEl = relationCell.createSpan({ text: detailText, cls: 'related-operations-relation-detail' });
+					detailEl.title = detail.map((item) => `${item.path}：${item.label}`).join('\n');
+				}
+			} else {
+				row.createEl('td', { text: relationLabel(note.relation), cls: 'related-operations-relation' });
+			}
 			row.createEl('td', { text: this.destinationFor(note.file), cls: 'related-operations-path' });
 		}
 	}
 
-	private mergedRelationLabel(notes: RelatedNote[]): string {
-		const relations = new Set(notes.map((note) => note.relation));
+	private relationLabelForSet(relations: Set<RelationType>): string {
 		const hasOutgoing = relations.has('outgoing') || relations.has('both');
 		const hasIncoming = relations.has('incoming') || relations.has('both');
 		if (hasOutgoing && hasIncoming) return '出链 + 入链';
 		return hasOutgoing ? '出链' : '入链';
+	}
+
+	private mergedRelationLabel(notes: RelatedNote[]): string {
+		return this.relationLabelForSet(new Set(notes.map((note) => note.relation)));
+	}
+
+	private mergedRelationDetail(notes: RelatedNote[]): Array<{ name: string; path: string; label: string }> {
+		const bySource = new Map<string, { name: string; path: string; relations: Set<RelationType> }>();
+		for (const note of notes) {
+			const entry = bySource.get(note.sourceFile.path) ?? { name: note.sourceFile.basename, path: note.sourceFile.path, relations: new Set<RelationType>() };
+			entry.relations.add(note.relation);
+			bySource.set(note.sourceFile.path, entry);
+		}
+		return [...bySource.values()].map((entry) => ({ name: entry.name, path: entry.path, label: this.relationLabelForSet(entry.relations) }));
 	}
 
 	private addToggle(

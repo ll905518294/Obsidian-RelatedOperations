@@ -23,6 +23,23 @@ export function findChangedLinkPaths(
 		}
 		if (different) changed.add(source);
 	}
+
+	// A rename/delete drops the old path as a source, but notes that still carry
+	// a (possibly stale) link to that old path are not part of the edge diff if
+	// their own destination map is unchanged. Refresh them so their counts
+	// settle even when the metadata cache lags behind the rename event. This
+	// extra sweep only runs when a source actually disappeared, so ordinary
+	// edits keep the cheap edge-diff cost.
+	const removedSources = Object.keys(previous).filter((source) => !Object.prototype.hasOwnProperty.call(current, source));
+	if (removedSources.length > 0) {
+		const removed = new Set(removedSources);
+		for (const [source, targets] of Object.entries(previous)) {
+			for (const target of Object.keys(targets)) {
+				if (removed.has(target)) changed.add(source);
+			}
+		}
+		for (const source of removedSources) changed.add(source);
+	}
 	return changed;
 }
 

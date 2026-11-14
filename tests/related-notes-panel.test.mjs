@@ -115,19 +115,28 @@ export class TFolder extends TAbstractFile {
 	constructor(path) { super(path); this.children = []; }
 }
 export class Modal { constructor(app) { this.app = app; } open() {} close() {} }
+export class ItemView {
+	constructor(leaf) {
+		this.leaf = leaf;
+		this.app = leaf?.app;
+		this.contentEl = document.createElement('div');
+	}
+	registerEvent() {}
+	async setState() {}
+}
 export class Notice { constructor(message) { Notice.messages.push(message); } static messages = []; }
 export const normalizePath = (p) => String(p).replace(/^\\/+|\\/+$/g, '').replace(/\\/\\.\\//g, '/');
 export const Platform = {};
 `;
 const bundle = await build({
-	stdin: { contents: "export { RelatedNotesPanel } from './src/related-notes-modal.ts'; export { TFile, TFolder, Notice } from 'obsidian';", resolveDir: process.cwd() },
+	stdin: { contents: "export { RelatedNotesPanel } from './src/related-notes-modal.ts'; export { RelatedNotesView } from './src/related-notes-view.ts'; export { TFile, TFolder, Notice } from 'obsidian';", resolveDir: process.cwd() },
 	bundle: true, write: false, format: 'esm', platform: 'node',
 	plugins: [{ name: 'obsidian-stub', setup(b) {
 		b.onResolve({ filter: /^obsidian$/ }, () => ({ path: 'obsidian', namespace: 'stub' }));
 		b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: stub }));
 	} }],
 });
-const { RelatedNotesPanel, TFile, TFolder, Notice } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const { RelatedNotesPanel, RelatedNotesView, TFile, TFolder, Notice } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 function makeApp(files) {
 	const byPath = new Map(files.map((f) => [f.path, f]));
@@ -147,10 +156,16 @@ function makeApp(files) {
 	};
 }
 
-function panelFor(relatedNotes, sourceFiles, host = { close() {} }) {
-	const { app, renamed } = makeApp([]);
+function panelFor(relatedNotes, sourceFiles, options = {}) {
+	const { app, renamed } = makeApp(options.files ?? []);
 	const el = document.createElement('div');
-	const panel = new RelatedNotesPanel(app, el, sourceFiles[0], sourceFiles, relatedNotes, host);
+	const panel = new RelatedNotesPanel(
+		app, el, sourceFiles[0], sourceFiles, relatedNotes,
+		options.host ?? { close() {} },
+		undefined, undefined,
+		options.settings, options.saveSettings,
+		options.initialMerging ?? false, options.onMergingChange,
+	);
 	panel.render();
 	return { panel, el, renamed };
 }
@@ -336,4 +351,68 @@ test('single selection summary qualifies the selection, not the note name', () =
 	checkbox.fire('change');
 	const summary = el.querySelector('.related-operations-selection-summary').textContent;
 	assert.equal(summary, '已选 1 篇（跨标签页）：t');
+});
+
+test('initial merge preference is honored and toggles notify the host', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('dst/t.md');
+	const relatedNotes = [
+		{ file: t, relation: 'outgoing', sourceFile: a },
+		{ file: t, relation: 'outgoing', sourceFile: b },
+	];
+	const changes = [];
+	const { el } = panelFor(relatedNotes, [a, b], { initialMerging: true, onMergingChange: (value) => changes.push(value) });
+	assert.equal(el.querySelector('.related-operations-merge-button').getAttribute('aria-pressed'), 'true');
+	assert.equal(el.querySelectorAll('tr[data-related-path]').length, 1);
+	el.querySelector('.related-operations-merge-button').fire('click');
+	assert.deepEqual(changes, [false]);
+});
+
+test('view state round-trips the merge preference and saves layout on toggle', async () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('dst/t.md');
+	const byPath = new Map([[a.path, a], [b.path, b], [t.path, t]]);
+	let saves = 0;
+	const app = {
+		metadataCache: {
+			resolvedLinks: { 'src/a.md': { 'dst/t.md': 1 }, 'src/b.md': { 'dst/t.md': 1 } },
+			getFileCache: () => ({}),
+		},
+		vault: {
+			getAbstractFileByPath: (path) => byPath.get(path) ?? null,
+			getAllLoadedFiles: () => [...byPath.values()],
+			createFolder: async () => {},
+		},
+		fileManager: { renameFile: async () => {} },
+		workspace: {
+			openLinkText: async () => {},
+			requestSaveLayout: () => { saves++; return Promise.resolve(); },
+		},
+	};
+	const view = new RelatedNotesView({ app }, { groupingMode: 'none', hideCompliant: true }, async () => {});
+	await view.setState({ sourcePaths: ['src/a.md', 'src/b.md'], mergeTargetView: true }, { history: false });
+	assert.deepEqual(view.getState(), { sourcePaths: ['src/a.md', 'src/b.md'], mergeTargetView: true });
+	const mergeButton = view.contentEl.querySelector('.related-operations-merge-button');
+	assert.equal(mergeButton.getAttribute('aria-pressed'), 'true');
+	mergeButton.fire('click');
+	assert.equal(view.getState().mergeTargetView, false);
+	assert.equal(saves, 1);
+});
+
+test('merged relation cell shows which source is outgoing and which is incoming', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('dst/t.md');
+	const relatedNotes = [
+		{ file: t, relation: 'both', sourceFile: a },
+		{ file: t, relation: 'outgoing', sourceFile: b },
+	];
+	const { el } = panelFor(relatedNotes, [a, b]);
+	el.querySelector('.related-operations-merge-button').fire('click');
+	const cell = el.querySelector('.related-operations-relation');
+	assert.match(cell.textContent, /a：出链 \+ 入链/);
+	assert.match(cell.textContent, /b：出链/);
+	assert.equal(el.querySelectorAll('th').length, 6, 'merging must not add a column');
 });
