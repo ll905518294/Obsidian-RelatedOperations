@@ -45,9 +45,9 @@ Use the left ribbon **打开 vault 体检与清理** icon or the command with th
 
 ## Link-count properties
 
-This feature has been removed. The plugin no longer writes `related-operations-in-links`, `related-operations-out-links`, or `related-operations-bidirectional-links` to frontmatter, and no longer offers the **刷新全库笔记关系数量** command or automatic updates.
+This feature has been removed. The plugin no longer writes `related-operations-in-links`, `related-operations-out-links`, or `related-operations-bidirectional-links` to frontmatter, and no longer offers any command or automatic update for them. Its retired settings are dropped from `data.json` the next time the plugin loads.
 
-To remove these properties from existing notes, use the command **清除关联数量属性** (`remove-link-stats-properties`) from the command palette, then confirm. It scans all frontmatter, deletes only the three link-count properties (including any historical names retained after a rename), and reports how many were cleaned, skipped, or failed. It can be run repeatedly.
+Notes that still contain these three properties are unaffected by the plugin; related-notes, cleanup, and link scanning all compute links on demand and never read them.
 
 ## Installation and uninstall
 
@@ -55,7 +55,7 @@ This plugin requires Obsidian 1.13.0 or newer.
 
 - Install from build output: run `npm run build`, then copy `main.js`, `manifest.json`, and `styles.css` (if present) into `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`, and enable **Obsidian-Manager** in **Settings → Community plugins**.
 - Install or update locally: run `npm run deploy` (see [Development](#development) and [本地一键部署测试](#本地一键部署测试)).
-- Uninstall: disable **Obsidian-Manager** in **Settings → Community plugins**, then delete the plugin folder `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`. This removes the plugin's `data.json` settings; it does not modify notes or restore files already sent to the trash. If you want to remove link-count properties already written to frontmatter, run the **清除关联数量属性** command first.
+- Uninstall: disable **Obsidian-Manager** in **Settings → Community plugins**, then delete the plugin folder `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`. This removes the plugin's `data.json` settings; it does not modify notes or restore files already sent to the trash.
 
 ## Development
 
