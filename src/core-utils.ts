@@ -134,3 +134,143 @@ export function normalizeSettings<T extends object>(
 	}
 	return result;
 }
+
+export interface CachedLinkRange {
+	original: string;
+	position: { start: { offset: number }; end: { offset: number } };
+}
+
+interface ContentLine {
+	start: number;
+	end: number;
+}
+
+const MAX_INDEXED_LINES = 200_000;
+
+/**
+ * Removes cached link ranges right to left. A range that becomes the only
+ * content on its line takes the whole line with it, matching the original
+ * one-link-at-a-time behaviour. Edits are kept per line so removing many links
+ * no longer rewrites the whole document for every link.
+ */
+export function removeCachedLinkRanges(
+	content: string,
+	links: CachedLinkRange[],
+	matches: (actual: string, original: string) => boolean,
+): { content: string; removed: number; skipped: number } {
+	if (links.length < 2) return removeCachedLinkRangesSequentially(content, links, matches);
+	const resolveLine = createLineResolver(content);
+	const edited = new Map<number, string>();
+	const deleted = new Set<number>();
+	let removed = 0;
+	let skipped = 0;
+	const sorted = [...links].sort((a, b) => b.position.start.offset - a.position.start.offset);
+	for (const link of sorted) {
+		const start = link.position.start.offset;
+		const end = link.position.end.offset;
+		if (start < 0 || end <= start || end > content.length) {
+			skipped++;
+			continue;
+		}
+		const line = resolveLine(start);
+		if (start >= line.end || end > line.end) {
+			// Offsets that spill onto a newline are not produced by Obsidian's
+			// cache; keep the exact legacy result for such stale positions.
+			return removeCachedLinkRangesSequentially(content, links, matches);
+		}
+		const key = line.start;
+		if (deleted.has(key)) {
+			skipped++;
+			continue;
+		}
+		const text = edited.get(key) ?? content.slice(line.start, line.end);
+		const localStart = start - line.start;
+		const localEnd = end - line.start;
+		if (localEnd > text.length || !matches(text.slice(localStart, localEnd), link.original)) {
+			skipped++;
+			continue;
+		}
+		if (text.slice(0, localStart).trim() === '' && text.slice(localEnd).trim() === '') {
+			deleted.add(key);
+			edited.delete(key);
+			removed++;
+			continue;
+		}
+		edited.set(key, text.slice(0, localStart) + text.slice(localEnd));
+		removed++;
+	}
+
+	const changed = [...new Set([...edited.keys(), ...deleted.keys()])].sort((a, b) => a - b);
+	const parts: string[] = [];
+	let cursor = 0;
+	for (const key of changed) {
+		const line = resolveLine(key);
+		parts.push(content.slice(cursor, line.start));
+		if (!deleted.has(key)) parts.push(edited.get(key) ?? content.slice(line.start, line.end));
+		cursor = line.end < content.length ? line.end + 1 : line.end;
+	}
+	parts.push(content.slice(cursor));
+	return { content: parts.join(''), removed, skipped };
+}
+
+function removeCachedLinkRangesSequentially(
+	content: string,
+	links: CachedLinkRange[],
+	matches: (actual: string, original: string) => boolean,
+) {
+	let result = content;
+	let removed = 0;
+	let skipped = 0;
+	for (const link of [...links].sort((a, b) => b.position.start.offset - a.position.start.offset)) {
+		const start = link.position.start.offset;
+		const end = link.position.end.offset;
+		if (start < 0 || end <= start || end > result.length || !matches(result.slice(start, end), link.original)) {
+			skipped++;
+			continue;
+		}
+		const lineStart = result.lastIndexOf('\n', start - 1) + 1;
+		const newline = result.indexOf('\n', end);
+		const lineEnd = newline < 0 ? result.length : newline;
+		const onlyContentOnLine = result.slice(lineStart, start).trim() === '' && result.slice(end, lineEnd).trim() === '';
+		result = onlyContentOnLine
+			? result.slice(0, lineStart) + result.slice(lineEnd + (lineEnd < result.length ? 1 : 0))
+			: result.slice(0, start) + result.slice(end);
+		removed++;
+	}
+	return { content: result, removed, skipped };
+}
+
+function createLineResolver(content: string): (offset: number) => ContentLine {
+	const lineStarts = [0];
+	for (let newline = content.indexOf('\n'); newline >= 0; newline = content.indexOf('\n', newline + 1)) {
+		lineStarts.push(newline + 1);
+		if (lineStarts.length > MAX_INDEXED_LINES) return createScanningLineResolver(content);
+	}
+	return (offset) => {
+		let low = 0;
+		let high = lineStarts.length - 1;
+		while (low < high) {
+			const middle = (low + high + 1) >> 1;
+			if (lineStarts[middle]! <= offset) low = middle;
+			else high = middle - 1;
+		}
+		return {
+			start: lineStarts[low]!,
+			end: low + 1 < lineStarts.length ? lineStarts[low + 1]! - 1 : content.length,
+		};
+	};
+}
+
+function createScanningLineResolver(content: string): (offset: number) => ContentLine {
+	const cache = new Map<number, ContentLine>();
+	return (offset) => {
+		const start = content.lastIndexOf('\n', offset - 1) + 1;
+		let line = cache.get(start);
+		if (!line) {
+			const newline = content.indexOf('\n', start);
+			line = { start, end: newline < 0 ? content.length : newline };
+			cache.set(start, line);
+		}
+		return line;
+	};
+}

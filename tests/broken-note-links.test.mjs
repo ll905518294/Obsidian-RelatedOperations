@@ -75,3 +75,31 @@ test('reports a failed create when writing the note throws', async () => {
 	assert.equal(result.failed.length, 1);
 	assert.ok(result.failed[0].reason.includes('disk full'));
 });
+
+test('removes thousands of note links from a large note', () => {
+	const count = 2000;
+	const filler = 'y'.repeat(Math.floor((1024 * 1024) / count));
+	const parts = [];
+	const expected = [];
+	const links = [];
+	let offset = 0;
+	for (let i = 0; i < count; i++) {
+		const fillerLine = `${filler}\n`;
+		parts.push(fillerLine);
+		expected.push(fillerLine);
+		offset += fillerLine.length;
+		const original = `[[missing-${i}]]`;
+		links.push({
+			sourcePath: 'huge.md',
+			original,
+			linkPath: `missing-${i}`,
+			syntax: 'wiki',
+			position: { start: { offset }, end: { offset: offset + original.length } },
+		});
+		parts.push(original, '\n');
+		offset += original.length + 1;
+	}
+	const result = removeBrokenNoteLinks(parts.join(''), links);
+	assert.deepEqual({ removed: result.removed, skipped: result.skipped }, { removed: count, skipped: 0 });
+	assert.equal(result.content, expected.join(''));
+});

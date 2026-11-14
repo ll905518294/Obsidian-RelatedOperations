@@ -1,4 +1,5 @@
 import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
+import { removeCachedLinkRanges } from './core-utils.ts';
 
 export interface BrokenNoteLink {
 	sourcePath: string;
@@ -31,18 +32,7 @@ function findBrokenNoteLinksInCache(sourcePath: string, cache: CachedMetadata, i
 }
 
 export function removeBrokenNoteLinks(content: string, links: BrokenNoteLink[]) {
-	let result = content; let removed = 0; let skipped = 0;
-	for (const link of [...links].sort((a, b) => b.position.start.offset - a.position.start.offset)) {
-		const { start, end } = link.position;
-		if (start.offset < 0 || end.offset <= start.offset || end.offset > result.length || result.slice(start.offset, end.offset) !== link.original) { skipped++; continue; }
-		const lineStart = result.lastIndexOf('\n', start.offset - 1) + 1;
-		const lineEnd = result.indexOf('\n', end.offset) < 0 ? result.length : result.indexOf('\n', end.offset);
-		const onlyLine = result.slice(lineStart, start.offset).trim() === '' && result.slice(end.offset, lineEnd).trim() === '';
-		const removeStart = onlyLine ? lineStart : start.offset;
-		const removeEnd = onlyLine ? lineEnd + (lineEnd < result.length ? 1 : 0) : end.offset;
-		result = result.slice(0, removeStart) + result.slice(removeEnd); removed++;
-	}
-	return { content: result, removed, skipped };
+	return removeCachedLinkRanges(content, links, (actual, original) => actual === original);
 }
 
 export function findBrokenNoteLinkOffset(content: string, link: BrokenNoteLink) {

@@ -1,4 +1,5 @@
 import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
+import { removeCachedLinkRanges } from './core-utils.ts';
 
 export interface BrokenImageLink {
 	sourcePath: string;
@@ -51,32 +52,7 @@ function findBrokenImageLinksInCache(
 }
 
 export function removeBrokenImageLinks(content: string, links: BrokenImageLink[]): RemoveBrokenLinksResult {
-	let result = content;
-	let removed = 0;
-	let skipped = 0;
-	for (const link of [...links].sort((a, b) => b.position.start.offset - a.position.start.offset)) {
-		const start = link.position.start.offset;
-		const end = link.position.end.offset;
-		if (start < 0 || end <= start || end > result.length) {
-			skipped++;
-			continue;
-		}
-		if (!matchesCachedReference(result.slice(start, end), link.original)) {
-			skipped++;
-			continue;
-		}
-
-		const lineStart = result.lastIndexOf('\n', start - 1) + 1;
-		const lineEnd = result.indexOf('\n', end) === -1 ? result.length : result.indexOf('\n', end);
-		const isOnlyContentOnLine = result.slice(lineStart, start).trim() === '' && result.slice(end, lineEnd).trim() === '';
-		const removeStart = isOnlyContentOnLine ? lineStart : start;
-		const removeEnd = isOnlyContentOnLine
-			? lineEnd + (lineEnd < result.length ? 1 : 0)
-			: end;
-		result = result.slice(0, removeStart) + result.slice(removeEnd);
-		removed++;
-	}
-	return { content: result, removed, skipped };
+	return removeCachedLinkRanges(content, links, matchesCachedReference);
 }
 
 export function findBrokenLinkOffset(

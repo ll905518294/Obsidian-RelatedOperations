@@ -7,6 +7,7 @@ import {
 	removeBrokenImageLinks,
 	removeSelectedBrokenLinks,
 } from '../src/broken-image-links.ts';
+import { removeCachedLinkRanges } from '../src/core-utils.ts';
 
 function position(start, end) {
 	return { start: { offset: start }, end: { offset: end } };
@@ -237,4 +238,59 @@ test('keeps successful removals and reports only the failing source in a partial
 	assert.equal(okContent, '');
 	assert.equal(result.failed.length, 1);
 	assert.equal(result.failed[0].path, 'bad.md');
+});
+
+test('scans and removes every link in a 5MB note with 5000 links', () => {
+	const count = 5000;
+	const filler = 'x'.repeat(Math.floor((5 * 1024 * 1024) / count));
+	const parts = [];
+	const expected = [];
+	const links = [];
+	let offset = 0;
+	for (let i = 0; i < count; i++) {
+		const fillerLine = `${filler}\n`;
+		parts.push(fillerLine);
+		expected.push(fillerLine);
+		offset += fillerLine.length;
+		const original = `![img](big-miss-${i}.png)`;
+		links.push({
+			sourcePath: 'huge.md',
+			original,
+			linkPath: `big-miss-${i}.png`,
+			position: position(offset, offset + original.length),
+		});
+		parts.push(original, '\n');
+		offset += original.length + 1;
+	}
+	const content = parts.join('');
+	const cache = { embeds: links.map(({ original, linkPath, position }) => ({ original, link: linkPath, position })) };
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'huge.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	const found = findBrokenImageLinks(app, 'png');
+	assert.equal(found.length, count);
+	assert.deepEqual(found.map((link) => link.position.start.offset), links.map((link) => link.position.start.offset));
+
+	const started = performance.now();
+	const result = removeBrokenImageLinks(content, found);
+	const elapsed = performance.now() - started;
+	assert.deepEqual({ removed: result.removed, skipped: result.skipped }, { removed: count, skipped: 0 });
+	assert.equal(result.content, expected.join(''));
+	// A quadratic rewrite of the note took seconds; this guards the per-line path.
+	assert.ok(elapsed < 2000, `removal took ${Math.round(elapsed)}ms`);
+});
+
+test('removes links past the indexed-line limit through the scanning resolver', () => {
+	const emptyLines = 200_001;
+	const first = '![[m1.png]]';
+	const second = '[[m2.png]]';
+	const secondStart = emptyLines + first.length + 1;
+	const content = `${'\n'.repeat(emptyLines)}${first}\n${second}\n`;
+	const result = removeCachedLinkRanges(content, [
+		{ original: first, position: position(emptyLines, emptyLines + first.length) },
+		{ original: second, position: position(secondStart, secondStart + second.length) },
+	], (actual, original) => actual === original);
+	assert.deepEqual({ removed: result.removed, skipped: result.skipped }, { removed: 2, skipped: 0 });
+	assert.equal(result.content, '\n'.repeat(emptyLines));
 });
