@@ -10,7 +10,10 @@ export function groupingModeFromLegacy(raw: { groupBySource?: unknown; groupByPa
 
 export function isVaultRelativePath(path: string): boolean {
 	const normalized = path.replace(/\\/g, '/');
-	return !normalized.includes('\0') && !normalized.startsWith('/') && !/^[a-z]:\//i.test(normalized) && !normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..');
+	return !normalized.includes('\0')
+		&& !normalized.startsWith('/')
+		&& !normalized.includes(':')
+		&& !normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..');
 }
 
 export function hasHiddenPathSegment(path: string): boolean {

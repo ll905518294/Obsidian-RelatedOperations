@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMissingNotes } from '../src/broken-note-links.ts';
+import { createMissingNotes, missingNotePath } from '../src/broken-note-links.ts';
 
 const link = {
 	sourcePath: 'note.md',
@@ -24,4 +24,9 @@ test('does not create a note when the selected broken link was removed after sca
 	const result = await createMissingNotes(app, [link]);
 	assert.deepEqual(result, { created: [], skipped: [{ path: 'missing.md', reason: '链接已变化或目标已恢复' }], failed: [] });
 	assert.equal(created, false);
+});
+
+test('rejects Windows drive-relative paths from missing note creation', () => {
+	const drive = { sourcePath: 'note.md', linkPath: 'C:target', original: '[[C:target]]', position: { start: { offset: 0 }, end: { offset: 11 } }, syntax: 'wiki' };
+	assert.equal(missingNotePath(drive), null);
 });

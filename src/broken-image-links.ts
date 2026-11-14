@@ -85,13 +85,19 @@ export function findBrokenLinkOffset(
 ): { start: number; end: number } | null {
 	const start = link.position.start.offset;
 	const end = link.position.end.offset;
-	if (start >= 0 && end > start && end <= content.length && matchesCachedReference(content.slice(start, end), link.original)) {
+	if (start >= 0 && end > start && end <= content.length && content.slice(start, end) === link.original) {
 		return { start, end };
 	}
 
-	for (const candidate of [link.original, `!${link.original}`]) {
+	const isBangLink = link.original.startsWith('!');
+	for (const candidate of [link.original]) {
 		const found = content.indexOf(candidate);
-		if (found >= 0) return { start: found, end: found + candidate.length };
+		if (found < 0) continue;
+		// A plain broken link (`[[x.png]]`) must not be relocated inside a live
+		// image embed (`![[x.png]]`), otherwise removal would corrupt the image.
+		const precededByBang = found > 0 && content.charCodeAt(found - 1) === 0x21;
+		if (!isBangLink && precededByBang) continue;
+		return { start: found, end: found + candidate.length };
 	}
 	return null;
 }

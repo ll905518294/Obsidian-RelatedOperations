@@ -32,11 +32,21 @@ test('rejects absolute and parent-traversal vault paths', () => {
 	assert.equal(isVaultRelativePath('folder/target'), true);
 	assert.equal(isVaultRelativePath('/target'), false);
 	assert.equal(isVaultRelativePath('C:/target'), false);
+	assert.equal(isVaultRelativePath('C:target'), false);
 	assert.equal(isVaultRelativePath('folder/../target'), false);
 	assert.equal(isVaultRelativePath('..\\target'), false);
 	assert.equal(isVaultRelativePath('folder\\..\\target'), false);
 	assert.equal(isVaultRelativePath('folder/target\0.md'), false);
 	assert.equal(isVaultRelativePath('folder//target'), false);
+});
+
+test('rejects UNC-like share paths for vault-relative checks', () => {
+	assert.equal(isVaultRelativePath('//server/share/photo.png'), false);
+	assert.equal(isVaultRelativePath('\\\\server\\share\\photo.png'), false);
+});
+
+test('joins empty segments into an empty vault path', () => {
+	assert.equal(joinVaultPath('', ''), '');
 });
 
 test('counts incoming links from outside a single-file refresh set', () => {

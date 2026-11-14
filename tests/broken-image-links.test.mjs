@@ -137,6 +137,11 @@ test('generates a stable key per source occurrence', () => {
 	assert.notEqual(brokenLinkKey(base), brokenLinkKey({ ...base, position: position(9, 15) }));
 });
 
+test('findBrokenLinkOffset does not return a stale shifted match for the bang wrapper', () => {
+	const link = { sourcePath: 'note.md', original: '[[a.png]]', linkPath: 'a.png', position: position(5, 16) };
+	assert.equal(findBrokenLinkOffset('![[a.png]]', link), null);
+});
+
 test('does not remove an image link after its target is restored', async () => {
 	const link = { sourcePath: 'note.md', original: '![missing](image.png)', linkPath: 'image.png', position: position(0, 21) };
 	let processed = false;

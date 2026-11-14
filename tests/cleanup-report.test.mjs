@@ -13,3 +13,16 @@ test('builds a markdown report with escaped table content and processing summary
 	assert.match(report, /本批次处理摘要/);
 	assert.match(report, /拒绝访问/);
 });
+
+test('collapses newlines inside table cells so rows stay intact', () => {
+	const report = buildCleanupReport({
+		generatedAt: 't', images: [], folders: [], brokenLinks: [], nativeLinks: [],
+		duplicates: [], duplicateWarnings: [],
+		processed: { success: 1, skipped: 0, failed: [{ path: 'note.md', reason: '包含\n表格|分隔符' }] },
+	});
+	const brokenRow = report.split('\n').find((line) => line.startsWith('| 失败原因 |'));
+	assert.ok(brokenRow, '失败原因行必须存在且未被打断成多行');
+	assert.ok(!brokenRow.includes('\n'));
+	assert.ok(!brokenRow.includes('\r'));
+	assert.ok(brokenRow.includes('表格\\|分隔符'));
+});

@@ -131,7 +131,7 @@ export function missingNotePath(link: BrokenNoteLink): string | null {
 	let raw: string;
 	try { raw = decodeURIComponent(encoded).replaceAll('\\', '/'); } catch { return null; }
 	const parts = raw.split('/');
-	if (!raw || raw.startsWith('/') || /^[a-z]:\//i.test(raw) || raw.includes('\0') || parts.some((part, index) => !part.trim() || part === '..' || (part.startsWith('.') && !(index === 0 && part === '.')))) return null;
+	if (!raw || raw.startsWith('/') || raw.includes(':') || raw.includes('\0') || parts.some((part, index) => !part.trim() || part === '..' || (part.startsWith('.') && !(index === 0 && part === '.')))) return null;
 	const normalized = parts.filter((part) => part !== '.').join('/');
 	const sourceDir = link.sourcePath.includes('/') ? link.sourcePath.slice(0, link.sourcePath.lastIndexOf('/')) : '';
 	const relative = link.syntax === 'markdown' || !raw.includes('/') || raw.startsWith('./');
