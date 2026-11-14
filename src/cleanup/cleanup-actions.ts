@@ -1,13 +1,5 @@
-import { App, FileSystemAdapter, MarkdownView, Notice, Platform, TAbstractFile, TFile, TFolder } from 'obsidian';
-import { findBrokenLinkOffset, type BrokenImageLink } from '../broken-image-links';
-import { findBrokenNoteLinkOffset, type BrokenNoteLink } from '../broken-note-links';
-import { nativeImageLinkOffset, type NativeImageLink } from '../native-image-links';
-import type { DuplicateFileGroup } from '../duplicate-files';
+import { App, FileSystemAdapter, Notice, Platform, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { COMMON_IMAGE_EXTENSIONS, type CleanupResult } from './cleanup-types';
-export function formatScanDuration(milliseconds: number): string {
-	const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-	return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
-}
 
 export async function trashSelected(app: App, images: TFile[], folders: TFolder[]): Promise<CleanupResult> {
 	const result: CleanupResult = { deleted: [], skipped: [], failed: [] };
@@ -71,73 +63,3 @@ export function isImageFile(extension: string) {
 export function reasonFor(error: unknown) {
 	return error instanceof Error ? error.message : '未知错误';
 }
-
-export async function locateDuplicateReference(owner: App, file: DuplicateFileGroup['files'][number]) {
-		const note = file.referencingNotes[0];
-		if (!note) { new Notice('没有找到引用此文件的笔记。'); return; }
-		await owner.workspace.openLinkText(note, '', false, { state: { mode: 'source' } });
-		const view = owner.workspace.getActiveViewOfType(MarkdownView);
-		if (!view?.file || view.file.path !== note) { new Notice(`已打开引用笔记：${note}`); return; }
-		const cache = owner.metadataCache.getFileCache(view.file);
-		const reference = [...cache?.embeds ?? [], ...cache?.links ?? []].find((item) => {
-			if (!item.original.startsWith('!')) return false;
-			return owner.metadataCache.getFirstLinkpathDest(item.link.split('#', 1)[0] ?? '', note)?.path === file.path;
-		});
-		if (!reference) { new Notice(`已打开引用笔记：${note}`); return; }
-		const from = view.editor.offsetToPos(reference.position.start.offset);
-		const to = view.editor.offsetToPos(reference.position.end.offset);
-		view.editor.setSelection(from, to);
-		view.editor.scrollIntoView({ from, to }, true);
-		new Notice(`已在笔记中定位：${note}`);
-	}
-
-export async function locateBrokenNoteLink(owner: App, link: BrokenNoteLink) {
-		await owner.workspace.openLinkText(link.sourcePath, '', false, { state: { mode: 'source' } });
-		const view = owner.workspace.getActiveViewOfType(MarkdownView);
-		if (!view) return;
-		const range = findBrokenNoteLinkOffset(view.editor.getValue(), link);
-		if (!range) { new Notice('笔记内容已变化，请重新扫描。'); return; }
-		const from = view.editor.offsetToPos(range.start); const to = view.editor.offsetToPos(range.end);
-		view.editor.setSelection(from, to); view.editor.scrollIntoView({ from, to }, true);
-	}
-
-export async function locateNativeLink(owner: App, link: NativeImageLink) {
-		await owner.workspace.openLinkText(link.sourcePath, '', false, { state: { mode: 'source' } });
-		const view = owner.workspace.getActiveViewOfType(MarkdownView);
-		if (!view) return;
-		const range = nativeImageLinkOffset(view.editor.getValue(), link);
-		if (!range) { new Notice('笔记内容已变化，请重新扫描。'); return; }
-		const from = view.editor.offsetToPos(range.start); const to = view.editor.offsetToPos(range.end);
-		view.editor.setSelection(from, to); view.editor.scrollIntoView({ from, to }, true);
-	}
-
-export async function locateBrokenLink(owner: App, link: BrokenImageLink) {
-		await owner.workspace.openLinkText(link.sourcePath, '', false, { state: { mode: 'source' } });
-		const activeView = owner.workspace.getActiveViewOfType(MarkdownView);
-		let view = activeView?.file?.path === link.sourcePath ? activeView : null;
-		if (!view) {
-			for (const leaf of owner.workspace.getLeavesOfType('markdown')) {
-				const markdownView = leaf.view;
-				if (markdownView instanceof MarkdownView && markdownView.file?.path === link.sourcePath) {
-					await owner.workspace.revealLeaf(leaf);
-					view = markdownView;
-					break;
-				}
-			}
-		}
-		if (!view) {
-			new Notice('无法打开源笔记。');
-			return;
-		}
-
-		const editor = view.editor;
-		const range = findBrokenLinkOffset(editor.getValue(), link);
-		if (!range) {
-			new Notice('笔记内容已变化，请重新扫描。');
-			return;
-		}
-		const from = editor.offsetToPos(range.start);
-		const to = editor.offsetToPos(range.end);
-		editor.setSelection(from, to);
-		editor.scrollIntoView({ from, to }, true);
-	}

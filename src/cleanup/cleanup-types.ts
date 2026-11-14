@@ -1,4 +1,4 @@
-import { TFile, TFolder } from 'obsidian';
+import type { App, TFile, TFolder } from 'obsidian';
 import type { BrokenImageLink } from '../broken-image-links';
 import type { BrokenNoteLink } from '../broken-note-links';
 import type { NativeImageLink } from '../native-image-links';
@@ -52,6 +52,44 @@ export const CLEANUP_CATEGORIES: Array<{ tab: ScanCategoryTab; label: string; de
 
 export interface OrphanCleanupHost {
 	close(): void;
+}
+
+export interface CleanupViewContext {
+	contentEl: HTMLElement;
+	app: App;
+	settings: OrphanImageExtensions;
+	activeTab: CleanupTab;
+	candidates: CleanupCandidates;
+	selections: Set<string>;
+	linkSelections: Set<string>;
+	nativeSelections: Set<string>;
+	noteLinkSelections: Set<string>;
+	duplicateSelections: Set<string>;
+	scanning: boolean;
+	hasScanned: boolean;
+	showHelp: boolean;
+	scanStages: ScanStage[];
+	scanProgress: ScanProgress;
+	scanElapsedMs: number;
+	scannedTabs: Set<CleanupTab>;
+	scanningTabs: Set<CleanupTab>;
+	dirtyTabs: Set<CleanupTab>;
+	imageGrouping: ImageGrouping;
+	attachmentGrouping: ImageGrouping;
+	pages: Map<string, number>;
+	processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
+	scan(): Promise<void>;
+	scanCategory(tab: ScanCategoryTab): Promise<void>;
+	scanTab(tab: CleanupTab): Promise<void>;
+	activateTab(tab: CleanupTab): Promise<void>;
+	refreshCurrentTab(): Promise<void>;
+	renderContents(): void;
+	saveCacheToSettings(): void;
+	updateSelectionSummary(summary?: HTMLElement): void;
+	trashSingleImage(file: TFile): Promise<void>;
+	trashPreviewImage(file: TFile): Promise<void>;
+	cleanDuplicateLinks(file: DuplicateFileGroup['files'][number]): Promise<void>;
+	deleteDuplicateFile(file: DuplicateFileGroup['files'][number]): Promise<void>;
 }
 
 export interface OrphanCleanupOptions {

@@ -1,7 +1,6 @@
 import { Notice, TFile, TFolder } from 'obsidian';
-import type { OrphanCleanupPanel } from './cleanup-panel';
 import type { NativeImageLink } from '../native-image-links';
-import type { CleanupResult } from './cleanup-types';
+import type { CleanupResult, CleanupViewContext } from './cleanup-types';
 import { buildCleanupReport } from '../cleanup-report';
 import { selectCurrentCleanupItems } from '../cleanup-selection';
 import { brokenLinkKey, removeSelectedBrokenLinks } from '../broken-image-links';
@@ -11,7 +10,7 @@ import { removeFileReferencesForFiles } from '../duplicate-files';
 import { findCleanupCandidates } from './cleanup-scan';
 import { reasonFor, trashSelected } from './cleanup-actions';
 import { CleanupConfirmationModal, ConvertNativeLinksConfirmationModal, CreateNotesConfirmationModal, RemoveBrokenLinksConfirmationModal } from './cleanup-modals';
-export function addReportControls(host: OrphanCleanupPanel, container: HTMLElement) {
+export function addReportControls(host: CleanupViewContext, container: HTMLElement) {
 		const data = buildReportData(host);
 		const copy = container.createEl('button', { text: '复制报告' });
 		copy.addEventListener('click', () => void copyReport(host));
@@ -19,7 +18,7 @@ export function addReportControls(host: OrphanCleanupPanel, container: HTMLEleme
 		exportButton.addEventListener('click', () => void exportReport(host, buildCleanupReport(data)));
 	}
 
-export function buildReportData(host: OrphanCleanupPanel) {
+export function buildReportData(host: CleanupViewContext) {
 		return {
 			generatedAt: new Date().toLocaleString('zh-CN'),
 			images: host.candidates.images.map((item) => item.path),
@@ -35,7 +34,7 @@ export function buildReportData(host: OrphanCleanupPanel) {
 		};
 	}
 
-export async function copyReport(host: OrphanCleanupPanel) {
+export async function copyReport(host: CleanupViewContext) {
 		try {
 			await navigator.clipboard.writeText(buildCleanupReport(buildReportData(host)));
 			new Notice('报告已复制。');
@@ -44,7 +43,7 @@ export async function copyReport(host: OrphanCleanupPanel) {
 		}
 	}
 
-export async function exportReport(host: OrphanCleanupPanel, content: string) {
+export async function exportReport(host: CleanupViewContext, content: string) {
 		const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '').replace('T', '-');
 		const base = `related-operations-report-${stamp}`;
 		let path = `${base}.md`; let index = 2;
@@ -52,7 +51,7 @@ export async function exportReport(host: OrphanCleanupPanel, content: string) {
 		try { await host.app.vault.create(path, content); new Notice(`报告已导出：${path}`); } catch (error) { new Notice(`导出报告失败：${reasonFor(error)}`); }
 	}
 
-export function pruneDeletedCandidates(host: OrphanCleanupPanel) {
+export function pruneDeletedCandidates(host: CleanupViewContext) {
 		const exists = (item: { path: string }) => !!host.app.vault.getAbstractFileByPath(item.path);
 		for (const key of ['images', 'attachments', 'emptyFiles'] as const) host.candidates[key] = host.candidates[key].filter(exists);
 		host.candidates.folders = host.candidates.folders.filter(exists);
@@ -66,7 +65,7 @@ export function pruneDeletedCandidates(host: OrphanCleanupPanel) {
 		}
 	}
 
-export async function confirmCleanup(host: OrphanCleanupPanel) {
+export async function confirmCleanup(host: CleanupViewContext) {
 		const selectedImages = host.candidates.images.filter((item) => host.selections.has(item.path));
 		const selectedAttachments = host.candidates.attachments.filter((item) => host.selections.has(item.path));
 		const selectedEmptyFiles = host.candidates.emptyFiles.filter((item) => host.selections.has(item.path));
@@ -97,7 +96,7 @@ export async function confirmCleanup(host: OrphanCleanupPanel) {
 		host.renderContents();
 	}
 
-export async function confirmCleanupDuplicates(host: OrphanCleanupPanel) {
+export async function confirmCleanupDuplicates(host: CleanupViewContext) {
 		const selectedFiles = host.candidates.duplicates.flatMap((group) => group.files.filter((file) => host.duplicateSelections.has(file.path)));
 		if (selectedFiles.length === 0) return;
 		const confirmed = await new CleanupConfirmationModal(host.app, 0, 0, selectedFiles.length, 0).waitForConfirmation();
@@ -133,14 +132,14 @@ export async function confirmCleanupDuplicates(host: OrphanCleanupPanel) {
 		host.renderContents();
 	}
 
-export async function revalidateCleanupSelection(host: OrphanCleanupPanel, filePaths: Iterable<string>, folderPaths: Iterable<string>) {
+export async function revalidateCleanupSelection(host: CleanupViewContext, filePaths: Iterable<string>, folderPaths: Iterable<string>) {
 		const current = await findCleanupCandidates(host.app, host.settings.orphanImageExtensions, host.settings.orphanIgnoredFolders, undefined, false);
 		const files = selectCurrentCleanupItems(filePaths, [...current.images, ...current.attachments, ...current.emptyFiles]);
 		const folders = selectCurrentCleanupItems(folderPaths, current.folders);
 		return { files: files.items, folders: folders.items, skipped: [...files.skipped, ...folders.skipped] };
 	}
 
-export async function confirmRemoveLinks(host: OrphanCleanupPanel) {
+export async function confirmRemoveLinks(host: CleanupViewContext) {
 		if (host.activeTab === 'broken-note-links') return confirmRemoveNoteLinks(host);
 		const selectedLinks = host.candidates.brokenLinks.filter((item) => host.linkSelections.has(brokenLinkKey(item)));
 		if (selectedLinks.length === 0) return;
@@ -156,7 +155,7 @@ export async function confirmRemoveLinks(host: OrphanCleanupPanel) {
 		host.renderContents();
 	}
 
-export async function confirmRemoveNoteLinks(host: OrphanCleanupPanel) {
+export async function confirmRemoveNoteLinks(host: CleanupViewContext) {
 		const selected = host.candidates.brokenNoteLinks.filter((item) => host.noteLinkSelections.has(brokenNoteLinkKey(item)));
 		if (!selected.length) return;
 		const sourceCount = new Set(selected.map((item) => item.sourcePath)).size;
@@ -168,7 +167,7 @@ export async function confirmRemoveNoteLinks(host: OrphanCleanupPanel) {
 		host.renderContents();
 	}
 
-export async function confirmCreateNotes(host: OrphanCleanupPanel) {
+export async function confirmCreateNotes(host: CleanupViewContext) {
 		const selected = host.candidates.brokenNoteLinks.filter((item) => host.noteLinkSelections.has(brokenNoteLinkKey(item)));
 		if (!selected.length || !await new CreateNotesConfirmationModal(host.app, selected.length).waitForConfirmation()) return;
 		const result = await createMissingNotes(host.app, selected);
@@ -182,7 +181,7 @@ export async function confirmCreateNotes(host: OrphanCleanupPanel) {
 		host.renderContents();
 	}
 
-export async function confirmConvertLinks(host: OrphanCleanupPanel) {
+export async function confirmConvertLinks(host: CleanupViewContext) {
 		const selected = host.candidates.nativeLinks.filter((item) => host.nativeSelections.has(nativeImageLinkKey(item)));
 		if (!selected.length) return;
 		if (!await new ConvertNativeLinksConfirmationModal(host.app, selected.length).waitForConfirmation()) return;

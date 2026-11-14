@@ -424,7 +424,7 @@ export class OrphanCleanupPanel extends Component {
 		const tabs = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-tabs');
 		if (!tabs) return;
 		const focused = tabs.ownerDocument.activeElement;
-		for (const [index, [tab, label, count]] of tabEntries(this).entries()) {
+		for (const [index, [tab, label, count]] of tabEntries(this.candidates, this.scanning).entries()) {
 			const button = tabs.querySelector<HTMLElement>(`.orphan-cleanup-tab[data-tab="${tab}"]`);
 			if (!button) continue;
 			button.setText(`${label}（${count}）`);
@@ -467,7 +467,7 @@ export class OrphanCleanupPanel extends Component {
 	private renderActions() { renderActions(this); }
 	updateSelectionSummary(summary?: HTMLElement) { updateSelectionSummary(this, summary); }
 	private categoryStatus(count: number, scanned: boolean, scanning: boolean, dirty: boolean): string { return categoryStatus(count, scanned, scanning, dirty); }
-	private tabEntries(): Array<[CleanupTab, string, number]> { return tabEntries(this); }
+	private tabEntries(): Array<[CleanupTab, string, number]> { return tabEntries(this.candidates, this.scanning); }
 }
 
 export class OrphanCleanupModal extends Modal {
