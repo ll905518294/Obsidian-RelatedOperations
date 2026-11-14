@@ -92,6 +92,7 @@ export class OrphanCleanupPanel extends Component {
 	private readonly dirtyVersions = new Map<CleanupTab, number>();
 	private readonly scannedTabs = new Set<CleanupTab>();
 	private readonly scanningTabs = new Set<CleanupTab>();
+	private readonly categoryScans = new Map<CleanupTab, Promise<void>>();
 
 	constructor(
 		private readonly app: App,
@@ -216,15 +217,15 @@ export class OrphanCleanupPanel extends Component {
 		const generation = ++this.scanGeneration;
 		if (!preserveProcessed) this.processed = undefined;
 		this.scanning = true;
+		this.activeTab = 'overview';
+		this.scannedTabs.clear();
 		this.scanStartedAt = performance.now();
 		this.scanElapsedMs = 0;
 		window.clearInterval(this.scanTimer);
 		this.scanTimer = window.setInterval(() => {
 			if (!this.scanning) return;
 			this.scanElapsedMs = performance.now() - this.scanStartedAt;
-			const elapsed = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-elapsed');
-			if (elapsed) elapsed.setText(`用时 ${formatScanDuration(this.scanElapsedMs)}`);
-			this.updateScanStageRows();
+			this.updateScanProgress();
 		}, 250);
 		this.selections.clear();
 		this.linkSelections.clear();
@@ -252,9 +253,14 @@ export class OrphanCleanupPanel extends Component {
 					const current = this.scanStages[progress.stage];
 					if (current && !current.startedAt) current.startedAt = now;
 					this.scanStages.forEach((item, index) => { item.state = index < progress.stage ? 'done' : index === progress.stage ? 'scanning' : 'pending'; });
-					this.updateScanStageRows();
+					this.updateScanProgress();
 				}
 				this.updateScanProgress();
+			}, true, (tabs, results) => {
+				if (generation !== this.scanGeneration) return;
+				Object.assign(this.candidates, results);
+				for (const tab of tabs) this.scannedTabs.add(tab);
+				this.renderContents();
 			});
 			if (generation !== this.scanGeneration) return;
 			this.candidates = candidates;
@@ -264,8 +270,8 @@ export class OrphanCleanupPanel extends Component {
 		} catch (error) {
 			if (generation !== this.scanGeneration) return;
 			new Notice(`扫描失败：${reasonFor(error)}`);
-			this.candidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], duplicates: [], duplicateWarnings: [] };
-			this.hasScanned = false;
+			this.hasScanned = this.scannedTabs.size > 0;
+			for (const category of CLEANUP_CATEGORIES) if (!this.scannedTabs.has(category.tab)) this.markTabDirty(category.tab);
 			this.renderContents();
 		} finally {
 			if (generation === this.scanGeneration) {
@@ -276,7 +282,6 @@ export class OrphanCleanupPanel extends Component {
 				const current = this.scanStages[this.scanProgress.stage];
 				if (current?.startedAt) current.elapsedMs = now - current.startedAt;
 				this.scanStages.forEach((item) => { item.state = 'done'; });
-				this.updateScanStageRows();
 				this.renderContents();
 			}
 		}
@@ -284,10 +289,6 @@ export class OrphanCleanupPanel extends Component {
 
 	private renderContents() {
 		this.contentEl.empty();
-		if (this.scanning) {
-			this.renderScanDashboard();
-			return;
-		}
 		this.renderTabs();
 		if (this.showHelp) this.renderHelp();
 		if (this.processed) this.renderProcessedSummary();
@@ -299,67 +300,98 @@ export class OrphanCleanupPanel extends Component {
 		this.renderActions();
 	}
 
-	private renderScanDashboard() {
-		const dashboard = this.contentEl.createDiv({ cls: 'orphan-cleanup-scan-dashboard' });
-		dashboard.createDiv({ cls: 'orphan-cleanup-scan-orb', text: '⌁' });
-		dashboard.createEl('h2', { text: '正在体检资料库…' });
-		dashboard.createEl('p', { text: '扫描完成后会直接显示可处理的问题。', cls: 'orphan-cleanup-scan-detail' });
-		dashboard.createDiv({ text: `用时 ${formatScanDuration(this.scanElapsedMs)}`, cls: 'orphan-cleanup-scan-elapsed' });
-		const progress = dashboard.createDiv({ cls: 'orphan-cleanup-scan-progress' });
-		progress.createDiv({ cls: 'orphan-cleanup-scan-progress-track' }).createDiv({ cls: 'orphan-cleanup-scan-progress-bar' });
-		progress.createDiv({ cls: 'orphan-cleanup-scan-progress-meta' });
-		progress.createDiv({ cls: 'orphan-cleanup-scan-current-file' });
-		const list = dashboard.createDiv({ cls: 'orphan-cleanup-scan-stages' });
-		for (const stage of this.scanStages) {
-			const row = list.createDiv({ cls: `orphan-cleanup-scan-stage is-${stage.state}` });
-			row.dataset.stageIndex = String(this.scanStages.indexOf(stage));
-			row.createSpan({ cls: 'orphan-cleanup-scan-stage-icon', text: stage.state === 'done' ? '✓' : stage.state === 'scanning' ? '…' : '○' });
-			row.createSpan({ cls: 'orphan-cleanup-scan-stage-label', text: stage.label });
-			row.createSpan({ cls: 'orphan-cleanup-scan-stage-duration', text: formatScanDuration(stage.elapsedMs) });
-			row.createSpan({ cls: 'orphan-cleanup-scan-stage-state', text: stage.state === 'done' ? '完成' : stage.state === 'scanning' ? '扫描中' : '等待中' });
-		}
-		this.updateScanProgress();
-	}
-
 	private updateScanProgress() {
-		if (!this.scanning) return;
 		const { processed, total, stage, currentFile } = this.scanProgress;
-		const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-		const bar = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-progress-bar');
-		if (bar) bar.style.width = `${percent}%`;
-		this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-progress-meta')?.setText(`${this.scanStages[stage]?.label ?? '扫描中'}：${processed}/${total || '…'}（${percent}%）`);
-		this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-scan-current-file')?.setText(currentFile ? `当前文件：${currentFile}` : '正在准备扫描…');
+		const stagePercent = total > 0 ? processed / total : 0;
+		const percent = this.scanning ? Math.min(99, Math.round(((stage + stagePercent) / Math.max(this.scanStages.length, 1)) * 100)) : 100;
+		const label = this.scanStages[stage]?.label ?? '扫描完成';
+		this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-bar')?.style.setProperty('width', `${percent}%`);
+		this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-meta')?.setText(this.scanning ? `${label} · ${percent}% · 用时 ${formatScanDuration(this.scanElapsedMs)}` : '扫描完成');
+		this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-current-file')?.setText(currentFile ? `当前文件：${currentFile}` : (this.scanning ? '正在准备扫描…' : '扫描结果已更新'));
+		this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-bar-wrap')?.setAttribute('aria-valuenow', String(percent));
+		for (const item of Array.from(this.contentEl.querySelectorAll<HTMLElement>('.orphan-cleanup-dashboard-item[data-tab]'))) {
+			const tab = item.dataset.tab as ScanCategoryTab;
+			const completed = this.scannedTabs.has(tab);
+			const current = this.scanning && !completed && this.categoryScanStage(tab) === stage;
+			item.toggleClass('is-scanning', current);
+			item.querySelector<HTMLElement>('.orphan-cleanup-dashboard-item-status')?.setText(this.scanning
+				? completed ? `已完成 · ${this.categoryCount(tab)} 项` : current ? '正在扫描…' : '等待扫描'
+				: this.categoryStatus(this.categoryCount(tab), completed, false, this.dirtyTabs.has(tab)));
+		}
+		const ring = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-ring');
+		if (ring) ring.style.setProperty('--scan-progress', `${this.scanning ? percent : this.scannedTabs.size / CLEANUP_CATEGORIES.length * 100}%`);
 	}
 
-	private updateScanStageRows() {
-		const now = performance.now();
-		for (const row of Array.from(this.contentEl.querySelectorAll<HTMLElement>('.orphan-cleanup-scan-stage'))) {
-			const index = Number(row.dataset.stageIndex);
-			const stage = this.scanStages[index];
-			if (!stage) continue;
-			const elapsedMs = stage.state === 'scanning' && stage.startedAt ? now - stage.startedAt : stage.elapsedMs;
-			row.className = `orphan-cleanup-scan-stage is-${stage.state}`;
-			row.querySelector('.orphan-cleanup-scan-stage-icon')?.setText(stage.state === 'done' ? '✓' : stage.state === 'scanning' ? '…' : '○');
-			row.querySelector('.orphan-cleanup-scan-stage-duration')?.setText(formatScanDuration(elapsedMs));
-			row.querySelector('.orphan-cleanup-scan-stage-state')?.setText(stage.state === 'done' ? '完成' : stage.state === 'scanning' ? '扫描中' : '等待中');
-		}
+	private categoryScanStage(tab: ScanCategoryTab): number {
+		return tab === 'images' || tab === 'attachments' ? 2 : tab === 'empty-files' || tab === 'folders' ? 3 : tab === 'duplicates' ? 5 : 4;
 	}
 
 	private renderOverview() {
-		const home = this.contentEl.createDiv({ cls: 'orphan-cleanup-home' });
+		const home = this.contentEl.createDiv({ cls: 'orphan-cleanup-home orphan-cleanup-dashboard' });
+		if (this.scanning) home.addClass('is-scanning');
+		const total = this.categoryTotal();
+		const scanned = this.scannedTabs.size;
+		const stale = CLEANUP_CATEGORIES.filter((category) => this.scannedTabs.has(category.tab) && this.dirtyTabs.has(category.tab)).length;
 		const header = home.createDiv({ cls: 'orphan-cleanup-home-header' });
 		const heading = header.createDiv({ cls: 'orphan-cleanup-home-heading' });
-		heading.createEl('h2', { text: 'Vault 体检' });
-		heading.createEl('p', { text: '按类别单独扫描，或一键扫描全部。扫描仅在本地进行，不会修改任何文件。', cls: 'orphan-cleanup-home-subtitle' });
-		const scanAll = header.createEl('button', { text: this.hasScanned ? '全部重新扫描' : '全部扫描', cls: 'mod-cta orphan-cleanup-scan-all' });
+		heading.createDiv({ text: 'Vault 健康概览', cls: 'orphan-cleanup-home-eyebrow' });
+		heading.createEl('h2', { text: this.scanning ? '正在检查资料库' : total ? '需要你的注意' : scanned < CLEANUP_CATEGORIES.length || this.dirtyTabs.size ? '等待检查资料库' : '资料库状态良好' });
+		heading.createEl('p', { text: this.scanning ? '扫描会在当前页面持续进行，结果将直接显示在对应模块。' : '扫描仅在本地进行，不会修改任何文件。', cls: 'orphan-cleanup-home-subtitle' });
+		const scanAll = header.createEl('button', { text: this.scanning ? '扫描中…' : this.hasScanned ? '重新扫描全部' : '开始扫描', cls: 'mod-cta orphan-cleanup-scan-all' });
 		scanAll.disabled = this.scanning || this.scanningTabs.size > 0;
 		scanAll.addEventListener('click', () => void this.scan());
 
-		const summary = home.createDiv({ cls: 'orphan-cleanup-home-summary' });
-		summary.setText(`已扫描 ${this.scannedTabs.size} / ${CLEANUP_CATEGORIES.length} 类 · 发现 ${this.categoryTotal()} 项待处理`);
+		const hero = header.createDiv({ cls: 'orphan-cleanup-dashboard-hero' });
+		const heroCopy = hero.createDiv({ cls: 'orphan-cleanup-dashboard-hero-copy' });
+		heroCopy.createDiv({ text: this.scanning ? '扫描中的现有结果' : '当前待处理', cls: 'orphan-cleanup-dashboard-label' });
+		heroCopy.createDiv({ text: String(total), cls: 'orphan-cleanup-dashboard-total' });
+		heroCopy.createDiv({ text: `${scanned} / ${CLEANUP_CATEGORIES.length} 个分类已扫描${stale ? ` · ${stale} 类待复核` : ''}`, cls: 'orphan-cleanup-dashboard-meta' });
+		if (this.scanning) {
+			const progress = heroCopy.createDiv({ cls: 'orphan-cleanup-dashboard-progress-bar-wrap' });
+			progress.setAttribute('role', 'progressbar');
+			progress.setAttribute('aria-label', '整体扫描进度（按阶段）');
+			progress.setAttribute('aria-valuemin', '0');
+			progress.setAttribute('aria-valuemax', '100');
+			progress.createDiv({ cls: 'orphan-cleanup-dashboard-progress-bar' });
+			heroCopy.createDiv({ cls: 'orphan-cleanup-dashboard-progress-meta' });
+			heroCopy.createDiv({ cls: 'orphan-cleanup-dashboard-current-file' });
+		}
+		const progress = hero.createDiv({ cls: 'orphan-cleanup-dashboard-progress' });
+		progress.createDiv({ cls: 'orphan-cleanup-dashboard-progress-ring' }).createSpan({ text: `${scanned}/${CLEANUP_CATEGORIES.length}` });
 
-		const grid = home.createDiv({ cls: 'orphan-cleanup-category-grid' });
-		for (const category of CLEANUP_CATEGORIES) this.renderCategoryCard(grid, category);
+		const priority = CLEANUP_CATEGORIES
+			.filter((category) => this.scanning || this.categoryCount(category.tab) > 0)
+			.sort((a, b) => this.scanning
+				? this.categoryScanStage(a.tab) - this.categoryScanStage(b.tab)
+				: this.categoryCount(b.tab) - this.categoryCount(a.tab));
+		const prioritySection = home.createDiv({ cls: 'orphan-cleanup-dashboard-section' });
+		const priorityHeading = prioritySection.createDiv({ cls: 'orphan-cleanup-dashboard-section-heading' });
+		priorityHeading.createEl('h3', { text: this.scanning ? '扫描进度' : '优先处理' });
+		priorityHeading.createSpan({ text: this.scanning ? '模块完成后会直接更新状态' : priority.length ? '按问题数量排序' : '没有待处理项目' });
+		const priorityGrid = prioritySection.createDiv({ cls: 'orphan-cleanup-priority-grid' });
+		if (priority.length) for (const category of priority) this.renderDashboardCategory(priorityGrid, category, true);
+		else priorityGrid.createDiv({ text: '所有已检查分类都很干净。', cls: 'orphan-cleanup-dashboard-empty' });
+
+		const healthy = this.scanning ? [] : CLEANUP_CATEGORIES.filter((category) => this.scannedTabs.has(category.tab) && this.categoryCount(category.tab) === 0 && !this.dirtyTabs.has(category.tab));
+		if (healthy.length) {
+			const healthySection = home.createDiv({ cls: 'orphan-cleanup-dashboard-section orphan-cleanup-dashboard-healthy' });
+			const healthyHeading = healthySection.createDiv({ cls: 'orphan-cleanup-dashboard-section-heading' });
+			healthyHeading.createEl('h3', { text: '已检查' });
+			healthyHeading.createSpan({ text: `${healthy.length} 个分类没有问题` });
+			const healthyList = healthySection.createDiv({ cls: 'orphan-cleanup-healthy-list' });
+			for (const category of healthy) this.renderDashboardCategory(healthyList, category, false);
+		}
+
+		const pending = this.scanning ? [] : CLEANUP_CATEGORIES.filter((category) => this.categoryCount(category.tab) === 0 && (!this.scannedTabs.has(category.tab) || this.dirtyTabs.has(category.tab)));
+		if (pending.length) {
+			const pendingSection = home.createDiv({ cls: 'orphan-cleanup-dashboard-section orphan-cleanup-dashboard-pending' });
+			const pendingHeading = pendingSection.createDiv({ cls: 'orphan-cleanup-dashboard-section-heading' });
+			pendingHeading.createEl('h3', { text: '待检查 / 复核' });
+			pendingHeading.createSpan({ text: '未扫描或结果已过期' });
+			const pendingList = pendingSection.createDiv({ cls: 'orphan-cleanup-healthy-list' });
+			for (const category of pending) this.renderDashboardCategory(pendingList, category, false);
+		}
+		this.updateScanProgress();
 	}
 
 	private categoryTotal() {
@@ -379,64 +411,61 @@ export class OrphanCleanupPanel extends Component {
 		}
 	}
 
-	private renderCategoryCard(container: HTMLElement, category: (typeof CLEANUP_CATEGORIES)[number]) {
+	private renderDashboardCategory(container: HTMLElement, category: (typeof CLEANUP_CATEGORIES)[number], priority: boolean) {
 		const count = this.categoryCount(category.tab);
 		const scanned = this.scannedTabs.has(category.tab);
 		const scanning = this.scanningTabs.has(category.tab);
 		const dirty = this.dirtyTabs.has(category.tab);
 
-		const card = container.createDiv({ cls: 'orphan-cleanup-category-card' });
+		const card = container.createDiv({ cls: priority ? 'orphan-cleanup-dashboard-item is-priority' : 'orphan-cleanup-dashboard-item' });
+		card.dataset.tab = category.tab;
 		if (scanning) card.addClass('is-scanning');
 		else if (dirty) card.addClass('is-dirty');
 		else if (count > 0) card.addClass('has-issues');
+		else if (scanned) card.addClass('is-healthy');
 
-		const head = card.createDiv({ cls: 'orphan-cleanup-category-head' });
-		const icon = head.createDiv({ cls: 'orphan-cleanup-category-icon' });
+		const icon = card.createDiv({ cls: 'orphan-cleanup-dashboard-icon' });
 		setIcon(icon, category.icon);
-		const title = head.createDiv({ cls: 'orphan-cleanup-category-title' });
+		const body = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-body' });
+		const title = body.createDiv({ cls: 'orphan-cleanup-dashboard-item-title' });
 		title.createEl('strong', { text: category.label });
-		const countEl = head.createDiv({ cls: 'orphan-cleanup-category-count' });
-		countEl.setText(String(count));
+		if (priority) title.createSpan({ text: this.scanning && !scanned ? '—' : String(count), cls: count > 0 ? 'orphan-cleanup-dashboard-item-count' : 'orphan-cleanup-dashboard-item-count is-zero' });
+		body.createDiv({ text: category.description, cls: 'orphan-cleanup-dashboard-item-desc' });
+		body.createDiv({ text: this.categoryStatus(count, scanned, scanning, dirty), cls: 'orphan-cleanup-dashboard-item-status' });
 
-		card.createDiv({ text: category.description, cls: 'orphan-cleanup-category-desc' });
-		card.createDiv({ text: this.categoryStatus(count, scanned, scanning, dirty), cls: 'orphan-cleanup-category-status' });
-
-		const actions = card.createDiv({ cls: 'orphan-cleanup-category-actions' });
+		const actions = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-actions' });
 		const scanButton = actions.createEl('button', { text: scanning ? '扫描中…' : scanned ? '重新扫描' : '扫描' });
 		scanButton.disabled = this.scanning || scanning;
 		scanButton.addEventListener('click', (event) => { event.stopPropagation(); void this.scanCategory(category.tab); });
 		const viewButton = actions.createEl('button', { text: '查看' });
-		viewButton.disabled = !scanned || scanning;
+		viewButton.disabled = this.scanning || !scanned || scanning;
 		viewButton.addEventListener('click', (event) => { event.stopPropagation(); void this.activateTab(category.tab); });
 
-		card.addEventListener('click', () => { if (!scanning && scanned) void this.activateTab(category.tab); });
+		card.addEventListener('click', () => { if (!this.scanning && !scanning && scanned) void this.activateTab(category.tab); });
 	}
 
 	private categoryStatus(count: number, scanned: boolean, scanning: boolean, dirty: boolean): string {
 		if (scanning) return '正在扫描…';
 		if (!scanned) return '尚未扫描';
-		if (dirty) return '内容已变化，建议重新扫描';
+		if (dirty) return '结果待复核，请重新扫描';
 		return count > 0 ? `发现 ${count} 项` : '未发现问题';
+	}
+
+	private tabEntries(): Array<[CleanupTab, string, number]> {
+		const categories = CLEANUP_CATEGORIES.map(({ tab, label }) => ({ tab, label, count: this.categoryCount(tab) }));
+		if (!this.scanning) categories.sort((a, b) => Number(b.count > 0) - Number(a.count > 0));
+		return [['overview', '体检首页', this.categoryTotal()], ...categories.map(({ tab, label, count }): [CleanupTab, string, number] => [tab, label, count])];
 	}
 
 	private renderTabs() {
 		const tabs = this.contentEl.createDiv({ cls: 'orphan-cleanup-tabs' });
-		for (const [tab, label, count] of [
-			['overview', '体检首页', 0],
-			['images', '未引用图片', this.candidates.images.length],
-			['attachments', '未引用附件', this.candidates.attachments.length],
-			['broken-links', '失效图片链接', this.candidates.brokenLinks.length],
-			['native-links', '原生图片链接', this.candidates.nativeLinks.length],
-			['broken-note-links', '失效笔记链接', this.candidates.brokenNoteLinks.length],
-			['empty-files', '空文件', this.candidates.emptyFiles.length],
-			['folders', '空文件夹', this.candidates.folders.length],
-			['duplicates', '重复文件', this.candidates.duplicates.length],
-		] as const) {
+		for (const [tab, label, count] of this.tabEntries()) {
 			const button = tabs.createEl('button', {
 				text: `${label}（${count}）`,
 				cls: tab === this.activeTab ? 'orphan-cleanup-tab is-active' : 'orphan-cleanup-tab',
 			});
 			button.dataset.tab = tab;
+			button.disabled = this.scanning;
 			button.addEventListener('click', () => void this.activateTab(tab));
 		}
 		const help = tabs.createEl('button', { text: '!', cls: 'orphan-cleanup-help-button' });
@@ -471,6 +500,12 @@ export class OrphanCleanupPanel extends Component {
 		const list = this.contentEl.createDiv({ cls: 'orphan-cleanup-list' });
 		const toolbar = list.createDiv({ cls: 'orphan-cleanup-toolbar' });
 		const content = list.createDiv({ cls: 'orphan-cleanup-scroll' });
+		if (this.scanningTabs.has(currentTab) || this.dirtyTabs.has(currentTab)) {
+			const status = content.createDiv({ cls: 'orphan-cleanup-refresh-status', text: this.scanningTabs.has(currentTab)
+				? '正在复核此分类，暂时展示已有结果；你可以继续切换标签页。'
+				: '结果待复核，请刷新后再处理。' });
+			status.setAttribute('role', 'status');
+		}
 		this.addRefreshControl(toolbar);
 		this.addReportControls(toolbar);
 		if (currentTab === 'duplicates') {
@@ -573,10 +608,15 @@ export class OrphanCleanupPanel extends Component {
 			heading.createEl('h3', { text: `${group.files.length} 个文件 · ${formatBytes(group.size)}` });
 			const groupPaths = group.files.map((file) => file.path);
 			const selectGroup = heading.createEl('button', { text: '选择本组全部' });
+			selectGroup.type = 'button';
 			selectGroup.addEventListener('click', () => {
 				const selected = groupPaths.every((path) => this.duplicateSelections.has(path));
-				groupPaths.forEach((path) => selected ? this.duplicateSelections.delete(path) : this.duplicateSelections.add(path));
-				this.renderContents();
+				for (const path of groupPaths) selected ? this.duplicateSelections.delete(path) : this.duplicateSelections.add(path);
+				for (const checkbox of Array.from(section.querySelectorAll<HTMLInputElement>('input[data-duplicate-path]'))) {
+					if (groupPaths.includes(checkbox.dataset.duplicatePath ?? '')) checkbox.checked = !selected;
+				}
+				selectGroup.setText(selected ? '选择本组全部' : '取消本组选择');
+				this.updateSelectionSummary();
 			});
 			selectGroup.setText(groupPaths.every((path) => this.duplicateSelections.has(path)) ? '取消本组选择' : '选择本组全部');
 			section.createDiv({ text: `SHA-256：${group.hash}`, cls: 'orphan-cleanup-detail' });
@@ -588,6 +628,7 @@ export class OrphanCleanupPanel extends Component {
 			for (const [index, file] of group.files.entries()) {
 				const row = body.createEl('tr');
 				const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
+				checkbox.dataset.duplicatePath = file.path;
 				checkbox.checked = this.duplicateSelections.has(file.path);
 				checkbox.setAttribute('aria-label', `选择 ${file.path}`);
 				checkbox.addEventListener('change', () => {
@@ -634,9 +675,11 @@ export class OrphanCleanupPanel extends Component {
 				locate.addEventListener('click', () => void this.locateDuplicateReference(file));
 				if (isImageFile(file.extension)) {
 					const clean = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
+					clean.disabled = this.scanningTabs.has('duplicates') || this.dirtyTabs.has('duplicates');
 					setIcon(clean, 'eraser'); clean.title = '清理图片链接'; clean.setAttribute('aria-label', '清理图片链接');
 					clean.addEventListener('click', () => void this.cleanDuplicateLinks(file));
 					const remove = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
+					remove.disabled = this.scanningTabs.has('duplicates') || this.dirtyTabs.has('duplicates');
 					setIcon(remove, 'trash-2'); remove.title = '删除图片'; remove.setAttribute('aria-label', '删除图片');
 					remove.addEventListener('click', () => void this.deleteDuplicateFile(file));
 				}
@@ -746,23 +789,24 @@ export class OrphanCleanupPanel extends Component {
 
 	private addRefreshControl(container: HTMLElement) {
 		const refresh = container.createEl('button', { text: '刷新' });
+		refresh.disabled = this.scanningTabs.has(this.activeTab);
 		refresh.title = '刷新当前页面';
 		refresh.addEventListener('click', () => void this.refreshCurrentTab());
 	}
 
 	private async activateTab(tab: CleanupTab) {
-		this.activeTab = tab;
-		if (this.dirtyTabs.has(tab)) {
-			await this.scanTab(tab);
-			this.saveCacheToSettings();
+		if (this.scanning) return;
+		if (this.activeTab === tab) {
+			const pending = this.categoryScans.get(tab);
+			if (pending) return pending;
 		}
-		this.renderContents();
+		this.activeTab = tab;
+		if (tab !== 'overview' && (this.dirtyTabs.has(tab) || !this.scannedTabs.has(tab) || this.scanningTabs.has(tab))) await this.scanCategory(tab);
+		else this.renderContents();
 	}
 
 	private async refreshCurrentTab() {
-		await this.scanTab(this.activeTab);
-		this.saveCacheToSettings();
-		this.renderContents();
+		if (this.activeTab !== 'overview') await this.scanCategory(this.activeTab);
 	}
 
 	private async scanTab(tab: CleanupTab) {
@@ -828,16 +872,30 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	private async scanCategory(tab: ScanCategoryTab) {
-		if (this.scanning || this.scanningTabs.has(tab)) return;
+		if (this.scanning) return;
+		const pending = this.categoryScans.get(tab);
+		if (pending) {
+			this.renderContents();
+			return pending;
+		}
 		this.scanningTabs.add(tab);
 		this.renderContents();
+		const generation = this.scanGeneration;
+		// Yield so the selected tab and refresh status can paint before scanning.
+		const task = new Promise<void>((resolve) => window.setTimeout(resolve, 0)).then(async () => {
+			if (generation === this.scanGeneration) await this.scanTab(tab);
+		});
+		this.categoryScans.set(tab, task);
 		try {
-			await this.scanTab(tab);
+			await task;
 		} finally {
+			this.categoryScans.delete(tab);
 			this.scanningTabs.delete(tab);
 		}
+		if (generation !== this.scanGeneration) return;
 		this.saveCacheToSettings();
-		this.renderContents();
+		if (this.activeTab === tab || this.activeTab === 'overview') this.renderContents();
+		else this.updateTabCounts();
 	}
 
 	private getTabLabel(tab: CleanupTab): string {
@@ -1059,6 +1117,7 @@ export class OrphanCleanupPanel extends Component {
 			this.updateSelectionSummary();
 		});
 		const deleteButton = header.createEl('button', { text: '删除', cls: 'orphan-cleanup-image-delete' });
+		deleteButton.disabled = this.scanningTabs.has('images') || this.dirtyTabs.has('images');
 		deleteButton.type = 'button';
 		deleteButton.title = '移入回收站';
 		deleteButton.addEventListener('click', () => void this.trashSingleImage(file));
@@ -1117,17 +1176,16 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	private updateTabCounts() {
-		for (const [tab, label, count] of [
-			['images', '未引用图片', this.candidates.images.length],
-			['attachments', '未引用附件', this.candidates.attachments.length],
-			['broken-links', '失效图片链接', this.candidates.brokenLinks.length],
-			['empty-files', '空文件', this.candidates.emptyFiles.length],
-			['folders', '空文件夹', this.candidates.folders.length],
-			['native-links', '原生图片链接', this.candidates.nativeLinks.length],
-			['broken-note-links', '失效笔记链接', this.candidates.brokenNoteLinks.length],
-		] as const) {
-			this.contentEl.querySelector<HTMLElement>(`.orphan-cleanup-tab[data-tab="${tab}"]`)?.setText(`${label}（${count}）`);
+		const tabs = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-tabs');
+		if (!tabs) return;
+		const focused = tabs.ownerDocument.activeElement;
+		for (const [index, [tab, label, count]] of this.tabEntries().entries()) {
+			const button = tabs.querySelector<HTMLElement>(`.orphan-cleanup-tab[data-tab="${tab}"]`);
+			if (!button) continue;
+			button.setText(`${label}（${count}）`);
+			if (tabs.children[index] !== button) tabs.insertBefore(button, tabs.children[index] ?? null);
 		}
+		if (focused instanceof HTMLElement && tabs.contains(focused) && focused !== tabs.ownerDocument.activeElement) focused.focus({ preventScroll: true });
 	}
 
 	private updateImageGroupCounts() {
@@ -1237,6 +1295,9 @@ export class OrphanCleanupPanel extends Component {
 			remove.disabled = this.noteLinkSelections.size === 0;
 			remove.addEventListener('click', () => void this.confirmRemoveNoteLinks());
 		}
+		if (this.scanningTabs.has(this.activeTab) || this.dirtyTabs.has(this.activeTab)) {
+			for (const button of Array.from(actions.querySelectorAll<HTMLButtonElement>('button'))) button.disabled = true;
+		}
 	}
 
 	private updateSelectionSummary(summary?: HTMLElement) {
@@ -1259,6 +1320,10 @@ export class OrphanCleanupPanel extends Component {
 		if (action) action.disabled = this.activeTab === 'broken-links' ? links === 0 : this.activeTab === 'native-links' ? native === 0 : this.activeTab === 'broken-note-links' ? noteLinks === 0 : this.activeTab === 'duplicates' ? duplicates === 0 : images + attachments + emptyFiles + folders === 0;
 		const removeNoteLinks = this.contentEl.querySelector<HTMLButtonElement>('.orphan-cleanup-remove-note-links');
 		if (removeNoteLinks) removeNoteLinks.disabled = noteLinks === 0;
+		if (this.scanningTabs.has(this.activeTab) || this.dirtyTabs.has(this.activeTab)) {
+			if (action) action.disabled = true;
+			if (removeNoteLinks) removeNoteLinks.disabled = true;
+		}
 	}
 
 	private itemsForActiveTab(): TAbstractFile[] {
@@ -1462,7 +1527,7 @@ export class OrphanCleanupModal extends Modal {
 	}
 }
 
-async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true): Promise<CleanupCandidates> {
+async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true, onCategoryComplete?: (tabs: ScanCategoryTab[], results: Partial<CleanupCandidates>) => void): Promise<CleanupCandidates> {
 	const extensions = parseExtensions(imageExtensions);
 	const ignoredFolders = parseIgnoredFolders(ignoredFoldersValue);
 	const visibleFiles = app.vault.getFiles().filter((file) => !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders));
@@ -1486,14 +1551,22 @@ async function findCleanupCandidates(app: App, imageExtensions: string, ignoredF
 	// file name or path counts as a reference so that such images are never
 	// flagged as orphans.
 	await markFilesReferencedByText(app, [...images, ...attachments], referenced, (processed, total, currentFile) => onProgress?.({ stage: 2, processed, total, currentFile }));
+	onCategoryComplete?.(['images', 'attachments'], {
+		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
+		attachments: attachments.filter((file) => !referenced.has(file.path)).sort(byPath),
+	});
 	const emptyFiles = (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }))).filter((file) => !referenced.has(file.path));
 	const folders = findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
 	onProgress?.({ stage: 3, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
+	onCategoryComplete?.(['empty-files', 'folders'], { emptyFiles, folders });
+	onProgress?.({ stage: 4, processed: 0, total: 1 });
 	const brokenLinks = checkLinksAndDuplicates ? findBrokenImageLinks(app, imageExtensions) : [];
 	const nativeLinks = checkLinksAndDuplicates ? findNativeImageLinks(app, imageExtensions) : [];
 	const brokenNoteLinks = checkLinksAndDuplicates ? findBrokenNoteLinks(app, imageExtensions) : [];
+	onCategoryComplete?.(['broken-links', 'native-links', 'broken-note-links'], { brokenLinks, nativeLinks, brokenNoteLinks });
 	onProgress?.({ stage: 5, processed: 0, total: 1 });
 	const duplicateResult = checkLinksAndDuplicates ? await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress })) : { groups: [], warnings: [] };
+	onCategoryComplete?.(['duplicates'], { duplicates: duplicateResult.groups, duplicateWarnings: duplicateResult.warnings });
 	return {
 		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
 		attachments: attachments.filter((file) => !referenced.has(file.path)).sort(byPath),
