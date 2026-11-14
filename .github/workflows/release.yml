@@ -66,6 +66,21 @@ jobs:
                       main.js
                       ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
 
+            - name: Generate release notes
+              run: |
+                  version="$(jq -r .version manifest.json)"
+                  min_app="$(jq -r .minAppVersion manifest.json)"
+                  {
+                    echo "Version: $version"
+                    echo "Minimum Obsidian: $min_app"
+                    echo ""
+                    echo "SHA-256:"
+                    for file in main.js manifest.json styles.css; do
+                      if [ -f "$file" ]; then sha256sum "$file"; fi
+                    done
+                  } > release-notes.md
+                  cat release-notes.md
+
             - name: Create release
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,4 +89,5 @@ jobs:
 
                   gh release create "$tag" \
                     --title="$tag" \
+                    --notes-file release-notes.md \
                     main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
