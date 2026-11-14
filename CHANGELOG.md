@@ -1,5 +1,11 @@
 # CHANGELOG
 
+### 2026-11-14 — 发布准备：更名 Vault Doctor 并升级至 1.3.0
+
+- **[重构]** 插件市场名改为 `Vault Doctor`，插件 id 改为 `vault-doctor`，author 设为 GitHub 用户名 `ll905518294`，符合 Obsidian 社区市场命名规约（id 不含 "obsidian"、仅小写字母与连字符；名称不含 "Obsidian"）。
+- **[文档]** README、runbook、HANDOFF、PROJECT_MEMORY 同步新名称与新插件目录；历史学习记录 `.learnings/LEARNINGS.md` 保留改名前的旧路径以维持复盘准确性。
+- **[发布]** 版本升至 `1.3.0`，对应正式 release 与后续社区市场清单提交。
+
 ### 2026-11-14 — 清理冗余代码与设置
 
 - **[移除]** 命令「清除关联数量属性」及配套逻辑移除；全库确认已无相关属性残留。

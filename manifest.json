@@ -1,8 +1,9 @@
 {
-	"id": "Obsidian-RelatedOperations",
-	"name": "Obsidian-Manager",
-	"version": "1.2.0",
+	"id": "vault-doctor",
+	"name": "Vault Doctor",
+	"author": "ll905518294",
+	"version": "1.3.0",
 	"minAppVersion": "1.13.0",
-	"description": "检查笔记关系、未引用资源和失效链接，并安全整理关联笔记。",
+	"description": "Scan your vault for broken links, unreferenced resources and duplicate files, then safely organize related notes.",
 	"isDesktopOnly": false
 }

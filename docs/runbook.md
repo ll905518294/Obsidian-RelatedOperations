@@ -17,7 +17,7 @@
 ## 3. 常见问题排查
 ### 插件未加载
 1. 运行 `npm run build`。
-2. 确认 Vault 的 `.obsidian/plugins/Obsidian-RelatedOperations/` 存在 `main.js`、`manifest.json`。
+2. 确认 Vault 的 `.obsidian/plugins/vault-doctor/` 存在 `main.js`、`manifest.json`。
 3. 在 Obsidian 中重新加载或启用社区插件。
 
 ### 部署停止
@@ -31,7 +31,7 @@
 ```powershell
 $registry = Get-Content (Join-Path $env:APPDATA 'obsidian\obsidian.json') -Raw | ConvertFrom-Json
 $vault = $registry.vaults.PSObject.Properties | Where-Object { $_.Value.open -eq $true } | ForEach-Object { $_.Value.path } | Select-Object -First 1
-$plugin = Join-Path $vault '.obsidian\plugins\Obsidian-RelatedOperations'
+$plugin = Join-Path $vault '.obsidian\plugins\vault-doctor'
 "项目版本: " + (Get-Content .\manifest.json -Raw | ConvertFrom-Json).version
 "部署版本: " + (Get-Content (Join-Path $plugin 'manifest.json') -Raw | ConvertFrom-Json).version
 Get-Item (Join-Path $plugin 'main.js') | Select-Object FullName, Length, LastWriteTime

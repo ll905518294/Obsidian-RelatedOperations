@@ -20,5 +20,5 @@
 - 验证命令：`npm run build`、`npm run lint`、`npm test`、`npm run test:deploy`、`npm run deploy:check`（后两者不会复制文件或重启 Obsidian）。
 - 发布：推送与 `manifest.json` 的 `version` 完全一致（无 `v` 前缀）的 tag 触发 release workflow；workflow 先运行 `npm run lint` 与 `npm test`，通过后创建正式 release 并附带 `main.js`、`manifest.json`、`styles.css`；版本不匹配或测试失败会阻止发布。
 - 部署：`npm run deploy` 失败时默认恢复 `.obsidian/plugin-backups/<plugin-id>.backup`；加 `-NoRollbackOnFail` 可保留新文件用于排查。
-- 部署后确认：读取 `.obsidian/plugins/Obsidian-RelatedOperations/manifest.json` 的 `version` 应与项目根 `manifest.json` 一致，且 `main.js` 的 `LastWriteTime` 不应早于本次构建。
+- 部署后确认：读取 `.obsidian/plugins/vault-doctor/manifest.json` 的 `version` 应与项目根 `manifest.json` 一致，且 `main.js` 的 `LastWriteTime` 不应早于本次构建。
 - 已知坑与避免方式：不要把 `main.js`、`node_modules/` 或 Vault 数据文件当作源码提交。嵌套对象需显式 map 到 path string 再 add 到 selection Set。多线程共用同一工作区，临时脚本必须在收尾前删除，仓库根目录只保留源码、测试、文档与 `main.js`。

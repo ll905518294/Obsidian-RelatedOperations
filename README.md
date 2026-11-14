@@ -1,4 +1,4 @@
-# Obsidian-Manager
+# Vault Doctor
 
 一个用于检查 Vault 健康状况、整理关联笔记和清理未引用资源的 Obsidian 社区插件。
 
@@ -29,8 +29,8 @@
 
 Use the left ribbon **打开 vault 体检与清理** icon or the command with the same name to open the cleanup tool. On desktop it opens as a normal workspace tab; on mobile it falls back to a modal. After scanning, **体检首页** and each cleanup category are sibling tabs, so you can switch back to the overview at any time. Click **开始扫描** to inspect unreferenced images, unreferenced attachments, empty files, and recursively empty folders in separate tabs. Empty files include zero-byte non-image, non-Canvas files and Markdown files containing only YAML frontmatter. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
 
-- Images: the formats configured in **设置 → Obsidian-Manager → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
-- Ignored folders: configure **设置 → Obsidian-Manager → 忽略目录** with comma-, space-, or line-break-separated paths. A folder and all descendants are excluded from unreferenced-image, unreferenced-attachment, and empty-folder candidates; broken and native image-link checks are unchanged.
+- Images: the formats configured in **设置 → Vault Doctor → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
+- Ignored folders: configure **设置 → Vault Doctor → 忽略目录** with comma-, space-, or line-break-separated paths. A folder and all descendants are excluded from unreferenced-image, unreferenced-attachment, and empty-folder candidates; broken and native image-link checks are unchanged.
 - Conservative reference scan: any textual mention of an image file name or path in Markdown content also counts as a reference. This covers HTML image tags, plain-text paths in frontmatter, and code-block text, so images referenced in non-standard ways are never flagged as orphans.
 - Broken image links: Markdown image embeds and image links whose local target cannot be resolved are shown in a separate tab. Select occurrences to remove the full link syntax; external URLs, HTML images, frontmatter links, and code-block text are not scanned. This edits Markdown directly and does not use the trash.
 - Broken note links: Wiki links and Markdown links targeting missing Markdown notes are shown separately. Titles, block references, aliases, external URLs, images, attachments, frontmatter, and code blocks are handled conservatively. The cleanup window can locate, ignore for the current scan, remove, or create selected missing Markdown targets. Missing parent folders are created; existing files and invalid targets are skipped and reported.
@@ -53,9 +53,9 @@ Notes that still contain these three properties are unaffected by the plugin; re
 
 This plugin requires Obsidian 1.13.0 or newer.
 
-- Install from build output: run `npm run build`, then copy `main.js`, `manifest.json`, and `styles.css` (if present) into `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`, and enable **Obsidian-Manager** in **Settings → Community plugins**.
+- Install from build output: run `npm run build`, then copy `main.js`, `manifest.json`, and `styles.css` (if present) into `<Vault>/.obsidian/plugins/vault-doctor/`, and enable **Vault Doctor** in **Settings → Community plugins**.
 - Install or update locally: run `npm run deploy` (see [Development](#development) and [本地一键部署测试](#本地一键部署测试)).
-- Uninstall: disable **Obsidian-Manager** in **Settings → Community plugins**, then delete the plugin folder `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`. This removes the plugin's `data.json` settings; it does not modify notes or restore files already sent to the trash.
+- Uninstall: disable **Vault Doctor** in **Settings → Community plugins**, then delete the plugin folder `<Vault>/.obsidian/plugins/vault-doctor/`. This removes the plugin's `data.json` settings; it does not modify notes or restore files already sent to the trash.
 
 ## Development
 
@@ -76,9 +76,9 @@ npm test
 
 ## 本地一键部署测试
 
-构建完成后双击项目根目录的 `deploy-and-restart.cmd`，或运行 `npm run deploy`。脚本会自动识别当前打开的 Vault，构建并替换 `Obsidian-RelatedOperations` 插件，校验部署文件哈希，然后调用 Obsidian CLI 的 `restart` 命令重启应用并等待稳定运行，从而清理旧插件代码并加载最新状态；同时保留最近一次备份到 `.obsidian/plugin-backups/`。没有唯一的当前 Vault、构建失败、文件校验失败或 Obsidian 无法稳定重启时，脚本会停止且不继续部署。
+构建完成后双击项目根目录的 `deploy-and-restart.cmd`，或运行 `npm run deploy`。脚本会自动识别当前打开的 Vault，构建并替换 `vault-doctor` 插件，校验部署文件哈希，然后调用 Obsidian CLI 的 `restart` 命令重启应用并等待稳定运行，从而清理旧插件代码并加载最新状态；同时保留最近一次备份到 `.obsidian/plugin-backups/`。没有唯一的当前 Vault、构建失败、文件校验失败或 Obsidian 无法稳定重启时，脚本会停止且不继续部署。
 
-The production build writes `main.js` at the plugin root. Install `main.js`, `manifest.json`, and `styles.css` in the vault's `.obsidian/plugins/Obsidian-RelatedOperations/` directory for manual testing.
+The production build writes `main.js` at the plugin root. Install `main.js`, `manifest.json`, and `styles.css` in the vault's `.obsidian/plugins/vault-doctor/` directory for manual testing.
 
 ## Safety behavior
 
