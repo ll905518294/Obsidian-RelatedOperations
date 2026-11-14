@@ -16,10 +16,13 @@
 - 构建产物 `main.js` 写入项目根目录并供 Obsidian 加载；源码依赖需由 esbuild 打包。
 - 关联笔记只处理已解析的 Markdown 文件；清理操作使用 Obsidian 原生文件管理器或本地回收站。
 - 部署前构建并校验 `main.js`、`manifest.json` 和可选的 `styles.css`；失败时保留或恢复备份。
+- 界面文字强调色用 `var(--ro-accent-text)`，不要直接用 `--text-accent`：浅色主题下 `--text-accent` 对比度只有 3.19~3.56（低于正文 4.5），深色下 4.99~5.72 已达标；`--ro-accent-text` 是 `color-mix(in srgb, var(--text-accent) 65%, var(--text-normal))`，浅色提到 5.41~6.03、深色提到 6.22~7.12。该变量定义在 `.related-operations-panel`、`.orphan-cleanup-panel` 与 `.modal-content` 上——`related-operations-confirm-target` 用在关联笔记的确认弹窗里，弹窗不在面板作用域内。
+- 列表勾选框不套 `label`：窄屏 44×44 命中区来自 `input[type="checkbox"]` 自己的边框盒（`box-sizing: content-box`，content 30px + 7px 透明边框），可见文本由 `aria-labelledby` 关联。`associateCheckbox()` 只负责给可见文本设 id 并回填 `aria-labelledby`，不改动勾选框的父节点。
+- 清理表格必须设整表 `min-width`（普通表 460px、重复文件表 660px）：窄视口下「勾选 44px + 操作 145px」这些固定列会把中间列压到 0，改由 `.orphan-cleanup-scroll` 横向滚动。
 
 ## 已验证结论
 ### 插件入口与模块边界
-- 事实：`src/main.ts` 负责生命周期、命令、视图和菜单注册；关联笔记、清理、链接统计、设置等逻辑分别位于独立模块。
+- 事实：`src/main.ts` 负责生命周期、命令、视图和菜单注册；关联笔记、清理、设置等逻辑分别位于独立模块。
 - 证据：当前 `src/main.ts` 的导入与注册调用，以及 `src/` 下对应模块文件。
 - 影响与注意事项：新增功能优先放入现有职责模块，避免继续膨胀入口文件。
 
@@ -28,8 +31,8 @@
 - 证据：`package.json` scripts。
 - 影响与注意事项：代码改动至少运行相关测试；发布前运行构建和部署预检。
 
-### 体检清理面板架构（或phanCleanupPanel）
-- 事实：`src/orphan-cleanup.ts` 包含 `OrphanCleanupPanel` 类，使用多 Tab 结构（overview/images/attachments/broken-links/native-links/broken-note-links/empty-files/folders/duplicates）。
+### 体检清理面板架构（OrphanCleanupPanel）
+- 事实：`OrphanCleanupPanel` 与 `OrphanCleanupModal` 位于 `src/cleanup/cleanup-panel.ts`；`src/orphan-cleanup.ts` 是再导出入口，`src/orphan-cleanup-view.ts` 提供工作区 `ItemView` 宿主。面板使用多 Tab 结构（overview/images/attachments/broken-links/native-links/broken-note-links/empty-files/folders/duplicates）。
 - 每个 Tab 有独立的 selection Set：`selections`（文件类）、`linkSelections`（失效图片链接）、`nativeSelections`（原生链接）、`noteLinkSelections`（失效笔记链接）、`duplicateSelections`（重复文件）。
 - 多选模式统一模式：声明 Set → scan() 中 clear → renderList() 中添加 addSelectionControls → 每行 checkbox → renderActions() 和 updateSelectionSummary() 处理该 Tab。
 - 注意事项：nested 对象（如 DuplicateFileGroup.files）需显式 `.map(f => f.path)` 转成 string 再 add 到 Set，否则 TypeScript 类型报错。

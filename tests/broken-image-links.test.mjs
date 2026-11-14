@@ -59,6 +59,18 @@ test('ignores links located in code blocks or frontmatter', () => {
 	assert.equal(links[0].original, '[normal](missing.png)');
 });
 
+test('matches image links regardless of extension case or bracketed path', () => {
+	const cache = {
+		embeds: [
+			{ original: '![a](assets/missing.PNG)', link: 'assets/missing.PNG', position: position(0, 25) },
+			{ original: '![b](<assets/a b.webp>)', link: 'assets/a b.webp', position: position(30, 55) },
+		],
+	};
+	const app = makeApp(['note.md'], { 'note.md': cache });
+	const links = findBrokenImageLinks(app, 'png, webp');
+	assert.deepEqual(links.map((link) => link.linkPath), ['assets/missing.PNG', 'assets/a b.webp']);
+});
+
 test('removes a line-only link without leaving a blank line', () => {
 	const original = '![missing](./assets/a b.png)';
 	const link = {

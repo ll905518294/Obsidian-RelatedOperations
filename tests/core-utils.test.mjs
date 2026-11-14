@@ -125,6 +125,26 @@ test('extracts URL-encoded path tokens', () => {
 	assert.ok(pathLikeTokens('![photo](assets/my%20photo.png)').includes('assets/my%20photo.png'));
 });
 
+test('keeps token boundaries for trailing spaces, dots and uppercase extensions', () => {
+	assert.deepEqual(pathLikeTokens('  spaced.png  '), ['spaced.png']);
+	assert.deepEqual(pathLikeTokens('a.png.'), ['a.png']);
+	assert.deepEqual(pathLikeTokens('see note.png'), ['see note.png']);
+	assert.deepEqual(pathLikeTokens('assets/pic.PNG'), ['assets/pic.png']);
+	assert.deepEqual(pathLikeTokens('.png'), []);
+});
+
+// A run of allowed characters without a file extension used to make the regex
+// backtrack over the whole run for every start position (quadratic).
+test('tokenizes long extension-free prose in linear time', () => {
+	const prose = '填充文字 '.repeat(180);
+	const started = performance.now();
+	let tokens = 0;
+	for (let index = 0; index < 300; index++) tokens += pathLikeTokens(prose).length;
+	const elapsed = performance.now() - started;
+	assert.equal(tokens, 0);
+	assert.ok(elapsed < 1500, `tokenizing took ${Math.round(elapsed)}ms`);
+});
+
 test('parses configurable extensions without case or leading dots', () => {
 	assert.deepEqual([...parseExtensions('PNG, .jpg JICO')].sort(), ['jico', 'jpg', 'png']);
 });

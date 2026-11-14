@@ -242,3 +242,47 @@ test('resolves each incoming linking source once, not once per target', () => {
 	assert.equal(result.length, targets.length * sources.length);
 	assert.ok(lookups <= 60, `resolved ${lookups} paths; expected one resolve per linking source (60), not per edge (3660)`);
 });
+
+// Many selected sources often share the same targets (folders, MOCs). The
+// vault lookup should run once per distinct path, not once per (source, target)
+// pair, otherwise a 100×50 fan-out costs 5000 lookups instead of 50.
+test('resolves each distinct target path once across many sources', () => {
+	const sources = Array.from({ length: 100 }, (_, i) => note(`s/note-${i}.md`));
+	const targets = Array.from({ length: 50 }, (_, i) => note(`t/note-${i}.md`));
+	const resolved = Object.fromEntries(
+		sources.map((s) => [s.path, Object.fromEntries(targets.map((t) => [t.path, 1]))]),
+	);
+	const byPath = new Map([...sources, ...targets].map((f) => [f.path, f]));
+	let lookups = 0;
+	const app = {
+		metadataCache: { resolvedLinks: resolved },
+		vault: { getAbstractFileByPath: (path) => { lookups++; return byPath.get(path) ?? null; } },
+	};
+	const result = getRelatedNotesForFiles(app, sources);
+	assert.equal(result.length, sources.length * targets.length);
+	assert.ok(lookups <= targets.length + 4, `resolved ${lookups} paths; expected one per distinct target (${targets.length})`);
+});
+
+// The incoming pass walks the whole resolved-link cache. Notes that never link
+// to a requested source must not be resolved at all; otherwise a large vault
+// pays one vault lookup per note even when only a handful are relevant.
+test('skips resolving unrelated linking sources during the incoming pass', () => {
+	const selected = note('sel/source.md');
+	const linking = note('other/linker.md');
+	const unrelatedTargets = Array.from({ length: 200 }, (_, i) => note(`far/t-${i}.md`));
+	const unrelated = unrelatedTargets.map((target, i) => note(`other/u-${i}.md`));
+	const resolved = {};
+	resolved[linking.path] = { [selected.path]: 1 };
+	for (let i = 0; i < unrelated.length; i++) {
+		resolved[unrelated[i].path] = { [unrelatedTargets[i].path]: 1 };
+	}
+	const byPath = new Map([selected, linking, ...unrelated, ...unrelatedTargets].map((f) => [f.path, f]));
+	let lookups = 0;
+	const app = {
+		metadataCache: { resolvedLinks: resolved },
+		vault: { getAbstractFileByPath: (path) => { lookups++; return byPath.get(path) ?? null; } },
+	};
+	const result = getRelatedNotesForFiles(app, [selected]);
+	assert.deepEqual(result.map((r) => [r.file.path, r.relation]), [[linking.path, 'incoming']]);
+	assert.ok(lookups <= 4, `resolved ${lookups} paths; unrelated sources must not be resolved`);
+});

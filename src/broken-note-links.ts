@@ -68,34 +68,44 @@ export interface CreateMissingNotesResult {
 export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Promise<CreateMissingNotesResult> {
 	const result: CreateMissingNotesResult = { created: [], skipped: [], failed: [] };
 	const targets = new Map<string, BrokenNoteLink[]>();
+	const sourceReads = new Map<string, Promise<string>>();
+	const knownPaths = createPathIndex(app);
 	for (const link of links) {
 		const path = missingNotePath(link);
 		if (!path) result.skipped.push({ path: link.linkPath, reason: '目标路径无效' });
 		else (targets.get(path) ?? (targets.set(path, []), targets.get(path)!)).push(link);
 	}
 	for (const [path, targetLinks] of targets) {
-		if (pathExistsCaseInsensitive(app, path)) {
+		if (knownPaths.has(path)) {
 			result.skipped.push({ path, reason: '目标已存在' });
 			continue;
 		}
-		if (!(await Promise.all(targetLinks.map((link) => isCurrentMissingNoteLink(app, link)))).some(Boolean)) {
+		if (!(await Promise.all(targetLinks.map((link) => isCurrentMissingNoteLink(app, link, sourceReads)))).some(Boolean)) {
 			result.skipped.push({ path, reason: '链接已变化或目标已恢复' });
 			continue;
 		}
 		try {
-			const parent = path.slice(0, path.lastIndexOf('/'));
+			// slice(0, -1) on a root-level path would become "name without its
+			// last character" and create a bogus folder; only split when a real
+			// separator exists.
+			const slash = path.lastIndexOf('/');
+			const parent = slash > 0 ? path.slice(0, slash) : '';
 			if (parent) {
 				let current = '';
 				for (const segment of parent.split('/')) {
 					current = current ? `${current}/${segment}` : segment;
-					if (!pathExistsCaseInsensitive(app, current)) await app.vault.createFolder(current);
+					if (!knownPaths.has(current)) {
+						await app.vault.createFolder(current);
+						knownPaths.add(current);
+					}
 				}
 			}
-			if (pathExistsCaseInsensitive(app, path)) {
+			if (knownPaths.has(path)) {
 				result.skipped.push({ path, reason: '目标已存在' });
 				continue;
 			}
 			await app.vault.create(path, '');
+			knownPaths.add(path);
 			result.created.push(path);
 		} catch (error) {
 			result.failed.push({ path, reason: error instanceof Error ? error.message : '创建失败' });
@@ -104,16 +114,34 @@ export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Pro
 	return result;
 }
 
-async function isCurrentMissingNoteLink(app: App, link: BrokenNoteLink) {
+async function isCurrentMissingNoteLink(app: App, link: BrokenNoteLink, sourceReads: Map<string, Promise<string>>) {
 	if (app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath)) return false;
 	const source = app.vault.getFileByPath(link.sourcePath);
 	if (!source || source.extension.toLowerCase() !== 'md') return false;
-	return findBrokenNoteLinkOffset(await app.vault.read(source), link) !== null;
+	// Several broken links can share one source; read it once per operation.
+	let content = sourceReads.get(link.sourcePath);
+	if (!content) {
+		content = app.vault.read(source);
+		sourceReads.set(link.sourcePath, content);
+	}
+	return findBrokenNoteLinkOffset(await content, link) !== null;
 }
 
-function pathExistsCaseInsensitive(app: App, path: string) {
-	const normalized = path.toLowerCase();
-	return app.vault.getAllLoadedFiles().some((file) => file.path.toLowerCase() === normalized);
+function createPathIndex(app: App) {
+	const paths = new Set<string>();
+	let loaded = false;
+	return {
+		has(path: string) {
+			if (!loaded) {
+				loaded = true;
+				for (const file of app.vault.getAllLoadedFiles()) paths.add(file.path.toLowerCase());
+			}
+			return paths.has(path.toLowerCase());
+		},
+		add(path: string) {
+			paths.add(path.toLowerCase());
+		},
+	};
 }
 
 export function missingNotePath(link: BrokenNoteLink): string | null {
@@ -151,6 +179,9 @@ const KNOWN_ATTACHMENT_EXTENSIONS = new Set([
 	'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp',
 	'zip', 'rar', '7z', 'tar', 'gz', 'txt', 'csv', 'json', 'xml',
 	'mp3', 'wav', 'ogg', 'm4a', 'mp4', 'mov', 'webm', 'avi',
+	// Canvas is a first-class non-Markdown vault file (handled separately by
+	// the cleanup scans); it must never be offered as a missing note.
+	'canvas',
 ]);
 
 function isExternal(path: string) { return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(path); }

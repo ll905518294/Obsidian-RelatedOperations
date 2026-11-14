@@ -1,5 +1,11 @@
 # Vault Doctor
 
+**Vault Doctor** is an Obsidian plugin that scans your vault for broken links, unreferenced resources and duplicate files — then helps you fix them safely, not just list them. It runs fully offline and only changes files after you confirm.
+
+- Unused images and attachments, empty files/folders, byte-identical duplicates, broken image and note links.
+- Related-note organizer by outgoing, incoming and bidirectional links, with folder batch moves.
+- Repo: <https://github.com/ll905518294/obsidian-vault-doctor> · Releases: <https://github.com/ll905518294/obsidian-vault-doctor/releases>
+
 一个为 Obsidian 做的「Vault 体检 + 问题处理」插件：一次性扫描失效链接、未引用资源、重复文件等健康问题，并安全地完成整理，而不是只列清单。
 
 - 仓库：<https://github.com/ll905518294/obsidian-vault-doctor>
@@ -23,7 +29,7 @@
 三步用起来：
 
 1. **安装并启用**：按下方[安装说明](#安装与卸载)放好文件，在 **设置 → 第三方插件** 中启用 **Vault Doctor**。
-2. **打开体检**：点击左侧栏最下方的 <kbd>+</kbd> 方框图标，或运行命令「打开 vault 体检与清理」。
+2. **打开体检**：点击左侧栏的 <kbd>+</kbd> 方框图标，或运行命令「打开 vault 体检与清理」。
 3. **扫描并处理**：点击右上角**开始扫描**，在体检首页按问题数量优先处理；进入分类标签页勾选条目后执行清理。**扫描不会修改任何文件，只有你确认的操作才会执行。**
 
 ## Vault 体检与清理
@@ -100,6 +106,13 @@
 
 > 早期版本的「关联数量属性」功能（`related-operations-in-links` 等三个 frontmatter 属性）已移除。插件不再读写这些属性；笔记中遗留的属性不受影响，相关功能均为按需实时计算。
 
+## 隐私与本地运行
+
+- 插件**不发起任何网络请求**，没有遥测、云同步或第三方服务依赖；所有扫描与处理都在本地 Vault 内完成。
+- 扫描阶段只读取文件与元数据，不写入、不改名、不移动文件；只有你在界面中确认的操作才会执行。
+- 插件只访问当前 Vault 内的文件；桌面端的「在系统资源管理器中显示」只是让文件管理器定位该文件，不读取 Vault 之外的路径。
+- 插件自身设置保存在 `.obsidian/plugins/vault-doctor/data.json`，不含笔记正文。
+
 ## 安装与卸载
 
 插件正在提交 Obsidian 社区市场审核，上架前可手动安装：
@@ -138,6 +151,23 @@ npm run deploy    # 构建并部署到当前打开的 Vault（见下）
 - 重复检测只识别字节级相同的文件，不识别内容相似。
 - 失效链接移除与原生图片链接转换直接编辑 Markdown，依赖 Obsidian 编辑历史撤销，不经过回收站。
 - `npm run deploy` 依赖 Windows PowerShell、Obsidian CLI 与恰好一个打开的 Vault。
+
+## 常见问题
+
+**扫描会修改我的笔记吗？**
+不会。扫描只读取文件与元数据；移入回收站、移除链接、转换链接、移动笔记等操作都需要你先勾选并确认。
+
+**清理后发现选错了，能恢复吗？**
+移入 OB 回收站的文件可在 Obsidian 回收站中恢复；失效链接移除与原生图片链接转换直接改写 Markdown，可用 Obsidian 的编辑历史撤销。
+
+**插件会联网或上传我的笔记吗？**
+不会。插件没有任何网络请求，也不收集或上传 Vault 内容。
+
+**支持移动端吗？**
+支持。插件在移动端以弹窗形式提供体检与关联笔记功能；`npm run deploy` 一键部署脚本仅适用于 Windows 桌面。
+
+**和 Notebook Navigator 是什么关系？**
+Notebook Navigator 是可选集成：安装后可接入其多选与文件夹菜单，未安装时插件核心功能仍可正常使用。
 
 ## 许可证
 

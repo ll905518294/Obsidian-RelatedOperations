@@ -54,17 +54,36 @@ export function convertNativeImageLink(link: NativeImageLink): string | null {
 }
 
 export function replaceNativeImageLinks(content: string, links: NativeImageLink[]) {
-	let result = content;
 	let converted = 0;
 	let skipped = 0;
+	// Replacements are collected right to left so positions stay valid, then the
+	// note is rebuilt once instead of copying the whole string per link.
+	const accepted: Array<{ start: number; end: number; replacement: string }> = [];
+	let boundary = content.length;
 	for (const link of [...links].sort((a, b) => offsetOf(b.position.start.offset) - offsetOf(a.position.start.offset))) {
-		const range = nativeImageLinkOffset(result, link, false);
+		const start = offsetOf(link.position.start.offset);
+		const end = offsetOf(link.position.end.offset);
 		const replacement = convertNativeImageLink(link);
-		if (!range || !replacement) { skipped++; continue; }
-		result = result.slice(0, range.start) + replacement + result.slice(range.end);
+		// `end > boundary` rejects a second link that overlaps one already accepted
+		// above it (duplicate or nested ranges), matching the sequential result.
+		if (!replacement || start < 0 || end <= start || end > content.length || end > boundary || content.slice(start, end) !== link.original) {
+			skipped++;
+			continue;
+		}
+		accepted.push({ start, end, replacement });
+		boundary = start;
 		converted++;
 	}
-	return { content: result, converted, skipped };
+	if (!accepted.length) return { content, converted, skipped };
+	accepted.reverse();
+	const parts: string[] = [];
+	let cursor = 0;
+	for (const item of accepted) {
+		parts.push(content.slice(cursor, item.start), item.replacement);
+		cursor = item.end;
+	}
+	parts.push(content.slice(cursor));
+	return { content: parts.join(''), converted, skipped };
 }
 
 function parseNative(original: string): { target: string; alias: string; reason?: string } | null {

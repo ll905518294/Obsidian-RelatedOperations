@@ -12,14 +12,27 @@ const READ_CONCURRENCY = 8;
 export async function forEachWithConcurrency<T>(items: T[], concurrency: number, visit: (item: T, index: number) => Promise<void>): Promise<void> {
 	const limit = Math.max(1, Math.min(concurrency, items.length || 1));
 	let next = 0;
+	let failure: unknown;
+	let aborted = false;
 	const workers = Array.from({ length: limit }, async () => {
-		while (true) {
+		while (!aborted) {
 			const index = next++;
 			if (index >= items.length) return;
-			await visit(items[index] as T, index);
+			try {
+				await visit(items[index] as T, index);
+			} catch (error) {
+				// Stop handing out work, but let the visits already running settle so
+				// no scan keeps touching the vault after the caller sees the rejection.
+				if (!aborted) {
+					aborted = true;
+					failure = error;
+				}
+				return;
+			}
 		}
 	});
 	await Promise.all(workers);
+	if (aborted) throw failure;
 }
 export async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true, onCategoryComplete?: (tabs: ScanCategoryTab[], results: Partial<CleanupCandidates>) => void): Promise<CleanupCandidates> {
 	const extensions = parseExtensions(imageExtensions);
@@ -93,6 +106,11 @@ export async function findEmptyFiles(files: TFile[], imageExtensions: Set<string
 export async function markFilesReferencedByText(app: App, images: TFile[], referenced: Set<string>, onProgress?: (processed: number, total: number, currentFile: string) => void): Promise<void> {
 	const remaining = images.filter((image) => !referenced.has(image.path));
 	if (remaining.length === 0) return;
+	const unresolved = new Set(remaining.map((image) => image.path));
+	const markReferenced = (path: string) => {
+		referenced.add(path);
+		unresolved.delete(path);
+	};
 	const byBasename = new Map<string, string[]>();
 	const byPath = new Map<string, string>();
 	const exoticNames: string[] = [];
@@ -116,18 +134,22 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 				for (const candidate of pathTokenCandidates(token.replace(/^[./\\]+/, ''))) {
 					for (const variant of [candidate, safeDecodePath(candidate)]) {
 						const direct = byPath.get(variant.toLowerCase());
-						if (direct) referenced.add(direct);
-						for (const path of byBasename.get(lastPathSegment(variant).toLowerCase()) ?? []) referenced.add(path);
+						if (direct) markReferenced(direct);
+						for (const path of byBasename.get(lastPathSegment(variant).toLowerCase()) ?? []) markReferenced(path);
 					}
 				}
 			}
-			for (let index = exoticNames.length - 1; index >= 0; index--) {
-				const key = exoticNames[index]!;
-				if (!content.toLowerCase().includes(key)) continue;
-				for (const path of byBasename.get(key) ?? []) referenced.add(path);
-				exoticNames.splice(index, 1);
+			if (exoticNames.length) {
+				// Lowercase once per note instead of once per exotic file name.
+				const lowered = content.toLowerCase();
+				for (let index = exoticNames.length - 1; index >= 0; index--) {
+					const key = exoticNames[index]!;
+					if (!lowered.includes(key)) continue;
+					for (const path of byBasename.get(key) ?? []) markReferenced(path);
+					exoticNames.splice(index, 1);
+				}
 			}
-			if (remaining.every((image) => referenced.has(image.path))) return;
+			if (unresolved.size === 0) return;
 		}
 	}
 }

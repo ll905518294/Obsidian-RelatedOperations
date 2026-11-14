@@ -20,16 +20,40 @@ export function hasHiddenPathSegment(path: string): boolean {
 	return path.split('/').some((segment) => segment.startsWith('.'));
 }
 
+const PLAIN_PATH_BASENAME_PATTERN = /^[\p{L}\p{N}_\-. /\\]+\.[a-z0-9]+$/iu;
+
 // Matches sequences that look like "name.ext" or "folder/name with spaces.ext".
 // Used for conservative textual reference detection: any mention counts.
-const PATH_LIKE_TOKEN_PATTERN = /[\p{L}\p{N}_%\-./\\][\p{L}\p{N}_%\-. /\\]*\.[a-z0-9]+/giu;
+// Runs of allowed characters are matched first so a long stretch without a file
+// extension cannot trigger regex backtracking across the whole run.
+const PATH_LIKE_RUN_PATTERN = /[\p{L}\p{N}_%\-. /\\]+/gu;
 
-const PLAIN_PATH_BASENAME_PATTERN = /^[\p{L}\p{N}_\-. /\\]+\.[a-z0-9]+$/iu;
+function isAsciiAlphanumeric(code: number) {
+	return (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
+}
+
+// Mirrors `[a-z0-9]+` (case insensitive) at the end of a run.
+function extensionEndOf(run: string, start: number) {
+	for (let index = run.length - 1; index > start; index--) {
+		if (run.charCodeAt(index) !== 0x2e) continue;
+		if (!isAsciiAlphanumeric(run.charCodeAt(index + 1))) continue;
+		let end = index + 1;
+		while (end < run.length && isAsciiAlphanumeric(run.charCodeAt(end))) end++;
+		return end;
+	}
+	return -1;
+}
 
 export function pathLikeTokens(content: string): string[] {
 	const tokens: string[] = [];
-	for (const match of content.matchAll(PATH_LIKE_TOKEN_PATTERN)) {
-		tokens.push(match[0].toLowerCase());
+	for (const match of content.matchAll(PATH_LIKE_RUN_PATTERN)) {
+		const run = match[0];
+		let start = 0;
+		while (start < run.length && run.charCodeAt(start) === 0x20) start++;
+		if (start >= run.length) continue;
+		const end = extensionEndOf(run, start);
+		if (end < 0) continue;
+		tokens.push(run.slice(start, end).toLowerCase());
 	}
 	return tokens;
 }

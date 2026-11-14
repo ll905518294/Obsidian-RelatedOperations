@@ -1,0 +1,49 @@
+import { App, TFolder } from 'obsidian';
+
+export function addFolderInput(
+	app: App,
+	container: HTMLElement,
+	label: string,
+	value: string,
+	className: string,
+	onInput: (value: string) => void,
+) {
+	const field = container.createDiv({ cls: 'related-operations-folder-field' });
+	field.createEl('label', { text: label });
+	const input = field.createEl('input', { type: 'text', value });
+	input.addClass(className);
+	const suggestions = field.createDiv({ cls: 'related-operations-folder-suggestions' });
+	const relative = false;
+	input.addEventListener('focus', () => {
+		populateFolderSuggestions(app, suggestions, input, relative);
+		suggestions.addClass('is-visible');
+	});
+	input.addEventListener('input', () => {
+		onInput(input.value);
+		populateFolderSuggestions(app, suggestions, input, relative);
+		suggestions.addClass('is-visible');
+	});
+	input.addEventListener('blur', () => {
+		window.setTimeout(() => suggestions.removeClass('is-visible'), 150);
+	});
+	populateFolderSuggestions(app, suggestions, input, relative);
+}
+
+export function populateFolderSuggestions(app: App, container: HTMLElement, input: HTMLInputElement, relative: boolean) {
+	container.empty();
+	const values = app.vault.getAllLoadedFiles()
+		.filter((file): file is TFolder => file instanceof TFolder)
+		.map((folder) => folder.path)
+		.filter((path) => relative ? false : true)
+		.filter((path) => path.toLowerCase().includes(input.value.trim().toLowerCase()));
+	for (const value of values.sort()) {
+		const option = container.createEl('button', { text: value, cls: 'related-operations-folder-suggestion' });
+		option.type = 'button';
+		option.addEventListener('mousedown', (event) => event.preventDefault());
+		option.addEventListener('click', () => {
+			input.value = value;
+			input.dispatchEvent(new Event('input'));
+			container.removeClass('is-visible');
+		});
+	}
+}

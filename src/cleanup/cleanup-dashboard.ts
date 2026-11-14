@@ -1,7 +1,22 @@
 import { setIcon } from 'obsidian';
 import { CLEANUP_CATEGORIES, type CleanupViewContext, type ScanCategoryTab } from './cleanup-types';
 import { categoryCount, categoryStatus, categoryTotal, formatScanDuration, scanPercent, tabEntries } from './cleanup-selectors';
+import { nextListElementId } from './cleanup-a11y';
 export { categoryStatus, tabEntries };
+
+/*
+ * 同一个视图可以出现在多个 leaf 中，帮助内容的 id 必须按容器区分；
+ * 按钮的 aria-controls 与帮助容器的 id 由同一函数生成，保证指向同一个元素。
+ */
+const helpPanelIds = new WeakMap<HTMLElement, string>();
+
+function helpPanelId(view: CleanupViewContext): string {
+	const existing = helpPanelIds.get(view.contentEl);
+	if (existing) return existing;
+	const id = nextListElementId('help');
+	helpPanelIds.set(view.contentEl, id);
+	return id;
+}
 
 export function updateScanProgress(view: CleanupViewContext) {
 	const { stage, currentFile } = view.scanProgress;
@@ -133,10 +148,14 @@ export function renderDashboardCategory(view: CleanupViewContext, container: HTM
 	body.createDiv({ text: categoryStatus(count, scanned, scanning, dirty), cls: 'orphan-cleanup-dashboard-item-status' });
 
 	const actions = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-actions' });
-	const scanButton = actions.createEl('button', { text: scanning ? '扫描中…' : scanned ? '重新扫描' : '扫描' });
+	const scanText = scanning ? '扫描中…' : scanned ? '重新扫描' : '扫描';
+	const scanButton = actions.createEl('button', { text: scanText });
+	// 首屏 8 个分类的按钮文字相同，无障碍名称需带上分类，否则屏幕阅读器无法区分。
+	scanButton.setAttribute('aria-label', `${category.label}：${scanText}`);
 	scanButton.disabled = view.scanning || scanning;
 	scanButton.addEventListener('click', (event) => { event.stopPropagation(); void view.scanCategory(category.tab); });
 	const viewButton = actions.createEl('button', { text: '查看' });
+	viewButton.setAttribute('aria-label', `${category.label}：查看`);
 	viewButton.disabled = view.scanning || !scanned || scanning;
 	viewButton.addEventListener('click', (event) => { event.stopPropagation(); void view.activateTab(category.tab); });
 
@@ -145,6 +164,7 @@ export function renderDashboardCategory(view: CleanupViewContext, container: HTM
 
 export function renderTabs(view: CleanupViewContext) {
 	const tabs = view.contentEl.createDiv({ cls: 'orphan-cleanup-tabs' });
+	let activeTabButton: HTMLButtonElement | undefined;
 	for (const [tab, label, count] of tabEntries(view.candidates, view.scanning)) {
 		const button = tabs.createEl('button', {
 			text: `${label}（${count}）`,
@@ -152,13 +172,20 @@ export function renderTabs(view: CleanupViewContext) {
 		});
 		button.dataset.tab = tab;
 		button.disabled = view.scanning;
+		if (tab === view.activeTab) {
+			activeTabButton = button;
+			button.setAttribute('aria-current', 'true');
+		}
 		button.addEventListener('click', () => void view.activateTab(tab));
 	}
+	// 标签条横向滚动时，当前分类必须自动进入可视区，否则用户看不到自己处于哪个标签。
+	activeTabButton?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
 	const help = tabs.createEl('button', { text: '!', cls: 'orphan-cleanup-help-button' });
 	help.type = 'button';
 	help.title = '查看使用说明';
 	help.setAttribute('aria-label', '查看使用说明');
 	help.setAttribute('aria-expanded', String(view.showHelp));
+	help.setAttribute('aria-controls', helpPanelId(view));
 	help.addEventListener('click', () => {
 		view.showHelp = !view.showHelp;
 		view.renderContents();
@@ -167,6 +194,7 @@ export function renderTabs(view: CleanupViewContext) {
 
 export function renderHelp(view: CleanupViewContext) {
 	const help = view.contentEl.createDiv({ cls: 'orphan-cleanup-help' });
+	help.setAttribute('id', helpPanelId(view));
 	help.createEl('strong', { text: '使用说明' });
 	help.createSpan({ text: '未勾选的项目不会被处理；确认后会移入 Obsidian 回收站。' });
 }

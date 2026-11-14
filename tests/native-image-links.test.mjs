@@ -66,3 +66,38 @@ test('does not replace a different identical embed when the cached position is s
 	const second = link('![[a.png]]', 'a.png', 11);
 	assert.deepEqual(replaceNativeImageLinks('![[a.png]]\nchanged', [second]), { content: '![[a.png]]\nchanged', converted: 0, skipped: 1 });
 });
+
+test('converts a range that is cached twice only once', () => {
+	const first = link('![[a.png]]', 'a.png', 0);
+	const duplicate = { ...first, position: { start: { offset: 0 }, end: { offset: first.original.length } } };
+	assert.deepEqual(replaceNativeImageLinks('![[a.png]]', [first, duplicate]), { content: '![](<a.png>)', converted: 1, skipped: 1 });
+});
+
+test('skips a cached range that runs past the end of the note', () => {
+	const beyond = { ...link('![[a.png]]', 'a.png', 0), position: { start: { offset: 0 }, end: { offset: 99 } } };
+	assert.deepEqual(replaceNativeImageLinks('![[a.png]]', [beyond]), { content: '![[a.png]]', converted: 0, skipped: 1 });
+});
+
+test('converts every link in a 5MB note with 5000 native links', () => {
+	const count = 5000;
+	const filler = 'x'.repeat(Math.floor((5 * 1024 * 1024) / count));
+	const parts = [];
+	const links = [];
+	let offset = 0;
+	for (let i = 0; i < count; i++) {
+		const fillerLine = `${filler}\n`;
+		parts.push(fillerLine);
+		offset += fillerLine.length;
+		const original = `![[img-${i}.png]]`;
+		links.push(link(original, `img-${i}.png`, offset));
+		parts.push(original, '\n');
+		offset += original.length + 1;
+	}
+	const content = parts.join('');
+	const started = performance.now();
+	const result = replaceNativeImageLinks(content, links);
+	const elapsed = performance.now() - started;
+	assert.deepEqual({ converted: result.converted, skipped: result.skipped }, { converted: count, skipped: 0 });
+	assert.equal(result.content, parts.map((part) => (part.startsWith('![[') ? `![](<${part.slice(3, -2)}>)` : part)).join(''));
+	assert.ok(elapsed < 2000, `conversion took ${Math.round(elapsed)}ms`);
+});

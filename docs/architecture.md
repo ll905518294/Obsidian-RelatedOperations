@@ -13,8 +13,8 @@
   - `src/related-notes*.ts`：关联笔记计算、桌面视图和移动端 Modal。
   - `src/orphan-cleanup*.ts`：Vault 体检与清理流程、桌面视图和移动端 Modal。
   - `src/broken-*-links.ts`、`src/native-image-links.ts`：链接扫描与转换。
-  - `src/cleanup-*.ts`、`src/duplicate-files.ts`：候选筛选、风险分级、报告和重复文件扫描。
-  - `src/link-stats-cleanup.ts`：已移除关联数量属性自动维护，仅保留一次性清除工具。
+  - `src/cleanup/`（面板、分类列表、流程与可访问性）、`src/cleanup-*.ts`、`src/duplicate-files.ts`：候选筛选、风险分级、报告和重复文件扫描。
+  - 关联数量属性功能已完全移除（不写入、不更新，也不提供清除命令）。
   - `src/settings.ts`、`src/core-utils.ts`：设置与共享规则。
 - 外部依赖：Obsidian API；可选集成 Notebook Navigator。
 

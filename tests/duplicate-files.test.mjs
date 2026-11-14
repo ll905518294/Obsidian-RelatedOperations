@@ -151,3 +151,56 @@ test('reports referencing notes once per duplicate without rescanning per file',
 	assert.equal(byPath['a.png'].referenced, true);
 	assert.equal(byPath['b.png'].referenced, true);
 });
+
+test('refuses to edit when a resolved reference cannot be located in the cache', async () => {
+	const note = { path: 'note.md', extension: 'md' };
+	let content = '![[photo.png]] and [x](<photo.png>)';
+	let writes = 0;
+	const photo = { path: 'photo.png' };
+	const app = {
+		vault: {
+			getMarkdownFiles: () => [note],
+			process: async (_file, callback) => { writes += 1; content = callback(content); },
+		},
+		metadataCache: {
+			// The cache has not indexed the note yet, but Obsidian already resolved
+			// two links to the target. Removing only the visible ones would strand a
+			// link, so the whole removal pass must refuse.
+			getFileCache: () => null,
+			getFirstLinkpathDest: (path) => (path === 'photo.png' ? photo : null),
+			resolvedLinks: { 'note.md': { 'photo.png': 2 } },
+		},
+	};
+	const result = await removeFileReferencesForFiles(app, ['photo.png']);
+	assert.equal(result.removed, 0);
+	assert.equal(result.failed.length, 1);
+	assert.ok(result.failed[0].includes('note.md'), result.failed[0]);
+	assert.equal(writes, 0);
+	assert.equal(content, '![[photo.png]] and [x](<photo.png>)');
+});
+
+test('removes references when every resolved link is present in the cache', async () => {
+	const note = { path: 'note.md', extension: 'md' };
+	let content = '![[photo.png]] and ![[photo.png]]';
+	const photo = { path: 'photo.png' };
+	const app = {
+		vault: {
+			getMarkdownFiles: () => [note],
+			process: async (_file, callback) => { content = callback(content); },
+		},
+		metadataCache: {
+			getFileCache: () => ({
+				embeds: [
+					{ original: '![[photo.png]]', link: 'photo.png', position: { start: { offset: 0 }, end: { offset: 13 } } },
+					{ original: '![[photo.png]]', link: 'photo.png', position: { start: { offset: 18 }, end: { offset: 31 } } },
+				],
+			}),
+			getFirstLinkpathDest: (path) => (path === 'photo.png' ? photo : null),
+			resolvedLinks: { 'note.md': { 'photo.png': 2 } },
+		},
+	};
+	const result = await removeFileReferencesForFiles(app, ['photo.png']);
+	assert.equal(result.failed.length, 0);
+	assert.equal(result.removed, 2);
+	assert.equal(content, ' and ');
+});

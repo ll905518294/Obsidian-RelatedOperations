@@ -155,7 +155,7 @@
 
 .related-operations-final-target-text {
 	margin-left: 0.35rem;
-	color: var(--text-accent);
+	color: var(--ro-accent-text);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -163,7 +163,7 @@
 
 .related-operations-confirm-target {
 	padding: 0.6rem 0.75rem;
-	color: var(--text-accent);
+	color: var(--ro-accent-text);
 	background: var(--background-secondary);
 	border-radius: var(--radius-s);
 	word-break: break-all;
@@ -194,7 +194,7 @@
 }
 
 .related-operations-tab.is-active {
-	color: var(--text-accent);
+	color: var(--ro-accent-text);
 	border-bottom-color: var(--interactive-accent);
 }
 
@@ -238,18 +238,6 @@
 	align-items: center;
 	gap: 0.65rem;
 	min-width: 0;
-}
-
-.related-operations-toggle {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.35rem;
-	margin-left: 0;
-	cursor: pointer;
-}
-
-.related-operations-display-options-body .related-operations-toggle {
-	margin-left: 0;
 }
 
 @media (max-width: 760px) {
@@ -311,7 +299,7 @@
 .related-operations-path-group td {
 	padding-top: 0.55rem;
 	padding-bottom: 0.25rem;
-	color: var(--text-accent);
+	color: var(--ro-accent-text);
 	font-weight: 600;
 	font-size: 0.85rem;
 	background: var(--background-secondary);
@@ -416,6 +404,8 @@
 	overflow-y: hidden;
 	white-space: nowrap;
 	scrollbar-width: thin;
+	/* 帮助入口贴在滚动容器右端，需要本层作为定位参照。 */
+	position: relative;
 }
 
 .orphan-cleanup-home {
@@ -447,6 +437,14 @@
 	padding: 0;
 	border-radius: 50%;
 	font-weight: 700;
+	/*
+	 * 标签条可横向滚动：帮助入口固定在右端，不随标签滚出可视区。
+	 * 同色外描边让滚动经过的标签在按钮边缘收口，避免文字与按钮叠压。
+	 */
+	position: sticky;
+	right: 0;
+	z-index: 2;
+	box-shadow: 0 0 0 4px var(--ro-surface-raised);
 }
 
 .orphan-cleanup-help {
@@ -525,9 +523,17 @@
 
 .orphan-cleanup-table {
 	width: 100%;
+	/* 固定列（勾选 44px、操作 145px）已占去大半宽度，窄视口下中间列会被 table-layout:fixed 压到 0；
+	   整表设下限，改由 .orphan-cleanup-scroll 横向滚动，保证路径与说明列始终有可见宽度。 */
+	min-width: 460px;
 	border-collapse: separate;
 	border-spacing: 0;
 	table-layout: fixed;
+}
+
+/* 重复文件表有 7 列，4 个中间列各自至少需要约 94px，否则会被压到 0。 */
+.orphan-cleanup-duplicate-table {
+	min-width: 660px;
 }
 
 .orphan-cleanup-table thead th {
@@ -549,6 +555,8 @@
 .orphan-cleanup-table td:first-child {
 	width: 44px;
 	text-align: center;
+	/* 首列固定 44px：去掉内边距后 44px 勾选命中区正好落在列内，不压到相邻列。 */
+	padding-inline: 0;
 }
 
 .orphan-cleanup-table th:last-child,
@@ -565,37 +573,6 @@
 .orphan-cleanup-table code {
 	white-space: normal;
 	overflow-wrap: anywhere;
-}
-
-/* checkbox 与可见文本关联后，由 label 承担整块点击、对齐与间距。 */
-.orphan-cleanup-panel label:has(> input[type="checkbox"]),
-.related-operations-panel label:has(> input[type="checkbox"]) {
-	display: flex;
-	align-items: center;
-	gap: 0.45rem;
-	min-width: 0;
-	max-width: 100%;
-	cursor: pointer;
-}
-
-.orphan-cleanup-panel label:has(> input[type="checkbox"]:disabled),
-.related-operations-panel label:has(> input[type="checkbox"]:disabled) {
-	cursor: default;
-}
-
-.orphan-cleanup-panel label:has(> input[type="checkbox"]) > input[type="checkbox"],
-.related-operations-panel label:has(> input[type="checkbox"]) > input[type="checkbox"] {
-	margin-inline-end: 0;
-}
-
-.orphan-cleanup-table th:first-child label:has(> input[type="checkbox"]),
-.orphan-cleanup-table td:first-child label:has(> input[type="checkbox"]) {
-	justify-content: center;
-	width: 100%;
-}
-
-.orphan-cleanup-image-card-header label:has(> input[type="checkbox"]) {
-	min-width: 0;
 }
 
 .orphan-cleanup-group td {
@@ -616,8 +593,15 @@
 	white-space: nowrap;
 }
 
+/* 说明列是普通文本换行，长路径与 SHA-256 等长串必须就地断行，否则越出固定列压到相邻列。 */
+.orphan-cleanup-detail {
+	overflow-wrap: anywhere;
+}
+
 .orphan-cleanup-link {
 	cursor: pointer;
+	/* 路径链接是列表主内容：浅色主题下 --text-accent 仅 3.7:1，改用混入正文色的派生色。 */
+	color: var(--ro-accent-text);
 }
 
 .orphan-cleanup-locate {
@@ -649,7 +633,7 @@
 
 .orphan-cleanup-grid-group {
 	margin: 1rem 0 0.5rem;
-	color: var(--text-accent);
+	color: var(--ro-accent-text);
 	font-size: var(--font-ui-small);
 }
 
@@ -710,6 +694,8 @@
 
 .orphan-cleanup-image-name {
 	margin-top: 0.45rem;
+	/* 与路径链接同因：浅色主题下 --text-accent 文字对比度不足。 */
+	color: var(--ro-accent-text);
 }
 
 .orphan-cleanup-image-size {
@@ -876,6 +862,11 @@
 	--ro-warning-text: color-mix(in srgb, var(--text-warning) 65%, var(--text-normal));
 	--ro-success-text: color-mix(in srgb, var(--text-success) 65%, var(--text-normal));
 	background: var(--ro-surface);
+}
+
+/* related-operations-confirm-target 同时出现在关联笔记的确认弹窗里，弹窗内容不在面板作用域内。 */
+.modal-content {
+	--ro-accent-text: color-mix(in srgb, var(--text-accent) 65%, var(--text-normal));
 }
 
 .related-operations-header,
@@ -1159,7 +1150,9 @@
 	height: 2.25rem;
 	border: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, transparent);
 	border-radius: var(--radius-s);
-	color: var(--text-accent);
+	/* 浅色主题下 --text-accent 只有 2.98:1，图标与描边需达到非文本 3:1。 */
+	color: var(--ro-accent-text);
+	border-color: color-mix(in srgb, var(--ro-accent-text) 45%, transparent);
 	background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
 }
 
@@ -1465,13 +1458,15 @@
 
 	/* 图标按钮与帮助按钮宽度也补到 44px，保证整块可点。 */
 	.orphan-cleanup-help-button,
-	.orphan-cleanup-icon-button {
+	.orphan-cleanup-icon-button,
+	.orphan-cleanup-open-folder,
+	.orphan-cleanup-image-delete {
 		width: 44px;
 		min-width: 44px;
 	}
 
 	/*
-	 * 原生 checkbox 没有 label 包裹，命中区只能来自自身边框盒。
+	 * 窄屏命中区由勾选框自己的边框盒承担：content 30px + 7px 透明边框 = 44px。
 	 * 用 7px 透明边框把边框盒扩到 44px，可视方框仍为 30px：
 	 * 透明边框不绘制背景，再由 ::before 在 padding 盒上画 1px 边线。
 	 */
@@ -1511,17 +1506,5 @@
 	.related-operations-panel input[type="checkbox"]:focus-visible {
 		box-shadow: none;
 		outline-offset: -12px;
-	}
-
-	/* 带 label 的行内勾选在窄屏同样保证 44px 触控高度。 */
-	.orphan-cleanup-panel label:has(> input[type="checkbox"]),
-	.related-operations-panel label:has(> input[type="checkbox"]) {
-		min-height: 44px;
-	}
-
-	/* 首列固定 44px，去掉单元格内边距后 44px 命中区正好落在列内，不压到相邻列。 */
-	.orphan-cleanup-table th:first-child,
-	.orphan-cleanup-table td:first-child {
-		padding-inline: 0;
 	}
 }

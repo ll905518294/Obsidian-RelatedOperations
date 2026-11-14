@@ -34,14 +34,23 @@ export function getRelatedNotesForFiles(app: App, sourceFiles: TFile[]): Related
 		relationByKey.set(key, association);
 	};
 
+	// Both passes share one path→file memo: selected sources commonly share
+	// targets (folders, MOCs), and the same key may also appear as a linking
+	// source. Resolve each distinct path at most once per call.
+	const resolvedByPath = new Map<string, TFile | null>();
 	const resolveMarkdown = (path: string): TFile | null => {
+		const cached = resolvedByPath.get(path);
+		if (cached !== undefined) return cached;
 		const file = app.vault.getAbstractFileByPath(path);
-		if (!(file instanceof TFile) || file.extension.toLowerCase() !== 'md') return null;
-		return file;
+		const resolved = file instanceof TFile && file.extension.toLowerCase() === 'md' ? file : null;
+		resolvedByPath.set(path, resolved);
+		return resolved;
 	};
 
 	for (const sourceFile of sourceFiles) {
-		for (const path of Object.keys(resolvedLinks[sourceFile.path] ?? {})) {
+		const destinations = resolvedLinks[sourceFile.path];
+		if (!destinations) continue;
+		for (const path of Object.keys(destinations)) {
 			const targetFile = resolveMarkdown(path);
 			if (targetFile) addRelation(sourceFile, targetFile, 'outgoing');
 		}
@@ -51,11 +60,15 @@ export function getRelatedNotesForFiles(app: App, sourceFiles: TFile[]): Related
 	// requested note. Resolving each linking source once avoids re-resolving the
 	// same source for every requested target it links to.
 	for (const [linkingPath, destinations] of Object.entries(resolvedLinks)) {
-		const linkingFile = app.vault.getAbstractFileByPath(linkingPath);
-		if (!(linkingFile instanceof TFile) || linkingFile.extension.toLowerCase() !== 'md') continue;
+		let linkingFile: TFile | null | undefined;
 		for (const targetPath of Object.keys(destinations)) {
 			const sourceFile = sourceByPath.get(targetPath);
-			if (sourceFile && linkingFile.path !== sourceFile.path) {
+			if (!sourceFile) continue;
+			// Resolve the linking source only when it actually points at a
+			// requested note; unrelated notes in a large vault never cost a
+			// vault lookup.
+			if (linkingFile === undefined) linkingFile = resolveMarkdown(linkingPath);
+			if (linkingFile && linkingFile.path !== sourceFile.path) {
 				addRelation(sourceFile, linkingFile, 'incoming');
 			}
 		}

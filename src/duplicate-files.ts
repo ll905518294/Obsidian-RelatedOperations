@@ -84,10 +84,22 @@ export async function removeFileReferencesForFiles(app: App, filePaths: Iterable
 	const failed: string[] = [];
 	for (const source of app.vault.getMarkdownFiles()) {
 		const cache = app.metadataCache.getFileCache(source);
-		const references = [...cache?.embeds ?? [], ...cache?.links ?? []].filter((reference) => {
+		const references: Array<{ original: string; link: string; position: { start: { offset: number }; end: { offset: number } } }> = [];
+		const matched = new Map<string, number>();
+		for (const reference of [...cache?.embeds ?? [], ...cache?.links ?? []]) {
 			const target = app.metadataCache.getFirstLinkpathDest(reference.link.split('#', 1)[0] ?? '', source.path);
-			return target && targets.has(target.path);
-		});
+			if (!target || !targets.has(target.path)) continue;
+			references.push(reference);
+			matched.set(target.path, (matched.get(target.path) ?? 0) + 1);
+		}
+		const unresolved = countUnresolvedReferences(app, source.path, targets, matched);
+		if (unresolved) {
+			// Obsidian resolved a link we could not locate in the cache (stale or
+			// unloaded cache, unusual link syntax); deleting now could leave a link
+			// pointing at a removed file, so the whole batch is refused.
+			failed.push(`${source.path}（${unresolved} 处引用无法定位，已跳过删除）`);
+			continue;
+		}
 		if (!references.length) continue;
 		try {
 			await app.vault.process(source, (content) => {
@@ -114,6 +126,20 @@ export async function removeFileReferencesForFiles(app: App, filePaths: Iterable
 		}
 	}
 	return { removed, failed };
+}
+
+// `resolvedLinks` is Obsidian's own resolution of every link in the note. If it
+// counts more links to a target than the metadata cache exposes, the removal
+// pass cannot rewrite them all and the caller must not delete anything.
+function countUnresolvedReferences(app: App, sourcePath: string, targets: Set<string>, matched: Map<string, number>) {
+	const resolved = app.metadataCache.resolvedLinks?.[sourcePath];
+	if (!resolved) return 0;
+	let unresolved = 0;
+	for (const [path, count] of Object.entries(resolved)) {
+		if (!targets.has(path) || typeof count !== 'number') continue;
+		unresolved += Math.max(0, count - (matched.get(path) ?? 0));
+	}
+	return unresolved;
 }
 
 export async function removeImageReferencesForFile(app: App, filePath: string) {
