@@ -1,94 +1,102 @@
 # Vault Doctor
 
-一个用于检查 Vault 健康状况、整理关联笔记和清理未引用资源的 Obsidian 社区插件。
+一个为 Obsidian 做的「Vault 体检 + 问题处理」插件：一次性扫描失效链接、未引用资源、重复文件等健康问题，并安全地完成整理，而不是只列清单。
 
-## Features
+- 仓库：<https://github.com/ll905518294/obsidian-vault-doctor>
+- 发布：<https://github.com/ll905518294/obsidian-vault-doctor/releases>
+- 系统要求：Obsidian 1.13.0 及以上，桌面端与移动端均可使用
+- 许可证：0-BSD
 
-- Finds resolved Markdown notes linked from the source note or linking to it.
-- Opens from the command palette, ribbon, or a Markdown file's context menu.
-- Supports multi-selecting Markdown notes and processing all Markdown notes inside a selected folder.
-- Integrates with Notebook Navigator when it is installed, including its multi-selection and folder menus.
-- Aggregates related notes across all selected source notes and de-duplicates the move list.
-- Batch views show the source note beside each related-note row; the same related note may appear for multiple sources but is moved once.
-- Opens the cleanup tool as a normal workspace tab on desktop and a modal fallback on mobile.
-- Groups notes into outgoing, incoming, and bidirectional tabs with counts.
-- Supports cross-tab selection, current-group select-all, and note navigation.
-- Selects multiple related notes before moving.
-- Defaults the target folder to the source note's parent folder plus `Pages`.
-- For a batch, defaults to the parent folder of the first source note by path order plus `Pages`.
-- Allows typing a complete target folder path or choosing a shortcut for the current folder, source-note folder, or current folder plus `Pages`.
-- Supports one grouping mode at a time: no grouping, grouping by source note, or grouping by current path. Legacy grouping settings are migrated automatically.
-- **全选当前分组** only selects the current relation tab; **全选所有可移动笔记** selects deduplicated movable notes across all tabs.
-- The **双向链接** tab is the intersection of outgoing and incoming links and must not be added to those counts as an independent category.
-- For multiple source notes, defaults to grouping rows by source note; for a single source note grouping defaults to none. Grouping by current path and hiding compliant rows can be changed in the panel or plugin settings.
-- Shows a confirmation step before any batch move is executed.
-- Uses Obsidian's native file manager so link updates follow the user's Obsidian settings.
-- Does not hard-depend on Custom Attachment Location. Test with that plugin enabled to verify attachment behavior in the target vault.
+## 功能总览
 
-## Orphan resource cleanup
+| 模块 | 能做什么 |
+| --- | --- |
+| Vault 体检 | 一键扫描未引用图片、未引用附件、空文件、空文件夹、失效图片链接、失效笔记链接、原生图片链接、重复文件 |
+| 清理处理 | 勾选后移入 Obsidian 本地回收站；失效链接可移除；缺失笔记可创建；`![[图片]]` 可转换为标准 Markdown 语法 |
+| 关联笔记整理 | 找出当前笔记的出链、入链、双向链接笔记，批量移动到指定文件夹 |
+| 扫描报告 | 支持复制到剪贴板或导出 Markdown 报告，只包含路径与链接信息，不含笔记正文 |
 
-Use the left ribbon **打开 vault 体检与清理** icon or the command with the same name to open the cleanup tool. On desktop it opens as a normal workspace tab; on mobile it falls back to a modal. After scanning, **体检首页** and each cleanup category are sibling tabs, so you can switch back to the overview at any time. Click **开始扫描** to inspect unreferenced images, unreferenced attachments, empty files, and recursively empty folders in separate tabs. Empty files include zero-byte non-image, non-Canvas files and Markdown files containing only YAML frontmatter. Nothing is selected by default; select items, then confirm to move them to Obsidian's local trash.
+## Vault 体检与清理
 
-- Images: the formats configured in **设置 → Vault Doctor → 可清理图片格式** that are not referenced by resolved Markdown links or Canvas file nodes. The default is PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, AVIF, and ICO; use commas, spaces, or Chinese commas to separate extensions.
-- Ignored folders: configure **设置 → Vault Doctor → 忽略目录** with comma-, space-, or line-break-separated paths. A folder and all descendants are excluded from unreferenced-image, unreferenced-attachment, and empty-folder candidates; broken and native image-link checks are unchanged.
-- Conservative reference scan: any textual mention of an image file name or path in Markdown content also counts as a reference. This covers HTML image tags, plain-text paths in frontmatter, and code-block text, so images referenced in non-standard ways are never flagged as orphans.
-- Broken image links: Markdown image embeds and image links whose local target cannot be resolved are shown in a separate tab. Select occurrences to remove the full link syntax; external URLs, HTML images, frontmatter links, and code-block text are not scanned. This edits Markdown directly and does not use the trash.
-- Broken note links: Wiki links and Markdown links targeting missing Markdown notes are shown separately. Titles, block references, aliases, external URLs, images, attachments, frontmatter, and code blocks are handled conservatively. The cleanup window can locate, ignore for the current scan, remove, or create selected missing Markdown targets. Missing parent folders are created; existing files and invalid targets are skipped and reported.
-- Native image links: the cleanup window also finds Obsidian image embeds such as `![[image.png]]` across the vault. Select resolved entries and convert them to `![](<path>)`; alt text is intentionally left empty. Dimensions, unresolved targets, code blocks, and frontmatter are skipped and left unchanged. Conversion is grouped per note and can be undone with Obsidian's edit history.
-- Preview and grouping: the image list displays a thumbnail; select it to open a larger preview. Use **分组** to show the list by folder path or file extension.
-- Folders: folders with no files, including parent folders that only contain empty subfolders. Hidden folders such as `.obsidian`, `.trash`, and `.git` are never scanned, and a folder containing hidden subfolders is not listed as empty.
-- Attachments: all non-Markdown, non-Canvas files outside hidden or ignored folders are scanned. Files referenced by resolved links, Canvas nodes, or textual file-name/path mentions are excluded.
-- After image cleanup, select **重新扫描** before cleaning folders that have only just become empty.
-- Before moving a selected resource to the local trash, the plugin rescans its cleanup status. Resources that were referenced, changed, or removed after the original scan are skipped.
-- Reports: **复制报告** copies the current scan to the clipboard; **导出报告** writes a Markdown report such as `related-operations-report-20260829-120000.md` to the vault root. Reports contain paths and link details, not note bodies. The latest batch summary is shown in the result window and is not persisted as a log file.
-- Duplicate files: the **重复文件** tab groups non-hidden, non-ignored Markdown, image, and attachment files by exact SHA-256 content hash after a file-size precheck; Canvas files and single-file groups are excluded. Before selected duplicate files are moved to the Obsidian trash, matching links in Markdown notes are removed; a failed note edit prevents deletion. The table supports group selection and shared image previews.
+点击左侧栏的**打开 vault 体检与清理**图标，或运行同名命令打开体检工具。桌面端以工作区标签页打开，移动端回退为弹窗。点击**开始扫描**后，**体检首页**与各分类标签页并列展示，可随时切回总览。
 
-## Link-count properties
+扫描默认不勾选任何条目；确认无误后自行勾选并执行清理。
 
-This feature has been removed. The plugin no longer writes `related-operations-in-links`, `related-operations-out-links`, or `related-operations-bidirectional-links` to frontmatter, and no longer offers any command or automatic update for them. Its retired settings are dropped from `data.json` the next time the plugin loads.
+### 检查项说明
 
-Notes that still contain these three properties are unaffected by the plugin; related-notes, cleanup, and link scanning all compute links on demand and never read them.
+- **未引用图片**：按设置中的可清理图片格式（默认 PNG、JPG/JPEG、GIF、WEBP、SVG、BMP、AVIF、ICO）扫描未被 Markdown 链接或 Canvas 文件节点引用的图片。采用保守策略：正文中以任何形式提到图片文件名或路径（HTML 标签、frontmatter 纯文本、代码块）都视为已引用，避免误报。
+- **未引用附件**：扫描隐藏目录与忽略目录之外的所有非 Markdown、非 Canvas 文件，被链接、Canvas 节点或文字提及的文件会被排除。
+- **空文件**：包括零字节的非图片、非 Canvas 文件，以及只含 YAML frontmatter 的 Markdown 文件。
+- **空文件夹**：包括只包含空子文件夹的父级文件夹。`.obsidian`、`.trash`、`.git` 等隐藏目录永远不会被扫描。
+- **失效图片链接**：本地目标无法解析的图片嵌入与图片链接单独成表，可勾选移除完整链接语法。外部 URL、HTML 图片、frontmatter 与代码块不参与扫描。
+- **失效笔记链接**：指向不存在 Markdown 笔记的 Wiki 链接与 Markdown 链接单独成表，支持定位、本次忽略、移除或创建缺失目标；缺失的父文件夹会自动创建，已存在的文件与无效目标会跳过并报告。
+- **原生图片链接**：全库查找 `![[图片.png]]` 形式的嵌入，可转换为 `![](路径)` 标准语法。尺寸标注、未解析目标、代码块与 frontmatter 一律跳过；按笔记分组执行，可用 Obsidian 编辑历史撤销。
+- **重复文件**：先按文件大小预筛，再按 SHA-256 内容哈希精确分组，只把字节级相同的文件视为重复（不含相似内容）。删除选中的重复文件前会同步移除笔记中的对应链接；笔记编辑失败则阻止删除，避免产生新失效链接。
 
-## Installation and uninstall
+### 安全设计
 
-This plugin requires Obsidian 1.13.0 or newer.
+- 清理仅使用 Obsidian 本地回收站，不直接删除文件；失效链接移除与原生图片链接转换直接编辑 Markdown，可用编辑历史撤销。
+- 执行清理前会对每个条目**重新复核**引用状态：扫描后被引用、被修改或已被移除的资源自动跳过。
+- 图片清理后如需清理因此变空的文件夹，请先**重新扫描**再操作。
+- Vault 内容发生变化后，旧扫描结果会标记**结果待复核，请重新扫描**，未扫描的分类显示**尚未扫描**。
 
-- Install from build output: run `npm run build`, then copy `main.js`, `manifest.json`, and `styles.css` (if present) into `<Vault>/.obsidian/plugins/vault-doctor/`, and enable **Vault Doctor** in **Settings → Community plugins**.
-- Install or update locally: run `npm run deploy` (see [Development](#development) and [本地一键部署测试](#本地一键部署测试)).
-- Uninstall: disable **Vault Doctor** in **Settings → Community plugins**, then delete the plugin folder `<Vault>/.obsidian/plugins/vault-doctor/`. This removes the plugin's `data.json` settings; it does not modify notes or restore files already sent to the trash.
+## 关联笔记整理
 
-## Development
+从命令面板、左侧栏图标或 Markdown 文件右键菜单打开，支持多选笔记与整个文件夹批量处理；安装 Notebook Navigator 后可接入其多选与文件夹菜单。
 
-测试脚本使用 Node.js 22+ 的原生 TypeScript 类型擦除选项；构建插件本身仍以 ES2021 为目标。
+- 关联笔记按**出链**、**入链**、**双向链接**三个标签页分组并显示数量；双向链接是出链与入链的交集，不重复计数。
+- 跨标签页选择、当前分组全选、全库可移动笔记全选均支持；同一笔记被多个来源引用时只在移动列表中去重出现一次。
+- 目标文件夹默认为来源笔记父文件夹加 `Pages`，也可手动输入完整路径，或使用快捷选项（当前文件夹、来源笔记文件夹、当前文件夹加 `Pages`）。
+- 移动前有确认步骤；使用 Obsidian 原生文件管理器，链接更新遵循你自己的 Obsidian 设置；目标已存在的文件一律跳过，不覆盖、不自动改名；批量中的失败会单独报告，不回滚已成功的移动。
+
+## 设置说明
+
+在 **设置 → Vault Doctor** 中配置：
+
+| 设置项 | 含义 |
+| --- | --- |
+| 默认分组方式 | 打开关联笔记整理时列表的分组方式：不分组、按源笔记分组（默认）或按当前路径分组；面板内可临时切换 |
+| 默认隐藏已在目标文件夹的笔记 | 已经位于最终目标文件夹的关联笔记默认不显示，减少干扰 |
+| 可清理图片格式 | 参与未引用图片扫描的扩展名，默认 PNG、JPG/JPEG、GIF、WEBP、SVG、BMP、AVIF、ICO；可用逗号、空格或中文逗号分隔 |
+| 忽略目录 | 这些目录及其子目录不参与未引用图片、未引用附件与空文件夹扫描；失效链接与原生图片链接检查不受影响 |
+
+> 早期版本的「关联数量属性」功能（`related-operations-in-links` 等三个 frontmatter 属性）已移除。插件不再读写这些属性；笔记中遗留的属性不受影响，相关功能均为按需实时计算。
+
+## 安装与卸载
+
+插件正在提交 Obsidian 社区市场审核，上架前可手动安装：
+
+1. 从 [Releases](https://github.com/ll905518294/obsidian-vault-doctor/releases) 下载最新版 `main.js`、`manifest.json`、`styles.css`。
+2. 将三个文件放入 `<Vault>/.obsidian/plugins/vault-doctor/`。
+3. 在 **设置 → 第三方插件** 中启用 **Vault Doctor**。
+
+卸载：在 **设置 → 第三方插件** 禁用 **Vault Doctor**，然后删除 `<Vault>/.obsidian/plugins/vault-doctor/` 文件夹。这会删除插件自身的 `data.json` 设置；不影响笔记内容，也不会恢复已进入回收站的文件。
+
+## 开发与验证
 
 ```bash
-npm install
-npm run dev
-npm run build
-npm run deploy
-npm run lint
-npm test
+npm install       # 安装依赖（Node.js 22+）
+npm run dev       # 开发构建（watch）
+npm run build     # 生产构建（tsc 检查 + esbuild 打包）
+npm run lint      # ESLint 检查
+npm test          # Node 原生测试
+npm run deploy    # 构建并部署到当前打开的 Vault（见下）
 ```
 
-`npm run build` 只生成项目根目录的构建产物，不会修改 Vault。要让当前打开的 Obsidian 加载最新代码，请运行 `npm run deploy`；它会识别唯一的当前 Vault、复制并校验插件文件，然后重启 Obsidian。部署失败时不会继续重启。
+测试使用 Node.js 22+ 的原生 TypeScript 类型擦除；插件产物本身以 ES2021 为目标。`npm run build` 只生成项目根目录的构建产物，不会修改 Vault。
 
-重新安装或更新都使用同一条命令：`npm run deploy`。它会覆盖目标插件文件，不会删除 Vault 笔记或插件数据；旧插件目录会先保存到 `.obsidian/plugin-backups/`。如需先确认目标 Vault 和安装状态，运行 `npm run deploy:check`，该命令只构建并检查，不复制文件、不重启 Obsidian。
+### 本地一键部署（Windows）
 
-## 本地一键部署测试
+双击项目根目录的 `deploy-and-restart.cmd`，或运行 `npm run deploy`：脚本自动识别当前打开的唯一 Vault，构建并替换 `vault-doctor` 插件文件、校验哈希，然后重启 Obsidian 等待其稳定运行；旧版本会先备份到 `.obsidian/plugin-backups/`。没有唯一打开的 Vault、构建失败、校验失败或无法稳定重启时，脚本会停止且不继续部署。
 
-构建完成后双击项目根目录的 `deploy-and-restart.cmd`，或运行 `npm run deploy`。脚本会自动识别当前打开的 Vault，构建并替换 `vault-doctor` 插件，校验部署文件哈希，然后调用 Obsidian CLI 的 `restart` 命令重启应用并等待稳定运行，从而清理旧插件代码并加载最新状态；同时保留最近一次备份到 `.obsidian/plugin-backups/`。没有唯一的当前 Vault、构建失败、文件校验失败或 Obsidian 无法稳定重启时，脚本会停止且不继续部署。
+`npm run deploy:check` 只构建并检查，不复制文件、不重启 Obsidian，用于部署前确认目标 Vault 与安装状态。
 
-The production build writes `main.js` at the plugin root. Install `main.js`, `manifest.json`, and `styles.css` in the vault's `.obsidian/plugins/vault-doctor/` directory for manual testing.
+## 已知限制
 
-## Safety behavior
+- 重复检测只识别字节级相同的文件，不识别内容相似。
+- 失效链接移除与原生图片链接转换直接编辑 Markdown，依赖 Obsidian 编辑历史撤销，不经过回收站。
+- `npm run deploy` 依赖 Windows PowerShell、Obsidian CLI 与恰好一个打开的 Vault。
 
-- Only resolved Markdown notes are candidates.
-- Existing destination files are skipped; files are never overwritten or auto-renamed.
-- Batch failures are reported and do not automatically roll back successful moves.
+## 许可证
 
-## Known limitations
-
-- Scan results are invalidated when the vault changes; an already-scanned category shows **结果待复核，请重新扫描** until it is re-scanned, while an unscanned category shows **尚未扫描**.
-- Broken-link removal and native image-link conversion edit Markdown directly and depend on Obsidian's edit history; only file, folder, and duplicate cleanup use the local trash.
-- Duplicate detection groups only byte-identical files (same size and SHA-256), not similar content.
-- `npm run deploy` requires Windows PowerShell, the Obsidian CLI, and exactly one open vault; `npm run deploy:check` also requires an open vault and the CLI, because it builds before the preflight check.
+[0-BSD](LICENSE)

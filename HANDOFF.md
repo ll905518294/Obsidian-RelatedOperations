@@ -4,7 +4,7 @@
 
 ## 状态
 - 更新时间：2026-11-14
-- 当前状态：多线程并行迭代中；体检面板已拆分为 `src/cleanup/` 模块，体检首页视觉与可访问性已整理
+- 当前状态：插件已更名 Vault Doctor（id `vault-doctor`）并发布 1.3.0 正式 release；仓库已更名为 `obsidian-vault-doctor`；README 已按体检定位重写，历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`
 
 ## 当前任务
 - 5 条并行线程，由主管统一评审与提交：01 体检面板架构拆分、02 关联笔记与链接统计、03 扫描核心边界、04 发布链路与文档、05 体检首页交互与主题。
@@ -12,7 +12,8 @@
 - 验证基线：`npm run build`、`npm run lint`、`npm test`（139 项）、`npm run deploy:check` 全部通过。未执行真正部署与 Obsidian 实机验证。
 
 ## 未完成
-- 第二轮迭代进行中，完成后需由主管复核、提交并推送。
+- 社区市场 PR 尚未提交：清单分支 `add-vault-doctor` 已就绪（repo 指向 `ll905518294/obsidian-vault-doctor`），CLI token 无法向 `obsidianmd` 组织创建 PR，需用户在浏览器完成。
+- 新版尚未部署到本机 Vault；部署后需迁移旧插件 `data.json` 到 `.obsidian/plugins/vault-doctor/` 并切换启用项。
 - 尚未在真实 Obsidian 中截图复核主题（浅色/深色/第三方）与移动端布局。
 
 ## 关键上下文
