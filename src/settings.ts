@@ -121,6 +121,10 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 				heading: '资源体检与清理',
 				items: [
 					{
+						name: '清理前请确认',
+						desc: '未引用文件与空文件夹会移入 Obsidian 回收站（可在回收站恢复）；移除或转换链接会直接改写 Markdown，不进入回收站。',
+					},
+					{
 						name: '可清理图片格式',
 						desc: '用逗号分隔扩展名，例如 PNG, JPG, webp。扫描时不区分大小写，可省略前导点。',
 						control: {

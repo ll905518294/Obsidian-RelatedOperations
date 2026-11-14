@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMissingNotes, missingNotePath, removeBrokenNoteLinks } from '../src/broken-note-links.ts';
+import { createMissingNotes, missingNotePath, removeBrokenNoteLinks, removeSelectedBrokenNoteLinks } from '../src/broken-note-links.ts';
 
 const link = {
 	sourcePath: 'note.md',
@@ -46,4 +46,32 @@ test('removes multiple wiki links sharing one line and nested anchors', () => {
 	assert.equal(result.content, ' and  and after');
 	assert.equal(result.removed, 2);
 	assert.equal(result.skipped, 0);
+});
+
+test('reports how many note links failed when the source note is missing', async () => {
+	const original = '[[missing]]';
+	const link = (offset) => ({ sourcePath: 'gone.md', original, linkPath: 'missing', position: { start: { offset }, end: { offset: offset + original.length } }, syntax: 'wiki' });
+	const result = await removeSelectedBrokenNoteLinks({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: { getFileByPath: () => null },
+	}, [link(0), link(15)]);
+	assert.equal(result.failed.length, 1);
+	assert.ok(result.failed[0].reason.includes('2 条链接'), result.failed[0].reason);
+	assert.ok(result.failed[0].reason.includes('源笔记不存在'));
+});
+
+test('reports a failed create when writing the note throws', async () => {
+	const link = { sourcePath: 'note.md', original: '[[missing]]', linkPath: 'missing', position: { start: { offset: 0 }, end: { offset: 11 } }, syntax: 'wiki' };
+	const result = await createMissingNotes({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: {
+			getAllLoadedFiles: () => [{ path: 'note.md' }],
+			getFileByPath: () => ({ path: 'note.md', extension: 'md' }),
+			read: async () => '[[missing]]',
+			createFolder: async () => {},
+			create: async () => { throw new Error('disk full'); },
+		},
+	}, [link]);
+	assert.equal(result.failed.length, 1);
+	assert.ok(result.failed[0].reason.includes('disk full'));
 });

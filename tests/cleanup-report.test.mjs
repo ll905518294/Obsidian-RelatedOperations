@@ -53,3 +53,18 @@ test('escapes table and inline markdown metacharacters in paths without breaking
 	assert.ok(row.includes('a\\|b\\`c\\<d\\>\\[e\\]@f#g.png'), `got ${row}`);
 	assert.ok(!/(?<!\\)\[e\]/.test(row), '未转义的方括号可能被渲染成链接');
 });
+
+test('does not mutate the data it is given, so report generation cannot affect cleanup results', () => {
+	const data = {
+		generatedAt: 't',
+		images: ['b.png', 'a.png'],
+		folders: ['empty'],
+		brokenLinks: [{ sourcePath: 'n.md', original: '![](x.png)', linkPath: 'x.png' }],
+		nativeLinks: [{ sourcePath: 'n.md', original: '![[a.png]]', status: '可转换' }],
+		duplicates: [{ hash: 'h', size: 1, files: [{ path: 'z.png', extension: 'png', size: 1, mtime: 1, referenced: false, referencingNotes: [] }] }],
+		duplicateWarnings: [],
+	};
+	const before = structuredClone(data);
+	buildCleanupReport(data);
+	assert.deepEqual(data, before);
+});

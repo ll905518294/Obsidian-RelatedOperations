@@ -125,7 +125,7 @@ export async function removeSelectedBrokenLinks(
 	for (const [sourcePath, grouped] of linksBySource) {
 		const file = app.vault.getFileByPath(sourcePath);
 		if (!file || file.extension.toLowerCase() !== 'md') {
-			result.failed.push({ path: sourcePath, reason: '源笔记不存在' });
+			result.failed.push({ path: sourcePath, reason: `${grouped.length} 条链接：源笔记不存在` });
 			continue;
 		}
 		try {
@@ -136,7 +136,7 @@ export async function removeSelectedBrokenLinks(
 				return changed.content;
 			});
 		} catch (error) {
-			result.failed.push({ path: sourcePath, reason: reasonFor(error) });
+			result.failed.push({ path: sourcePath, reason: `${grouped.length} 条链接：${reasonFor(error)}` });
 		}
 	}
 	return result;

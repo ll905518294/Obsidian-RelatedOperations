@@ -62,9 +62,9 @@ export async function removeSelectedBrokenNoteLinks(app: App, links: BrokenNoteL
 	}
 	for (const [path, selected] of grouped) {
 		const file = app.vault.getFileByPath(path);
-		if (!file) { result.failed.push({ path, reason: '源笔记不存在' }); continue; }
+		if (!file) { result.failed.push({ path, reason: `${selected.length} 条链接：源笔记不存在` }); continue; }
 		try { await app.vault.process(file, (content) => { const changed = removeBrokenNoteLinks(content, selected); result.removed += changed.removed; result.skipped += changed.skipped; return changed.content; }); }
-		catch (error) { result.failed.push({ path, reason: error instanceof Error ? error.message : '未知错误' }); }
+		catch (error) { result.failed.push({ path, reason: `${selected.length} 条链接：${error instanceof Error ? error.message : '未知错误'}` }); }
 	}
 	return result;
 }

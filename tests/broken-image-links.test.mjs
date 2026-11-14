@@ -189,3 +189,52 @@ test('does not remove an image link after its target is restored', async () => {
 	assert.deepEqual(result, { removed: 0, skipped: 1, failed: [] });
 	assert.equal(processed, false);
 });
+
+test('reports how many image links failed when the source note is missing', async () => {
+	const original = '![x](m.png)';
+	const link = (offset) => ({ sourcePath: 'gone.md', original, linkPath: 'm.png', position: position(offset, offset + original.length) });
+	const result = await removeSelectedBrokenLinks({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: { getFileByPath: () => null },
+	}, [link(0), link(20)]);
+	assert.equal(result.failed.length, 1);
+	assert.ok(result.failed[0].reason.includes('2 条链接'), result.failed[0].reason);
+	assert.ok(result.failed[0].reason.includes('源笔记不存在'));
+});
+
+test('reports the image link count when writing a note throws', async () => {
+	const original = '![x](m.png)';
+	const result = await removeSelectedBrokenLinks({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: {
+			getFileByPath: () => ({ path: 'note.md', extension: 'md' }),
+			process: async () => { throw new Error('readonly'); },
+		},
+	}, [{ sourcePath: 'note.md', original, linkPath: 'm.png', position: position(0, original.length) }]);
+	assert.equal(result.failed.length, 1);
+	assert.ok(result.failed[0].reason.includes('1 条链接'), result.failed[0].reason);
+	assert.ok(result.failed[0].reason.includes('readonly'));
+});
+
+test('keeps successful removals and reports only the failing source in a partial batch', async () => {
+	const original = '![x](m.png)';
+	let okContent = original;
+	const files = { 'ok.md': { path: 'ok.md', extension: 'md' }, 'bad.md': { path: 'bad.md', extension: 'md' } };
+	const result = await removeSelectedBrokenLinks({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: {
+			getFileByPath: (path) => files[path] ?? null,
+			process: async (file, callback) => {
+				if (file.path === 'bad.md') throw new Error('locked');
+				okContent = callback(okContent);
+			},
+		},
+	}, [
+		{ sourcePath: 'ok.md', original, linkPath: 'm.png', position: position(0, original.length) },
+		{ sourcePath: 'bad.md', original, linkPath: 'm.png', position: position(0, original.length) },
+	]);
+	assert.equal(result.removed, 1);
+	assert.equal(okContent, '');
+	assert.equal(result.failed.length, 1);
+	assert.equal(result.failed[0].path, 'bad.md');
+});
