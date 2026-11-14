@@ -10,7 +10,15 @@ export interface CleanupReportData {
 	duplicateWarnings?: Array<{ path: string; reason: string }>;
 	processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
 }
-const cell = (value: string) => value.replaceAll('|', '\\|').replaceAll(/\r?\n/g, ' ').replaceAll('`', '\\`');
+const cell = (value: string) => value
+	.replaceAll('\\', '\\\\')
+	.replaceAll('|', '\\|')
+	.replaceAll('`', '\\`')
+	.replaceAll('<', '\\<')
+	.replaceAll('>', '\\>')
+	.replaceAll('[', '\\[')
+	.replaceAll(']', '\\]')
+	.replaceAll(/\r?\n/g, ' ');
 export function buildCleanupReport(data: CleanupReportData): string {
 	const lines = [`# Vault 体检报告`, ``, `生成时间：${data.generatedAt}`, ``, `## 摘要`, ``, `- 未引用图片：${data.images.length}（${cleanupRiskLabel(riskForCleanupTab('images'))}）`, `- 未引用附件：${data.attachments?.length ?? 0}（${cleanupRiskLabel(riskForCleanupTab('attachments'))}）`, `- 空文件：${data.emptyFiles?.length ?? 0}（${cleanupRiskLabel(riskForCleanupTab('empty-files'))}）`, `- 空文件夹：${data.folders.length}（${cleanupRiskLabel(riskForCleanupTab('folders'))}）`, `- 失效图片链接：${data.brokenLinks.length}（${cleanupRiskLabel(riskForCleanupTab('broken-links'))}）`, `- 原生图片链接：${data.nativeLinks.length}（${cleanupRiskLabel(riskForCleanupTab('native-links'))}）`, `- 失效笔记链接：${data.brokenNoteLinks?.length ?? 0}（${cleanupRiskLabel(riskForCleanupTab('broken-note-links'))}）`, `- 重复文件组：${data.duplicates?.length ?? 0}（${cleanupRiskLabel(riskForCleanupTab('duplicates'))}）`, `- 重复文件：${data.duplicates?.reduce((sum, group) => sum + group.files.length, 0) ?? 0}`, `- 重复扫描警告：${data.duplicateWarnings?.length ?? 0}`];
 	const section = (title: string, headers: string[], rows: string[][]) => { lines.push('', `## ${title}`, '', `| ${headers.join(' | ')} |`, `| ${headers.map(() => '---').join(' | ')} |`, ...rows.map((row) => `| ${row.map(cell).join(' | ')} |`)); };

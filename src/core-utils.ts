@@ -65,10 +65,46 @@ export function parseIgnoredFolders(value: string): string[] {
 	return [...new Set(value.split(/[,，\s]+/).map((path) => path.trim().replace(/^\/+|\/+$/g, '').replace(/\\/g, '/')).filter(Boolean))];
 }
 
-export function isIgnoredPath(path: string, ignoredFolders: string[]): boolean {
-	const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase();
+export function platformFromUserAgent(userAgent: string): string {
+	const text = userAgent.toLowerCase();
+	if (text.includes('android')) return 'android';
+	if (/iphone|ipad|ipod/.test(text)) return 'ios';
+	if (text.includes('win')) return 'win32';
+	if (text.includes('mac')) return 'darwin';
+	if (text.includes('linux')) return 'linux';
+	return '';
+}
+
+function detectPlatform(): string {
+	if (typeof activeWindow === 'undefined') return '';
+	const userAgent = activeWindow.navigator?.userAgent;
+	return typeof userAgent === 'string' ? platformFromUserAgent(userAgent) : '';
+}
+
+// Obsidian filesystems: Windows/macOS/iOS are case-insensitive; Linux/Android
+// are case-sensitive. Unknown platforms fall back to case-insensitive matching
+// so Windows users see no change.
+export function isCaseSensitivePlatform(platform: string | undefined): boolean {
+	const value = (platform ?? '').toLowerCase();
+	return value === 'linux' || value === 'android';
+}
+
+let autoCaseSensitive: boolean | null = null;
+
+export function isCaseSensitiveFileSystem(platform?: string): boolean {
+	if (platform !== undefined) return isCaseSensitivePlatform(platform);
+	if (autoCaseSensitive === null) autoCaseSensitive = isCaseSensitivePlatform(detectPlatform());
+	return autoCaseSensitive;
+}
+
+export function isIgnoredPath(path: string, ignoredFolders: string[], caseSensitive = isCaseSensitiveFileSystem()): boolean {
+	const normalize = (value: string) => {
+		const normalized = value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+		return caseSensitive ? normalized : normalized.toLowerCase();
+	};
+	const normalized = normalize(path);
 	return ignoredFolders.some((folder) => {
-		const normalizedFolder = folder.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase();
+		const normalizedFolder = normalize(folder);
 		return normalized === normalizedFolder || normalized.startsWith(`${normalizedFolder}/`);
 	});
 }

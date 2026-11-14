@@ -91,14 +91,23 @@ export async function removeFileReferencesForFiles(app: App, filePaths: Iterable
 		if (!references.length) continue;
 		try {
 			await app.vault.process(source, (content) => {
+				let updated = content;
+				let localRemoved = 0;
 				for (const reference of [...references].sort((a, b) => b.position.start.offset - a.position.start.offset)) {
-					const start = reference.position.start.offset;
-					const end = reference.position.end.offset;
-					if (content.slice(start, end) !== reference.original) continue;
-					content = content.slice(0, start) + content.slice(end);
-					removed++;
+					const range = referenceRange(updated, reference);
+					if (!range) continue;
+					updated = updated.slice(0, range.start) + updated.slice(range.end);
+					localRemoved++;
 				}
-				return content;
+				const remaining = references.find((reference) => updated.includes(reference.original));
+				if (remaining) {
+					// Deleting the target now would leave a live reference behind; the
+					// caller aborts when any source is reported as failed.
+					failed.push(`${source.path}（仍有对 ${remaining.link} 的引用，已跳过删除）`);
+					return content;
+				}
+				removed += localRemoved;
+				return updated;
 			});
 		} catch (error) {
 			failed.push(`${source.path}（${error instanceof Error ? error.message : '未知错误'}）`);
@@ -109,6 +118,19 @@ export async function removeFileReferencesForFiles(app: App, filePaths: Iterable
 
 export async function removeImageReferencesForFile(app: App, filePath: string) {
 	return removeFileReferencesForFiles(app, [filePath]);
+}
+
+function referenceRange(
+	content: string,
+	reference: { original: string; position: { start: { offset: number }; end: { offset: number } } },
+) {
+	const start = reference.position.start.offset;
+	const end = reference.position.end.offset;
+	if (start >= 0 && end > start && end <= content.length && content.slice(start, end) === reference.original) {
+		return { start, end };
+	}
+	const found = content.indexOf(reference.original);
+	return found < 0 ? null : { start: found, end: found + reference.original.length };
 }
 
 async function digestFile(app: App, file: TFile): Promise<string> {

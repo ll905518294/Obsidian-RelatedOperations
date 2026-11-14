@@ -11,7 +11,11 @@ test('classifies every cleanup tab into a risk level', () => {
 	assert.equal(riskForCleanupTab('native-links'), 'confirm');
 	assert.equal(riskForCleanupTab('broken-note-links'), 'confirm');
 	assert.equal(riskForCleanupTab('overview'), 'info');
-	assert.equal(riskForCleanupTab('duplicates'), 'info');
+	assert.equal(riskForCleanupTab('duplicates'), 'confirm');
+});
+
+test('falls back to info for an unknown tab so new categories stay visible', () => {
+	assert.equal(riskForCleanupTab('unknown-tab'), 'info');
 });
 
 test('renders a distinct Chinese label for each risk level', () => {

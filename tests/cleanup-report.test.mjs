@@ -40,3 +40,16 @@ test('escapes backticks and keeps optional sections when counts are zero', () =>
 	assert.match(report, /失效笔记链接：0/);
 	assert.match(report, /重复文件组：0/);
 });
+
+test('escapes table and inline markdown metacharacters in paths without breaking rows', () => {
+	const path = 'a|b`c<d>[e]@f#g.png';
+	const report = buildCleanupReport({
+		generatedAt: 't', images: [path], folders: [], brokenLinks: [], nativeLinks: [],
+		duplicates: [], duplicateWarnings: [],
+	});
+	const row = report.split('\n').find((line) => line.includes('a\\|b'));
+	assert.ok(row, '包含特殊字符的图片行必须存在');
+	assert.ok(!row.includes('\n') && !row.includes('\r'));
+	assert.ok(row.includes('a\\|b\\`c\\<d\\>\\[e\\]@f#g.png'), `got ${row}`);
+	assert.ok(!/(?<!\\)\[e\]/.test(row), '未转义的方括号可能被渲染成链接');
+});

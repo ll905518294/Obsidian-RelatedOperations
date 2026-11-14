@@ -13,6 +13,8 @@ import {
 	pathTokenCandidates,
 	parseIgnoredFolders,
 	isIgnoredPath,
+	isCaseSensitiveFileSystem,
+	platformFromUserAgent,
 } from '../src/core-utils.ts';
 import { groupingModeFromLegacy } from '../src/core-utils.ts';
 
@@ -166,8 +168,43 @@ test('current settings keep legacy grouping source precedence and reject old fie
 test('normalizes ignored folders and matches descendants only', () => {
 	assert.deepEqual(parseIgnoredFolders(' /assets/，archive\\old\n assets '), ['assets', 'archive/old']);
 	assert.equal(isIgnoredPath('assets/photo.png', ['assets']), true);
-	assert.equal(isIgnoredPath('Assets/Photo.PNG', ['assets']), true);
+	assert.equal(isIgnoredPath('Assets/Photo.PNG', ['assets'], false), true);
 	assert.equal(isIgnoredPath('assets2/photo.png', ['assets']), false);
+});
+
+test('isIgnoredPath supports an explicit case-sensitive mode for Linux vaults', () => {
+	assert.equal(isIgnoredPath('Assets/Photo.PNG', ['assets'], true), false);
+	assert.equal(isIgnoredPath('assets/Photo.PNG', ['assets'], true), true);
+	assert.equal(isIgnoredPath('Assets/Photo.PNG', ['assets'], false), true);
+});
+
+test('isCaseSensitiveFileSystem returns a boolean and drives the default mode', () => {
+	const caseSensitive = isCaseSensitiveFileSystem();
+	assert.equal(typeof caseSensitive, 'boolean');
+	assert.equal(isIgnoredPath('Assets/Photo.PNG', ['assets']), isIgnoredPath('Assets/Photo.PNG', ['assets'], caseSensitive));
+});
+
+test('isCaseSensitiveFileSystem maps desktop and mobile platforms', () => {
+	// Desktop: Windows and macOS default to case-insensitive, Linux is case-sensitive.
+	assert.equal(isCaseSensitiveFileSystem('win32'), false);
+	assert.equal(isCaseSensitiveFileSystem('darwin'), false);
+	assert.equal(isCaseSensitiveFileSystem('linux'), true);
+	// Mobile: iOS is case-insensitive, Android is case-sensitive.
+	assert.equal(isCaseSensitiveFileSystem('ios'), false);
+	assert.equal(isCaseSensitiveFileSystem('android'), true);
+	// Unknown platform keeps the legacy case-insensitive behavior.
+	assert.equal(isCaseSensitiveFileSystem('unknown'), false);
+});
+
+test('platformFromUserAgent detects desktop and mobile environments', () => {
+	assert.equal(platformFromUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)'), 'win32');
+	assert.equal(platformFromUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'), 'darwin');
+	assert.equal(platformFromUserAgent('Mozilla/5.0 (X11; Linux x86_64)'), 'linux');
+	// Android also reports Linux, and iPhone also reports Mac OS X: check the mobile tokens first.
+	assert.equal(platformFromUserAgent('Mozilla/5.0 (Linux; Android 13)'), 'android');
+	assert.equal(platformFromUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)'), 'ios');
+	assert.equal(isCaseSensitiveFileSystem(platformFromUserAgent('Mozilla/5.0 (X11; Linux x86_64)')), true);
+	assert.equal(isCaseSensitiveFileSystem(platformFromUserAgent('Mozilla/5.0 (Windows NT 10.0)')), false);
 });
 
 test('ignored-folder matching tolerates trailing slashes and nested prefixes', () => {

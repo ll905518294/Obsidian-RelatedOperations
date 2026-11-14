@@ -60,6 +60,46 @@ test('removes image and regular file references before duplicate deletion', asyn
 	assert.equal(content, ' and ');
 });
 
+test('re-locates references when cached offsets are stale after an edit', async () => {
+	const note = { path: 'note.md', extension: 'md' };
+	let content = 'edited intro ![[photo.png]] tail';
+	const photo = { path: 'photo.png' };
+	const app = {
+		vault: {
+			getMarkdownFiles: () => [note],
+			process: async (_file, callback) => { content = callback(content); },
+		},
+		metadataCache: {
+			getFileCache: () => ({ embeds: [{ original: '![[photo.png]]', link: 'photo.png', position: { start: { offset: 0 }, end: { offset: 13 } } }] }),
+			getFirstLinkpathDest: (path) => (path === 'photo.png' ? photo : null),
+		},
+	};
+	const result = await removeFileReferencesForFiles(app, ['photo.png']);
+	assert.equal(result.failed.length, 0);
+	assert.equal(result.removed, 1);
+	assert.ok(!content.includes('![[photo.png]]'), `reference still present: ${content}`);
+});
+
+test('reports a failure when an unremovable reference to a target remains', async () => {
+	const note = { path: 'note.md', extension: 'md' };
+	// The cache only knows one of two identical references, so one would survive.
+	let content = '![[photo.png]] and ![[photo.png]]';
+	const photo = { path: 'photo.png' };
+	const app = {
+		vault: {
+			getMarkdownFiles: () => [note],
+			process: async (_file, callback) => { content = callback(content); },
+		},
+		metadataCache: {
+			getFileCache: () => ({ embeds: [{ original: '![[photo.png]]', link: 'photo.png', position: { start: { offset: 0 }, end: { offset: 13 } } }] }),
+			getFirstLinkpathDest: (path) => (path === 'photo.png' ? photo : null),
+		},
+	};
+	const result = await removeFileReferencesForFiles(app, ['photo.png']);
+	assert.equal(result.failed.length, 1);
+	assert.ok(result.failed[0].includes('note.md'));
+});
+
 test('does not hash single-file size groups so unique files skip expensive reads', async () => {
 	let reads = 0;
 	const files = [

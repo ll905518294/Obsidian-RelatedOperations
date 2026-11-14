@@ -18,3 +18,17 @@ test('returns empty selection unchanged and reports every stale path', () => {
 	assert.deepEqual(selectCurrentCleanupItems([], [{ path: 'a' }]), { items: [], skipped: [] });
 	assert.deepEqual(selectCurrentCleanupItems(['x', 'y'], [{ path: 'a' }]), { items: [], skipped: ['x', 'y'] });
 });
+
+test('accepts any iterable for selected paths', () => {
+	assert.deepEqual(
+		selectCurrentCleanupItems(new Set(['a', 'b']), [{ path: 'b' }]),
+		{ items: [{ path: 'b' }], skipped: ['a'] },
+	);
+});
+
+test('matches paths exactly instead of by prefix', () => {
+	assert.deepEqual(
+		selectCurrentCleanupItems(['notes'], [{ path: 'notes/a.md' }]),
+		{ items: [], skipped: ['notes'] },
+	);
+});

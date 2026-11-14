@@ -3,7 +3,7 @@ export type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' 
 
 export function riskForCleanupTab(tab: CleanupTab): CleanupRisk {
 	if (tab === 'images' || tab === 'attachments' || tab === 'empty-files' || tab === 'folders') return 'safe';
-	if (tab === 'broken-links' || tab === 'native-links' || tab === 'broken-note-links') return 'confirm';
+	if (tab === 'broken-links' || tab === 'native-links' || tab === 'broken-note-links' || tab === 'duplicates') return 'confirm';
 	return 'info';
 }
 
