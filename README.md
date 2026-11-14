@@ -15,9 +15,8 @@
 - Groups notes into outgoing, incoming, and bidirectional tabs with counts.
 - Supports cross-tab selection, current-group select-all, and note navigation.
 - Selects multiple related notes before moving.
-- Defaults the base target folder to the source note's parent folder.
 - Defaults the target folder to the source note's parent folder plus `Pages`.
-- For a batch, defaults to the parent folder of the first source note by path order.
+- For a batch, defaults to the parent folder of the first source note by path order plus `Pages`.
 - Allows typing a complete target folder path or choosing a shortcut for the current folder, source-note folder, or current folder plus `Pages`.
 - Supports one grouping mode at a time: no grouping, grouping by source note, or grouping by current path. Legacy grouping settings are migrated automatically.
 - **全选当前分组** only selects the current relation tab; **全选所有可移动笔记** selects deduplicated movable notes across all tabs.
@@ -57,6 +56,14 @@ Use the command **刷新全库笔记关系数量** to update all Markdown notes 
 
 When applying custom property names, the plugin refuses names already used by other frontmatter fields so existing note metadata is not overwritten.
 
+## Installation and uninstall
+
+This plugin requires Obsidian 1.13.0 or newer.
+
+- Install from build output: run `npm run build`, then copy `main.js`, `manifest.json`, and `styles.css` (if present) into `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`, and enable **Obsidian-Manager** in **Settings → Community plugins**.
+- Install or update locally: run `npm run deploy` (see [Development](#development) and [本地一键部署测试](#本地一键部署测试)).
+- Uninstall: disable **Obsidian-Manager** in **Settings → Community plugins**, then delete the plugin folder `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`. This removes the plugin's `data.json` settings; it does not modify notes, restore files already sent to the trash, or remove link-count properties already written to frontmatter.
+
 ## Development
 
 测试脚本使用 Node.js 22+ 的原生 TypeScript 类型擦除选项；构建插件本身仍以 ES2021 为目标。
@@ -85,3 +92,10 @@ The production build writes `main.js` at the plugin root. Install `main.js`, `ma
 - Only resolved Markdown notes are candidates.
 - Existing destination files are skipped; files are never overwritten or auto-renamed.
 - Batch failures are reported and do not automatically roll back successful moves.
+
+## Known limitations
+
+- Scan results are invalidated when the vault changes; an already-scanned category shows **结果待复核，请重新扫描** until it is re-scanned, while an unscanned category shows **尚未扫描**.
+- Broken-link removal and native image-link conversion edit Markdown directly and depend on Obsidian's edit history; only file, folder, and duplicate cleanup use the local trash.
+- Duplicate detection groups only byte-identical files (same size and SHA-256), not similar content.
+- `npm run deploy` requires Windows PowerShell, the Obsidian CLI, and exactly one open vault; `npm run deploy:check` also requires an open vault and the CLI, because it builds before the preflight check.

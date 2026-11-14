@@ -22,6 +22,7 @@
 ### 部署停止
 - 常见原因：没有唯一的 `open=true` Vault、构建失败、Obsidian CLI 不可用或重启不稳定。
 - 先运行 `npm run deploy:check`，确认目标 Vault 和构建产物。
+- `npm run deploy:check` 在构建后执行与部署相同的 Vault/CLI 预检，因此没有 `open=true` 的唯一 Vault 或找不到 `obsidian.com` 时也会失败；它不会复制文件或重启 Obsidian。
 
 ## 4. 发布前检查
 1. `npm run build`
@@ -32,6 +33,7 @@
 ## 5. 回滚
 - 部署脚本会把旧插件目录保存为 `.obsidian/plugin-backups/<plugin-id>.backup`；复制或重启失败时自动尝试恢复。
 - 备份必须位于 `plugins` 目录之外，否则 Obsidian 会发现同 ID 的备份并可能加载旧代码。部署会将历史同级 `.backup` 移入 `plugin-backups`，保留为独立历史备份。
+- 普通 `.backup` 每次部署覆盖为最近一次；历史 `<plugin-id>.legacy-<guid>` 备份不会自动清理，需要时手动删除以释放磁盘。
 - 若需人工恢复，确认备份与目标插件 ID 一致，再恢复并重新加载 Obsidian。
 
 ## 6. 关键路径
