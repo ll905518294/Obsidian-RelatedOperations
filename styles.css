@@ -1415,7 +1415,11 @@
 		min-width: 44px;
 	}
 
-	/* 原生 checkbox 放大到 30px，显著增大命中区（无 label 包裹时纯 CSS 无法扩到 44px）。 */
+	/*
+	 * 原生 checkbox 没有 label 包裹，命中区只能来自自身边框盒。
+	 * 用 7px 透明边框把边框盒扩到 44px，可视方框仍为 30px：
+	 * 透明边框不绘制背景，再由 ::before 在 padding 盒上画 1px 边线。
+	 */
 	.orphan-cleanup-panel,
 	.related-operations-panel {
 		--checkbox-size: 30px;
@@ -1423,7 +1427,40 @@
 
 	.orphan-cleanup-panel input[type="checkbox"],
 	.related-operations-panel input[type="checkbox"] {
+		position: relative;
+		box-sizing: content-box;
 		width: 30px;
 		height: 30px;
+		border: 7px solid transparent;
+		background-clip: padding-box;
+		margin-inline-end: 0;
+	}
+
+	.orphan-cleanup-panel input[type="checkbox"]::before,
+	.related-operations-panel input[type="checkbox"]::before {
+		content: "";
+		position: absolute;
+		inset: 0;
+		border: 1px solid var(--checkbox-border-color);
+		border-radius: inherit;
+		pointer-events: none;
+	}
+
+	.orphan-cleanup-panel input[type="checkbox"]:checked::before,
+	.related-operations-panel input[type="checkbox"]:checked::before {
+		display: none;
+	}
+
+	/* 命中区是 44px 边框盒，原生 focus-visible 阴影会落在 44px 上并与插件 outline 叠成双环。 */
+	.orphan-cleanup-panel input[type="checkbox"]:focus-visible,
+	.related-operations-panel input[type="checkbox"]:focus-visible {
+		box-shadow: none;
+		outline-offset: -12px;
+	}
+
+	/* 首列固定 44px，去掉单元格内边距后 44px 命中区正好落在列内，不压到相邻列。 */
+	.orphan-cleanup-table th:first-child,
+	.orphan-cleanup-table td:first-child {
+		padding-inline: 0;
 	}
 }
