@@ -141,6 +141,21 @@ test('does not treat a missing Canvas link as a broken note link', () => {
 	assert.deepEqual(findBrokenNoteLinks(app, 'png'), []);
 });
 
+// Obsidian Bases (`.base`) are the same kind of first-class non-Markdown vault
+// file as Canvas: a missing `[[chart.base]]` must not be offered as a missing
+// note, otherwise creating it writes `chart.base.md`.
+test('does not treat a missing Bases link as a broken note link', () => {
+	const original = '[[chart.base]]';
+	const cache = {
+		links: [{ original, link: 'chart.base', position: { start: { offset: 0 }, end: { offset: original.length } } }],
+	};
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	assert.deepEqual(findBrokenNoteLinks(app, 'png'), []);
+});
+
 // Creating N missing notes from links in one note must read that note once,
 // not once per link (a 2000-link note would otherwise be parsed 2000 times).
 test('reads each source note once when creating multiple missing notes', async () => {

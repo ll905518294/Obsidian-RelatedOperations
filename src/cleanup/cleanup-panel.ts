@@ -1,5 +1,5 @@
 import { App, Component, Modal, Notice, TFile } from 'obsidian';
-import { hasHiddenPathSegment, isIgnoredPath, parseExtensions, parseIgnoredFolders } from '../core-utils';
+import { parseIgnoredFolders } from '../core-utils';
 import { findBrokenImageLinks } from '../broken-image-links';
 import { findBrokenNoteLinks } from '../broken-note-links';
 import { findNativeImageLinks } from '../native-image-links';
@@ -7,7 +7,7 @@ import { findDuplicateFiles, removeFileReferencesForFiles, removeImageReferences
 import type { OrphanCleanupCache, RelatedOperationsSettings } from '../settings';
 import { CLEANUP_CATEGORIES, type CleanupCandidates, type CleanupScanError, type CleanupTab, type ImageGrouping, type OrphanCleanupHost, type OrphanCleanupOptions, type OrphanImageExtensions, type ScanCategoryTab, type ScanProgress, type ScanStage } from './cleanup-types';
 import { byPath, reasonFor } from './cleanup-actions';
-import { findCleanupCandidates, findEmptyFiles, findRecursivelyEmptyFolders, markFilesReferencedByText, referencedByCanvas } from './cleanup-scan';
+import { collectCleanupFileSets, findCleanupCandidates, findEmptyFiles, findRecursivelyEmptyFolders, markFilesReferencedByText, referencedByCanvas } from './cleanup-scan';
 import { CleanupConfirmationModal } from './cleanup-modals';
 import { categoryStatus, renderHelp, renderOverview, renderProcessedSummary, renderTabs, tabEntries, updateScanProgress } from './cleanup-dashboard';
 import { renderActions, renderList, updateSelectionSummary } from './cleanup-list-ui';
@@ -315,12 +315,7 @@ export class OrphanCleanupPanel extends Component {
 			switch (tab) {
 				case 'images':
 				case 'attachments': {
-					const extensions = parseExtensions(this.settings.orphanImageExtensions);
-					const ignoredFolders = parseIgnoredFolders(this.settings.orphanIgnoredFolders);
-					const visibleFiles = this.app.vault.getFiles().filter((file) => !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders));
-					const attachmentFiles = visibleFiles.filter((file) => !['md', 'canvas'].includes(file.extension.toLowerCase()));
-					const images = attachmentFiles.filter((file) => extensions.has(file.extension.toLowerCase()));
-					const attachments = attachmentFiles.filter((file) => !extensions.has(file.extension.toLowerCase()));
+					const { images, attachments } = collectCleanupFileSets(this.app, this.settings.orphanImageExtensions, this.settings.orphanIgnoredFolders);
 					const referenced = await this.buildReferencedSet();
 					await markFilesReferencedByText(this.app, [...images, ...attachments], referenced);
 					if (tab === 'images') {
@@ -340,9 +335,7 @@ export class OrphanCleanupPanel extends Component {
 					this.candidates.brokenNoteLinks = findBrokenNoteLinks(this.app, this.settings.orphanImageExtensions);
 					break;
 				case 'empty-files': {
-					const extensions = parseExtensions(this.settings.orphanImageExtensions);
-					const ignoredFolders = parseIgnoredFolders(this.settings.orphanIgnoredFolders);
-					const visibleFiles = this.app.vault.getFiles().filter((file) => !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders));
+					const { extensions, visibleFiles } = collectCleanupFileSets(this.app, this.settings.orphanImageExtensions, this.settings.orphanIgnoredFolders);
 					const referenced = await this.buildReferencedSet();
 					await markFilesReferencedByText(this.app, [], referenced);
 					this.candidates.emptyFiles = (await findEmptyFiles(visibleFiles, extensions, this.app)).filter((file) => !referenced.has(file.path));
@@ -399,13 +392,8 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	private getTabLabel(tab: CleanupTab): string {
-		const labels: Record<string, string> = {
-			images: '未引用图片', attachments: '未引用附件',
-			'broken-links': '失效图片链接', 'native-links': '原生图片链接',
-			'broken-note-links': '失效笔记链接', 'empty-files': '空文件',
-			'folders': '空文件夹', 'duplicates': '重复文件',
-		};
-		return labels[tab] ?? tab;
+		if (tab === 'overview') return '体检首页';
+		return CLEANUP_CATEGORIES.find((category) => category.tab === tab)?.label ?? tab;
 	}
 
 	async trashSingleImage(file: TFile) {

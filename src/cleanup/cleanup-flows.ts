@@ -6,7 +6,7 @@ import { selectCurrentCleanupItems } from '../cleanup-selection';
 import { brokenLinkKey, removeSelectedBrokenLinks } from '../broken-image-links';
 import { brokenNoteLinkKey, createMissingNotes, removeSelectedBrokenNoteLinks } from '../broken-note-links';
 import { convertNativeImageLink, nativeImageLinkKey, replaceNativeImageLinks, revalidateNativeImageLink } from '../native-image-links';
-import { removeFileReferencesForFiles } from '../duplicate-files';
+import { planDuplicateDeletion, removeFileReferencesForFiles } from '../duplicate-files';
 import { findCleanupCandidates } from './cleanup-scan';
 import { reasonFor, trashSelected } from './cleanup-actions';
 import { CleanupConfirmationModal, ConvertNativeLinksConfirmationModal, CreateNotesConfirmationModal, RemoveBrokenLinksConfirmationModal } from './cleanup-modals';
@@ -101,13 +101,15 @@ export async function confirmCleanupDuplicates(host: CleanupViewContext) {
 		if (selectedFiles.length === 0) return;
 		const confirmed = await new CleanupConfirmationModal(host.app, 0, 0, selectedFiles.length, 0).waitForConfirmation();
 		if (!confirmed) return;
-		const result: CleanupResult = { deleted: [], skipped: [], failed: [] };
-		const references = await removeFileReferencesForFiles(host.app, selectedFiles.map((file) => file.path));
+	const plan = await planDuplicateDeletion(host.app, host.candidates.duplicates, selectedFiles.map((file) => file.path));
+	const result: CleanupResult = { deleted: [], skipped: plan.skipped.map((item) => item.path), failed: [] };
+	if (plan.deletable.length) {
+		const references = await removeFileReferencesForFiles(host.app, plan.deletable.map((file) => file.path));
 		if (references.failed.length) {
 			new Notice(`未删除文件：笔记链接清理失败（${references.failed.join('、')}）`);
 			return;
 		}
-		for (const file of selectedFiles) {
+		for (const file of plan.deletable) {
 			const target = host.app.vault.getAbstractFileByPath(file.path);
 			if (!(target instanceof TFile)) { result.skipped.push(file.path); continue; }
 			try {
@@ -117,20 +119,22 @@ export async function confirmCleanupDuplicates(host: CleanupViewContext) {
 				result.failed.push({ path: file.path, reason: reasonFor(error) });
 			}
 		}
-		host.processed = { success: result.deleted.length, skipped: result.skipped.length, failed: result.failed };
-		const message = [`已删除：${result.deleted.length}`, `跳过：${result.skipped.length}`, `失败：${result.failed.length}`];
-		if (result.skipped.length) message.push(`跳过文件：${result.skipped.join('、')}`);
-		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
-		new Notice(message.join('\n'));
-		if (result.deleted.length > 0 || result.failed.length > 0) {
-			host.candidates.duplicates = host.candidates.duplicates.map((group) => ({ ...group, files: group.files.filter((f) => !result.deleted.includes(f.path)) })).filter((group) => group.files.length > 1);
-		}
-		host.duplicateSelections.clear();
-		pruneDeletedCandidates(host);
-		await host.scanTab('folders');
-		host.saveCacheToSettings();
-		host.renderContents();
 	}
+	host.processed = { success: result.deleted.length, skipped: result.skipped.length, failed: result.failed };
+	const skippedReasons = new Map(plan.skipped.map((item) => [item.path, item.reason]));
+	const message = [`已删除：${result.deleted.length}`, `跳过：${result.skipped.length}`, `失败：${result.failed.length}`];
+	if (result.skipped.length) message.push(`跳过文件：${result.skipped.map((path) => skippedReasons.has(path) ? `${path}（${skippedReasons.get(path)}）` : path).join('、')}`);
+	if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
+	new Notice(message.join('\n'));
+	if (result.deleted.length > 0 || result.failed.length > 0) {
+		host.candidates.duplicates = host.candidates.duplicates.map((group) => ({ ...group, files: group.files.filter((f) => !result.deleted.includes(f.path)) })).filter((group) => group.files.length > 1);
+	}
+	host.duplicateSelections.clear();
+	pruneDeletedCandidates(host);
+	await host.scanTab('folders');
+	host.saveCacheToSettings();
+	host.renderContents();
+}
 
 export async function revalidateCleanupSelection(host: CleanupViewContext, filePaths: Iterable<string>, folderPaths: Iterable<string>) {
 		const current = await findCleanupCandidates(host.app, host.settings.orphanImageExtensions, host.settings.orphanIgnoredFolders, undefined, false);

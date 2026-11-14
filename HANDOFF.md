@@ -4,11 +4,11 @@
 
 ## 状态
 - 更新时间：2026-11-15
-- 当前状态：插件已更名 Vault Doctor（id `vault-doctor`），1.3.0、1.3.1、1.3.2 依次发布；1.3.2 版本号、`versions.json` 与 CHANGELOG 已就绪，正式 release 由推送 tag `1.3.2` 触发。仓库为公开的 `obsidian-vault-doctor`；README 已按体检定位重写并含 9 张截图，历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`。
+- 当前状态：插件已更名 Vault Doctor（id `vault-doctor`），1.3.0~1.3.2 已发布，1.4.0 为最新正式 release（重复文件删除守卫、关联笔记预览与焦点修复、社区提交流程文档更新）。仓库为公开的 `obsidian-vault-doctor`；README 已按体检定位重写并含 9 张截图，历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`。
 
 ## 当前任务
-- 1.3.2 收口：安全修复（根目录缺失笔记、Canvas、重复文件删除守卫）、扫描与链接处理性能、关联笔记面板拆分、窄屏布局与对比度、README/包名/GitHub 描述。
-- 验证基线：`npm run build`、`npm run lint`、`npm test`（194 项）、`npm run test:deploy`、`npm run deploy:check` 全部通过。词法新旧实现 200,020 组随机对拍、原生链接替换新旧实现 30,000 组随机对拍均零差异。
+- 1.4.0 收口：重复文件删除前按组复核（每组保留 1 个 + 内容变化跳过）、关联笔记分组行预览与焦点、`.base` 链接边界、社区提交入口改为 community.obsidian.md 网页。
+- 验证基线：`npm run build`、`npm run lint`、`npm test`（204 项）、`npm run test:deploy`、`npm run deploy:check` 全部通过。词法新旧实现 200,020 组随机对拍、原生链接替换新旧实现 30,000 组随机对拍均零差异。
 
 ## 2026-11-15 第五轮：界面与可访问性审计（已完成）
 - 方法：解包官方 `obsidian-1.15.1.asar` 的 `app.css`（SHA-256 已核对一致），叠加用户实际生效的 Border 主题与插件 `styles.css`，在 ego lite/Chromium 中按 740/500/320 三档 × 浅深两主题复现 12 个场景；DOM 由 `gen-markup.mjs` 调用插件真实渲染函数生成，测量全部来自 `getBoundingClientRect` 与 `getComputedStyle`。
@@ -19,7 +19,7 @@
 - 验证：`npm test` 194 通过 / 0 失败，`npm run build`、`npm run lint` 通过；另用真实样式探针复测 48 组组合，帮助按钮可见性、勾选命中区、小按钮、单元格溢出、文档级横向溢出全部符合预期。
 
 ## 未完成
-- 社区市场尚未提交：`community-plugins.json` 中 `vault-doctor` / `Vault Doctor` 未被占用，manifest 与 release 均合规；因当前 token 无法向 `obsidianmd` 组织推送分支或创建 PR，需用户在浏览器完成提交。
+- 社区市场尚未提交：`community-plugins.json` 中 `vault-doctor` / `Vault Doctor` 未被占用，manifest 与 release 均合规。提交入口已从 PR 改为网页表单：用 Obsidian 账号登录 <https://community.obsidian.md/> → 在 Profile → GitHub 选择 **Connect** 绑定 GitHub → **Plugins → New plugin** 填仓库 URL。目录读取默认分支 HEAD 的 `manifest.json`，并要求存在 tag 与 `version` 一致的正式 release（当前 `1.3.2` 已满足）。此前为走 PR 旧流程准备的 fork 分支 `add-vault-doctor` 已无用途（它仍留在 fork `ll905518294/obsidian-releases` 上，核实于 2026-11-15；可忽略，需要时可删除该 fork）。
 - 第五轮的对比度与布局测量是在 ego lite/Chromium 仿真里完成的（官方 `app.css` + Border 主题 + 插件 `styles.css`），尚未在真实 Obsidian 内核里复现；截图存于 `C:\Users\Administrator\.codex\visualizations\2026\11\14\01a1d9da-adc1-7522-b34d-9e23978baea9\`，命名 `vault-doctor-r5-*`。
 
 ## 关键上下文

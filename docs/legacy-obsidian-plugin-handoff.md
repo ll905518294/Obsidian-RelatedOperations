@@ -29,11 +29,13 @@
 - **许可证**：BSD Zero Clause License
 - **用途**：官方维护的标准模板，包含构建配置、开发最佳实践、GitHub Actions。新项目应基于此模板初始化。
 
-### 2.3 社区插件提交仓库
+### 2.3 社区插件提交仓库（历史做法，已废弃）
+
+> 2026-11 起，`obsidianmd/obsidian-releases` 已关闭 Issue 与 PR 入口（PR 列表接口返回 404），插件提交改为 <https://community.obsidian.md/> 网页表单。以下内容仅用于理解旧流程，不应再照做。现行方式见「6.4 现行提交方式（网页）」。
 
 - **仓库地址**：https://github.com/obsidianmd/obsidian-releases
-- **用途**：Obsidian 官方社区插件、主题目录及发布托管仓库。插件上架需在此仓库提交 PR。
-- **提交文件**：`community-plugins.json`（插件清单）
+- **用途**：Obsidian 官方社区插件、主题目录及发布托管仓库。~~插件上架需在此仓库提交 PR。~~（已废弃）
+- **提交文件**：`community-plugins.json`（插件清单，现由官方从 community.obsidian.md 镜像同步）
 - **注意**：该仓库不接受 Issue，问题请在各自插件仓库提出。
 
 ---
@@ -141,10 +143,12 @@ npm version patch  # 或 minor / major
 - [ ] 许可证文件齐全（推荐 MIT）
 - [ ] Release 页面已发布对应版本的构建产物（`main.js`、`manifest.json`、`styles.css`）
 
-### 6.2 提交流程
+### 6.2 提交流程（历史做法，已废弃）
 
-1. Fork [obsidianmd/obsidian-releases](https://github.com/obsidianmd/obsidian-releases) 仓库
-2. 在 `community-plugins.json` 中添加插件条目：
+> 旧流程（Fork + PR）已不可用：`obsidianmd/obsidian-releases` 已关闭 Issue 与 PR。现行方式见「6.4 现行提交方式（网页）」。
+
+1. ~~Fork [obsidianmd/obsidian-releases](https://github.com/obsidianmd/obsidian-releases) 仓库~~
+2. ~~在 `community-plugins.json` 中添加插件条目~~（条目字段仍可作参考）：
    ```json
    {
      "id": "your-plugin-id",
@@ -154,8 +158,8 @@ npm version patch  # 或 minor / major
      "repo": "your-github-username/your-repo-name"
    }
    ```
-3. 提交 Pull Request
-4. 等待官方审核（审核周期通常数天到数周）
+3. ~~提交 Pull Request~~
+4. 等待官方审核（时长无官方 SLA 承诺）
 5. 审核通过后，用户可在 Obsidian 内直接搜索安装
 
 ### 6.3 后续版本更新
@@ -164,6 +168,14 @@ npm version patch  # 或 minor / major
 1. 在自己的仓库中更新版本、打 tag、发布 Release
 2. **无需**再次向 obsidian-releases 提 PR（Obsidian 会自动从你的仓库拉取新版本）
 3. 确保 Release 中包含构建产物文件
+
+### 6.4 现行提交方式（网页，2026-11 起）
+
+1. 用 Obsidian 账号登录 <https://community.obsidian.md/>。
+2. 在 **Profile → GitHub** 选择 **Connect**，授权绑定 GitHub 账号。
+3. 进入 **Plugins → New plugin**，填写 GitHub 仓库 URL 与 Owner。
+4. 目录读取默认分支 HEAD 的 `manifest.json`，并要求存在 tag 与 `version` 完全一致的正式 release，三件套为 `main.js`、`manifest.json`、`styles.css`（可选）。
+5. 提交后目录自动扫描；出现 error 需修复并发布新版本 release，发版前可用 **Review branch** 预览扫描。
 
 ---
 

@@ -112,8 +112,9 @@ export default class RelatedOperationsPlugin extends Plugin {
 		}
 		const relatedNotes = getRelatedNotesForFiles(this.app, orderedFiles);
 		const sourceLabel = orderedFiles.length === 1 ? primarySource.basename : `${orderedFiles.length} 篇源笔记`;
+		const openFallbackModal = () => new RelatedNotesModal(this.app, primarySource, orderedFiles, relatedNotes, sourceLabel, orderedFiles.length, this.settings, () => this.saveSettings()).open();
 		if (Platform.isMobile) {
-			new RelatedNotesModal(this.app, primarySource, orderedFiles, relatedNotes, sourceLabel, orderedFiles.length, this.settings, () => this.saveSettings()).open();
+			openFallbackModal();
 			return;
 		}
 		const existingLeaf = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE)[0]!;
@@ -134,16 +135,17 @@ export default class RelatedOperationsPlugin extends Plugin {
 				state: { sourcePaths: orderedFiles.map((file) => file.path) },
 			});
 		} catch {
-			new RelatedNotesModal(this.app, primarySource, orderedFiles, relatedNotes, sourceLabel, orderedFiles.length, this.settings, () => this.saveSettings()).open();
+			openFallbackModal();
 		}
 	}
 
 	private async openOrphanCleanupWindow() {
+		const openFallbackModal = () => new OrphanCleanupModal(this.app, this.settings, async (cache) => {
+			this.settings.orphanCleanupCache = cache;
+			await this.saveSettings();
+		}).open();
 		if (Platform.isMobile) {
-			new OrphanCleanupModal(this.app, this.settings, async (cache) => {
-				this.settings.orphanCleanupCache = cache;
-				await this.saveSettings();
-			}).open();
+			openFallbackModal();
 			return;
 		}
 		const existingLeaf = this.app.workspace.getLeavesOfType(ORPHAN_CLEANUP_VIEW_TYPE)[0];
@@ -158,10 +160,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 				active: true,
 			});
 		} catch {
-			new OrphanCleanupModal(this.app, this.settings, async (cache) => {
-				this.settings.orphanCleanupCache = cache;
-				await this.saveSettings();
-			}).open();
+			openFallbackModal();
 		}
 	}
 

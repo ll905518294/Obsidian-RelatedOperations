@@ -115,7 +115,7 @@
 
 ## 安装与卸载
 
-插件正在提交 Obsidian 社区市场审核，上架前可手动安装：
+插件尚未上架 Obsidian 社区市场（提交通过 <https://community.obsidian.md/> 网页完成，需 Obsidian 账号并绑定 GitHub），上架前可手动安装：
 
 1. 从 [Releases](https://github.com/ll905518294/obsidian-vault-doctor/releases) 下载最新版 `main.js`、`manifest.json`、`styles.css`。
 2. 将三个文件放入 `<Vault>/.obsidian/plugins/vault-doctor/`。

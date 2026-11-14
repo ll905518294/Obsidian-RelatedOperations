@@ -1,5 +1,7 @@
 import { App, TFolder } from 'obsidian';
 
+let folderInputSequence = 0;
+
 export function addFolderInput(
 	app: App,
 	container: HTMLElement,
@@ -9,8 +11,11 @@ export function addFolderInput(
 	onInput: (value: string) => void,
 ) {
 	const field = container.createDiv({ cls: 'related-operations-folder-field' });
-	field.createEl('label', { text: label });
+	const inputId = `related-operations-folder-input-${folderInputSequence++}`;
+	const labelEl = field.createEl('label', { text: label });
+	labelEl.setAttribute('for', inputId);
 	const input = field.createEl('input', { type: 'text', value });
+	input.id = inputId;
 	input.addClass(className);
 	const suggestions = field.createDiv({ cls: 'related-operations-folder-suggestions' });
 	const relative = false;

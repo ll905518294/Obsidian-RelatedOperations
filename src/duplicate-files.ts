@@ -1,4 +1,4 @@
-import type { App, TFile } from 'obsidian';
+import type { App, TAbstractFile, TFile } from 'obsidian';
 import { hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils.ts';
 
 export interface DuplicateFileItem {
@@ -25,6 +25,11 @@ export interface DuplicateScanProgress {
 export interface DuplicateScanResult {
 	groups: DuplicateFileGroup[];
 	warnings: Array<{ path: string; reason: string }>;
+}
+
+export interface DuplicateDeletionPlan {
+	deletable: DuplicateFileItem[];
+	skipped: Array<{ path: string; reason: string }>;
 }
 
 export async function findDuplicateFiles(
@@ -146,6 +151,62 @@ export async function removeImageReferencesForFile(app: App, filePath: string) {
 	return removeFileReferencesForFiles(app, [filePath]);
 }
 
+/**
+ * Re-checks the selected duplicate files right before deletion.
+ *
+ * Two guarantees:
+ * - A group always keeps at least one file; selecting every copy is refused.
+ * - A file is deleted only if its current bytes still equal one unselected
+ *   copy in the same group. If the content changed after the scan (or the
+ *   kept copy disappeared), the file is skipped instead of deleted.
+ */
+export async function planDuplicateDeletion(
+	app: App,
+	groups: DuplicateFileGroup[],
+	selectedPaths: Iterable<string>,
+): Promise<DuplicateDeletionPlan> {
+	const selected = new Set(selectedPaths);
+	const known = new Set<string>();
+	const deletable: DuplicateFileItem[] = [];
+	const skipped: Array<{ path: string; reason: string }> = [];
+	for (const group of groups) {
+		for (const file of group.files) known.add(file.path);
+		const candidates = group.files.filter((file) => selected.has(file.path));
+		if (candidates.length === 0) continue;
+		const keepers = group.files.filter((file) => !selected.has(file.path));
+		if (keepers.length === 0) {
+			for (const file of candidates) skipped.push({ path: file.path, reason: '每组至少保留 1 个文件' });
+			continue;
+		}
+		let keeperHash: string;
+		let keeperSize: number;
+		try {
+			const bytes = await app.vault.readBinary(resolveFile(app, keepers[0]!.path));
+			keeperSize = bytes.byteLength;
+			keeperHash = await digestBytes(bytes);
+		} catch (error) {
+			for (const file of candidates) skipped.push({ path: file.path, reason: `无法读取保留文件：${reasonOf(error)}` });
+			continue;
+		}
+		for (const file of candidates) {
+			try {
+				const bytes = await app.vault.readBinary(resolveFile(app, file.path));
+				if (bytes.byteLength !== keeperSize || await digestBytes(bytes) !== keeperHash) {
+					skipped.push({ path: file.path, reason: '文件内容已变化，请重新扫描' });
+					continue;
+				}
+				deletable.push(file);
+			} catch (error) {
+				skipped.push({ path: file.path, reason: reasonOf(error) });
+			}
+		}
+	}
+	for (const path of selected) {
+		if (!known.has(path)) skipped.push({ path, reason: '重复分组已变化，请重新扫描' });
+	}
+	return { deletable, skipped };
+}
+
 function referenceRange(
 	content: string,
 	reference: { original: string; position: { start: { offset: number }; end: { offset: number } } },
@@ -160,6 +221,29 @@ function referenceRange(
 }
 
 async function digestFile(app: App, file: TFile): Promise<string> {
-	const digest = await crypto.subtle.digest('SHA-256', await app.vault.readBinary(file));
+	return digestBytes(await app.vault.readBinary(file));
+}
+
+async function digestBytes(bytes: ArrayBuffer): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', bytes);
 	return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+function resolveFile(app: App, path: string): TFile {
+	const target = app.vault.getAbstractFileByPath(path);
+	if (!isFileLike(target)) throw new Error('文件已不存在');
+	return target;
+}
+
+// `obsidian` ships type declarations only (its package has no runtime entry),
+// and this module is loaded directly by the native node tests, so a runtime
+// `instanceof TFile` import is impossible here. Structurally: `TFile` is the
+// only `TAbstractFile` subclass exposing `extension`, while `TFolder` exposes
+// `children` instead. The predicate narrows the call site without a cast.
+function isFileLike(target: TAbstractFile | null): target is TFile {
+	return !!target && !('children' in target) && 'extension' in target;
+}
+
+function reasonOf(error: unknown) {
+	return error instanceof Error ? error.message : '未知错误';
 }

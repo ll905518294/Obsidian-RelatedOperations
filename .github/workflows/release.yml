@@ -5,9 +5,14 @@ on:
         tags:
             - '*'
 
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
 jobs:
     build:
         runs-on: ubuntu-latest
+        timeout-minutes: 20
         permissions:
             contents: write
             id-token: write
@@ -91,3 +96,16 @@ jobs:
                     --title="$tag" \
                     --notes-file release-notes.md \
                     main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
+
+            - name: Verify release assets
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  tag="${GITHUB_REF#refs/tags/}"
+                  names="$(gh release view "$tag" --json assets --jq '.assets[].name')"
+                  for file in main.js manifest.json styles.css; do
+                    [ -f "$file" ] || continue
+                    echo "$names" | grep -qx "$file" \
+                      || { echo "::error::release $tag is missing asset $file"; exit 1; }
+                  done
+                  echo "Release assets verified: $(echo "$names" | tr '\n' ' ')"

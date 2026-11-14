@@ -13,6 +13,7 @@ import {
 	type RelatedGroups,
 	type RelationGroup,
 } from './related-notes-model';
+import { withFocusPreserved } from '../cleanup/cleanup-focus';
 import { moveFiles as moveFilesWithHost, moveSelected as moveSelectedWithHost, undoLastMove as undoLastMoveWithHost, type RelatedNotesMoveHost } from './related-notes-move';
 import { renderList, syncRowCheckboxes, updatePreviews, updateSelectAllState, updateSelectionSummary } from './related-notes-list';
 import type { RelatedNotesListHost } from './related-notes-list-host';
@@ -169,28 +170,32 @@ export class RelatedNotesPanel {
 	}
 
 	private renderTabs() {
-		this.containerEl.querySelector('.related-operations-tabs')?.remove();
-		const tabs = this.containerEl.createDiv({ cls: 'related-operations-tabs' });
-		const list = this.containerEl.querySelector('.related-operations-list');
-		const actions = this.containerEl.querySelector('.related-operations-actions');
-		this.containerEl.insertBefore(tabs, list ?? actions ?? null);
-		for (const [group, label] of [
-			['outgoing', '出链'],
-			['incoming', '入链'],
-			['both', '双向链接'],
-		] as const) {
-			const tab = tabs.createEl('button', {
-				text: `${label} (${uniqueCount(this.groups[group])})`,
-				cls: group === this.activeGroup ? 'related-operations-tab is-active' : 'related-operations-tab',
-			});
-			tab.addEventListener('click', () => {
-				this.activeGroup = group;
-				this.renderTabs();
-				this.renderList();
-			});
-		}
-		const hint = tabs.createSpan({ text: '双向链接表示同时存在出链和入链，不计入独立总数。', cls: 'related-operations-tabs-hint' });
-		hint.setAttribute('aria-label', '双向链接说明');
+		withFocusPreserved(this.containerEl, () => {
+			this.containerEl.querySelector('.related-operations-tabs')?.remove();
+			const tabs = this.containerEl.createDiv({ cls: 'related-operations-tabs' });
+			const list = this.containerEl.querySelector('.related-operations-list');
+			const actions = this.containerEl.querySelector('.related-operations-actions');
+			this.containerEl.insertBefore(tabs, list ?? actions ?? null);
+			for (const [group, label] of [
+				['outgoing', '出链'],
+				['incoming', '入链'],
+				['both', '双向链接'],
+			] as const) {
+				const tab = tabs.createEl('button', {
+					text: `${label} (${uniqueCount(this.groups[group])})`,
+					cls: group === this.activeGroup ? 'related-operations-tab is-active' : 'related-operations-tab',
+				});
+				tab.type = 'button';
+				if (group === this.activeGroup) tab.setAttribute('aria-current', 'true');
+				tab.addEventListener('click', () => {
+					this.activeGroup = group;
+					this.renderTabs();
+					this.renderList();
+				});
+			}
+			const hint = tabs.createSpan({ text: '双向链接表示同时存在出链和入链，不计入独立总数。', cls: 'related-operations-tabs-hint' });
+			hint.setAttribute('aria-label', '双向链接说明');
+		});
 	}
 
 	private renderList() {

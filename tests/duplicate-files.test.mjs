@@ -1,14 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findDuplicateFiles, removeFileReferencesForFiles } from '../src/duplicate-files.ts';
+import { findDuplicateFiles, planDuplicateDeletion, removeFileReferencesForFiles } from '../src/duplicate-files.ts';
 
 function appFor(files, contents, resolvedLinks = {}) {
 	return {
 		vault: {
 			getFiles: () => files,
-			readBinary: async (file) => contents[file.path],
+			getAbstractFileByPath: (path) => files.find((file) => file.path === path) ?? null,
+			readBinary: async (file) => {
+				const content = contents[file.path];
+				if (!content) throw new Error('无法读取文件');
+				return content;
+			},
 		},
 		metadataCache: { resolvedLinks },
+	};
+}
+
+function duplicateGroup(files, hash = 'dup-hash') {
+	return {
+		hash,
+		size: files[0].stat.size,
+		files: files.map((file) => ({
+			path: file.path,
+			extension: file.extension,
+			size: file.stat.size,
+			mtime: file.stat.mtime,
+			referenced: false,
+			referencingNotes: [],
+		})),
 	};
 }
 
@@ -203,4 +223,71 @@ test('removes references when every resolved link is present in the cache', asyn
 	assert.equal(result.failed.length, 0);
 	assert.equal(result.removed, 2);
 	assert.equal(content, ' and ');
+});
+
+function duplicateFiles() {
+	return [
+		{ path: 'a.png', extension: 'png', stat: { size: 3, mtime: 1 } },
+		{ path: 'b.png', extension: 'png', stat: { size: 3, mtime: 2 } },
+	];
+}
+
+const threeBytes = new Uint8Array([1, 2, 3]);
+const replacedBytes = new Uint8Array([9, 9, 9]);
+
+test('refuses to delete every file of a duplicate group', async () => {
+	const files = duplicateFiles();
+	const contents = { 'a.png': threeBytes, 'b.png': threeBytes };
+	const plan = await planDuplicateDeletion(appFor(files, contents), [duplicateGroup(files)], ['a.png', 'b.png']);
+	assert.deepEqual(plan.deletable, []);
+	assert.deepEqual(plan.skipped, [
+		{ path: 'a.png', reason: '每组至少保留 1 个文件' },
+		{ path: 'b.png', reason: '每组至少保留 1 个文件' },
+	]);
+});
+
+test('keeps the unselected copy and only lets selected duplicates through', async () => {
+	const files = duplicateFiles();
+	const contents = { 'a.png': threeBytes, 'b.png': threeBytes };
+	const plan = await planDuplicateDeletion(appFor(files, contents), [duplicateGroup(files)], ['a.png']);
+	assert.deepEqual(plan.deletable.map((file) => file.path), ['a.png']);
+	assert.deepEqual(plan.skipped, []);
+});
+
+test('refuses to delete a selected file whose bytes no longer match the retained copy', async () => {
+	const files = duplicateFiles();
+	// b.png was rewritten after the scan with the same length, so only the hash
+	// comparison can catch it.
+	const contents = { 'a.png': threeBytes, 'b.png': replacedBytes };
+	const plan = await planDuplicateDeletion(appFor(files, contents), [duplicateGroup(files)], ['b.png']);
+	assert.deepEqual(plan.deletable, []);
+	assert.deepEqual(plan.skipped, [{ path: 'b.png', reason: '文件内容已变化，请重新扫描' }]);
+});
+
+test('refuses selected paths that are no longer part of any group', async () => {
+	const files = duplicateFiles();
+	const contents = { 'a.png': threeBytes, 'b.png': threeBytes };
+	const plan = await planDuplicateDeletion(appFor(files, contents), [duplicateGroup(files)], ['gone.png']);
+	assert.deepEqual(plan.deletable, []);
+	assert.deepEqual(plan.skipped, [{ path: 'gone.png', reason: '重复分组已变化，请重新扫描' }]);
+});
+
+test('skips the group when the retained file cannot be read', async () => {
+	const files = duplicateFiles();
+	const contents = { 'b.png': threeBytes };
+	const plan = await planDuplicateDeletion(appFor(files, contents), [duplicateGroup(files)], ['b.png']);
+	assert.deepEqual(plan.deletable, []);
+	assert.equal(plan.skipped.length, 1);
+	assert.equal(plan.skipped[0].path, 'b.png');
+	assert.match(plan.skipped[0].reason, /无法读取保留文件/);
+});
+
+test('reports the reason when the selected file cannot be read', async () => {
+	const files = duplicateFiles();
+	const contents = { 'a.png': threeBytes };
+	const plan = await planDuplicateDeletion(appFor(files, contents), [duplicateGroup(files)], ['b.png']);
+	assert.deepEqual(plan.deletable, []);
+	assert.equal(plan.skipped.length, 1);
+	assert.equal(plan.skipped[0].path, 'b.png');
+	assert.match(plan.skipped[0].reason, /无法读取文件/);
 });

@@ -564,12 +564,6 @@
 	width: 145px;
 }
 
-.orphan-cleanup-table.is-images th:nth-child(2),
-.orphan-cleanup-table.is-images td:nth-child(2) {
-	width: 76px;
-	text-align: center;
-}
-
 .orphan-cleanup-table code {
 	white-space: normal;
 	overflow-wrap: anywhere;

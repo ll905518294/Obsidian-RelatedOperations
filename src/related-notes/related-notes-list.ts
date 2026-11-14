@@ -51,8 +51,12 @@ export function updateSelectAllState(host: RelatedNotesListHost, selectAll: HTML
 export function updatePreviews(host: RelatedNotesListHost) {
 	const target = finalTarget(host.targetFolder());
 	host.containerEl.querySelector('.related-operations-final-target-text')?.setText(target || '（当前笔记所在文件夹）');
+	// A hub note can surface thousands of rows, so index the visible group and
+	// the full related list once instead of scanning them per row/selection.
+	const groupByPath = new Map(host.groups()[host.activeGroup()].map((note) => [note.file.path, note]));
+	const notesByPath = new Map(host.relatedNotes().map((note) => [note.file.path, note]));
 	host.containerEl.querySelectorAll<HTMLElement>('.related-operations-table tr[data-related-path]').forEach((row) => {
-		const note = host.groups()[host.activeGroup()].find((candidate) => candidate.file.path === row.dataset.relatedPath);
+		const note = groupByPath.get(row.dataset.relatedPath ?? '');
 		if (!note) return;
 		const alreadyAtTarget = isAlreadyAtTarget(note.file, host.targetFolder());
 		row.toggleClass('is-already-target', alreadyAtTarget);
@@ -61,11 +65,13 @@ export function updatePreviews(host: RelatedNotesListHost) {
 			checkbox.disabled = alreadyAtTarget;
 			checkbox.title = alreadyAtTarget ? '该笔记已经位于目标文件夹' : '';
 		}
-		row.children[host.showSourceColumn ? 5 : 4]?.setText(destinationFor(note.file, host.targetFolder()));
+		// Rows after the first one in a source group have no source cell
+		// (rowSpan covers them), so address the target preview from the end.
+		row.children[row.children.length - 1]?.setText(destinationFor(note.file, host.targetFolder()));
 	});
 	for (const [path, selected] of host.selections()) {
 		if (selected) {
-			const note = host.relatedNotes().find((candidate) => candidate.file.path === path);
+			const note = notesByPath.get(path);
 			if (!note || isAlreadyAtTarget(note.file, host.targetFolder())) host.selections().delete(path);
 		}
 	}

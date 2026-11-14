@@ -34,14 +34,36 @@ export async function forEachWithConcurrency<T>(items: T[], concurrency: number,
 	await Promise.all(workers);
 	if (aborted) throw failure;
 }
-export async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true, onCategoryComplete?: (tabs: ScanCategoryTab[], results: Partial<CleanupCandidates>) => void): Promise<CleanupCandidates> {
+
+export interface CleanupFileSets {
+	extensions: Set<string>;
+	ignoredFolders: string[];
+	visibleFiles: TFile[];
+	images: TFile[];
+	attachments: TFile[];
+}
+
+/*
+ * 全量扫描与单分类刷新必须共用同一套可见性规则；否则忽略目录或
+ * md/canvas 的边界调整后，两个入口会得出不同的候选集合。
+ */
+export function collectCleanupFileSets(app: App, imageExtensions: string, ignoredFoldersValue = ''): CleanupFileSets {
 	const extensions = parseExtensions(imageExtensions);
 	const ignoredFolders = parseIgnoredFolders(ignoredFoldersValue);
 	const visibleFiles = app.vault.getFiles().filter((file) => !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders));
-	onProgress?.({ stage: 0, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	const attachmentFiles = visibleFiles.filter((file) => !['md', 'canvas'].includes(file.extension.toLowerCase()));
-	const images = attachmentFiles.filter((file) => extensions.has(file.extension.toLowerCase()));
-	const attachments = attachmentFiles.filter((file) => !extensions.has(file.extension.toLowerCase()));
+	return {
+		extensions,
+		ignoredFolders,
+		visibleFiles,
+		images: attachmentFiles.filter((file) => extensions.has(file.extension.toLowerCase())),
+		attachments: attachmentFiles.filter((file) => !extensions.has(file.extension.toLowerCase())),
+	};
+}
+
+export async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true, onCategoryComplete?: (tabs: ScanCategoryTab[], results: Partial<CleanupCandidates>) => void): Promise<CleanupCandidates> {
+	const { extensions, ignoredFolders, visibleFiles, images, attachments } = collectCleanupFileSets(app, imageExtensions, ignoredFoldersValue);
+	onProgress?.({ stage: 0, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	const referenced = new Set<string>();
 	for (const [sourcePath, destinations] of Object.entries(app.metadataCache.resolvedLinks)) {
 		if (!sourcePath.toLowerCase().endsWith('.md')) continue;
@@ -58,9 +80,11 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	// file name or path counts as a reference so that such images are never
 	// flagged as orphans.
 	await markFilesReferencedByText(app, [...images, ...attachments], referenced, (processed, total, currentFile) => onProgress?.({ stage: 2, processed, total, currentFile }));
+	const orphanImages = images.filter((file) => !referenced.has(file.path)).sort(byPath);
+	const orphanAttachments = attachments.filter((file) => !referenced.has(file.path)).sort(byPath);
 	onCategoryComplete?.(['images', 'attachments'], {
-		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
-		attachments: attachments.filter((file) => !referenced.has(file.path)).sort(byPath),
+		images: orphanImages,
+		attachments: orphanAttachments,
 	});
 	const emptyFiles = (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }))).filter((file) => !referenced.has(file.path));
 	const folders = findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
@@ -75,8 +99,8 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	const duplicateResult = checkLinksAndDuplicates ? await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress })) : { groups: [], warnings: [] };
 	onCategoryComplete?.(['duplicates'], { duplicates: duplicateResult.groups, duplicateWarnings: duplicateResult.warnings });
 	return {
-		images: images.filter((file) => !referenced.has(file.path)).sort(byPath),
-		attachments: attachments.filter((file) => !referenced.has(file.path)).sort(byPath),
+		images: orphanImages,
+		attachments: orphanAttachments,
 		emptyFiles,
 		folders,
 		brokenLinks,

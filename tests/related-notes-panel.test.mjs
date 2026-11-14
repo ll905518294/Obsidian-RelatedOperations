@@ -32,6 +32,8 @@ class El {
 		return on;
 	}
 	hasClass(name) { return this.classList.has(name); }
+	focus() { (globalThis.__focusLog ??= []).push(this); }
+	contains(node) { for (let cursor = node; cursor; cursor = cursor.parent) if (cursor === this) return true; return false; }
 	get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
 	set textContent(v) { this._text = String(v); this.children = []; }
 	setText(v) { this.textContent = v; }
@@ -79,12 +81,14 @@ class El {
 	querySelectorAll(sel) {
 		const parts = sel.split(/\\s+/).filter(Boolean);
 		return [...this.descendants()].filter((el) => {
-			let node = el;
-			for (let i = parts.length - 1; i >= 0; i--) {
-				if (!node || !node.matches(parts[i])) return false;
-				if (i > 0) node = node.parent;
+			if (!el.matches(parts[parts.length - 1])) return false;
+			let index = parts.length - 2;
+			let node = el.parent;
+			while (index >= 0 && node) {
+				if (node.matches(parts[index])) index--;
+				node = node.parent;
 			}
-			return true;
+			return index < 0;
 		});
 	}
 	querySelector(sel) { return this.querySelectorAll(sel)[0] ?? null; }
@@ -194,6 +198,37 @@ test('bidirectional note is counted in both tabs but not added to their totals',
 	assert.deepEqual(tabs, ['出链 (1)', '入链 (1)', '双向链接 (1)']);
 	const hint = el.querySelector('.related-operations-tabs-hint');
 	assert.match(hint.textContent, /不计入独立总数/);
+});
+
+test('当前关系标签带 aria-current，切换后焦点保留在标签上', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const relatedNotes = [
+		{ file: t, relation: 'outgoing', sourceFile: a },
+		{ file: t, relation: 'incoming', sourceFile: a },
+	];
+	const { panel, el } = panelFor(relatedNotes, [a]);
+	const tabs = el.querySelectorAll('.related-operations-tab');
+	assert.equal(tabs[0].attrs['aria-current'], 'true');
+	assert.ok(!tabs[1].attrs['aria-current'], '非当前标签不带 aria-current');
+
+	el.ownerDocument = { activeElement: tabs[1] };
+	globalThis.__focusLog = [];
+	tabs[1].fire('click');
+	assert.equal(panel.activeGroup, 'incoming');
+	assert.equal(globalThis.__focusLog.at(-1)?.textContent, '入链 (1)', '切换后焦点恢复到新标签');
+	assert.equal(el.querySelectorAll('.related-operations-tab')[1].attrs['aria-current'], 'true');
+});
+
+test('目标文件夹 label 与 input 关联', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a]);
+	const label = el.querySelector('label');
+	const input = el.querySelector('.related-operations-target-folder');
+	assert.ok(label && input, 'label 与 input 存在');
+	assert.equal(label.attrs['for'], input.id);
+	assert.match(String(input.id), /related-operations-folder-input-/);
 });
 
 test('select-all-movable selects each target once and skips compliant notes', () => {
@@ -482,6 +517,31 @@ test('target folder input lists matching vault folders', () => {
 	assert.deepEqual(suggestions, ['archive', 'archive/2026']);
 });
 
+// Rows after the first one in a source group do not create a source cell
+// (rowSpan merges it into the first row), so the destination preview must be
+// located from the end of the row instead of a fixed column index.
+test('target folder changes refresh the preview on every grouped row', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t1 = file('dst/t1.md');
+	const t2 = file('dst/t2.md');
+	const t3 = file('dst/t3.md');
+	const relatedNotes = [
+		{ file: t1, relation: 'outgoing', sourceFile: a },
+		{ file: t2, relation: 'outgoing', sourceFile: a },
+		{ file: t3, relation: 'outgoing', sourceFile: b },
+	];
+	const { el } = panelFor(relatedNotes, [a, b]);
+	const rows = () => el.querySelectorAll('tr[data-related-path]');
+	assert.equal(rows().length, 3);
+	const previews = () => rows().map((row) => row.children.at(-1).textContent);
+	assert.deepEqual(previews(), ['src/Pages/t1.md', 'src/Pages/t2.md', 'src/Pages/t3.md']);
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	assert.deepEqual(previews(), ['archive/t1.md', 'archive/t2.md', 'archive/t3.md']);
+});
+
 test('large multi-source batch keeps dedupe, select-all, merge and move list correct', async (t) => {
 	const sources = Array.from({ length: 100 }, (_, i) => file(`src/source-${i}.md`));
 	const targets = Array.from({ length: 500 }, (_, i) => file(`dst/target-${i}.md`));
@@ -501,6 +561,13 @@ test('large multi-source batch keeps dedupe, select-all, merge and move list cor
 	el.querySelector('.related-operations-merge-button').fire('click');
 	const mergeMs = performance.now() - mergeStart;
 	assert.equal(el.querySelectorAll('tr[data-related-path]').length, 500);
+	const previewStart = performance.now();
+	const targetInput = el.querySelector('.related-operations-target-folder');
+	targetInput.value = 'archive';
+	targetInput.fire('input');
+	const previewMs = performance.now() - previewStart;
+	const stalePreviews = el.querySelectorAll('tr[data-related-path]').filter((row) => !row.children.at(-1).textContent.startsWith('archive/'));
+	assert.equal(stalePreviews.length, 0);
 	const uniqueTargets = [...new Map(relatedNotes.map((note) => [note.file.path, note.file])).values()];
 	const moveStart = performance.now();
 	const result = await panel.moveFiles('archive', [...uniqueTargets, ...uniqueTargets]);
@@ -508,5 +575,6 @@ test('large multi-source batch keeps dedupe, select-all, merge and move list cor
 	assert.equal(result.succeeded.length, 500);
 	assert.equal(renamed.length, 500);
 	assert.ok(renderMs < 5000 && mergeMs < 5000 && moveMs < 5000);
-	t.diagnostic(`large batch: render=${renderMs.toFixed(1)}ms merge=${mergeMs.toFixed(1)}ms move=${moveMs.toFixed(1)}ms`);
+	assert.ok(previewMs < 5000);
+	t.diagnostic(`large batch: render=${renderMs.toFixed(1)}ms merge=${mergeMs.toFixed(1)}ms move=${moveMs.toFixed(1)}ms preview=${previewMs.toFixed(1)}ms`);
 });

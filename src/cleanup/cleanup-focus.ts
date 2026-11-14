@@ -6,6 +6,12 @@ export interface CleanupViewSnapshot {
 	scrollTarget: 'scroll' | 'root';
 }
 
+export interface FocusSnapshot {
+	key: string;
+	tag: string;
+	index: number;
+}
+
 function focusKey(element: Element): string {
 	const aria = element.getAttribute?.('aria-label');
 	if (aria) return aria;
@@ -16,6 +22,29 @@ function focusKey(element: Element): string {
 
 function canFocus(element: Element | null): element is HTMLElement {
 	return !!element && typeof (element as HTMLElement).focus === 'function';
+}
+
+function captureFocus(root: HTMLElement): FocusSnapshot | null {
+	const active = root.ownerDocument?.activeElement;
+	if (!active || active === root || !root.contains(active) || !canFocus(active)) return null;
+	const tag = active.tagName;
+	const key = focusKey(active);
+	const peers = Array.from(root.querySelectorAll<HTMLElement>(tag)).filter((element) => focusKey(element) === key);
+	const index = peers.indexOf(active);
+	return { tag, key, index: index >= 0 ? index : 0 };
+}
+
+function restoreFocus(root: HTMLElement, snapshot: FocusSnapshot | null): void {
+	if (!snapshot) return;
+	const peers = Array.from(root.querySelectorAll<HTMLElement>(snapshot.tag)).filter((element) => focusKey(element) === snapshot.key);
+	const target = peers[snapshot.index] ?? peers[0];
+	target?.focus?.({ preventScroll: true });
+}
+
+export function withFocusPreserved(root: HTMLElement, render: () => void): void {
+	const snapshot = captureFocus(root);
+	render();
+	restoreFocus(root, snapshot);
 }
 
 export function captureViewSnapshot(contentEl: HTMLElement): CleanupViewSnapshot | null {

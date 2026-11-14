@@ -182,6 +182,8 @@ const KNOWN_ATTACHMENT_EXTENSIONS = new Set([
 	// Canvas is a first-class non-Markdown vault file (handled separately by
 	// the cleanup scans); it must never be offered as a missing note.
 	'canvas',
+	// Bases (`.base`) are the same kind of first-class non-Markdown vault file.
+	'base',
 ]);
 
 function isExternal(path: string) { return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(path); }
