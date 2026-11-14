@@ -8,7 +8,6 @@
 - Opens from the command palette, ribbon, or a Markdown file's context menu.
 - Supports multi-selecting Markdown notes and processing all Markdown notes inside a selected folder.
 - Integrates with Notebook Navigator when it is installed, including its multi-selection and folder menus.
-- Optionally maintains incoming, outgoing, and bidirectional link counts in frontmatter for display in Notebook Navigator.
 - Aggregates related notes across all selected source notes and de-duplicates the move list.
 - Batch views show the source note beside each related-note row; the same related note may appear for multiple sources but is moved once.
 - Opens the cleanup tool as a normal workspace tab on desktop and a modal fallback on mobile.
@@ -46,15 +45,9 @@ Use the left ribbon **打开 vault 体检与清理** icon or the command with th
 
 ## Link-count properties
 
-The optional setting **写入关联数量到属性** is disabled by default. When enabled, the plugin maintains these frontmatter properties:
+This feature has been removed. The plugin no longer writes `related-operations-in-links`, `related-operations-out-links`, or `related-operations-bidirectional-links` to frontmatter, and no longer offers the **刷新全库笔记关系数量** command or automatic updates.
 
-- `related-operations-in-links`
-- `related-operations-out-links`
-- `related-operations-bidirectional-links`
-
-Use the command **刷新全库笔记关系数量** to update all Markdown notes immediately. Automatic updates are debounced, compare the resolved-link cache, and check only edited notes and endpoints of changed links. Files are written only when a value changes. Periodic checks use the same incremental path.
-
-When applying custom property names, the plugin refuses names already used by other frontmatter fields so existing note metadata is not overwritten.
+To remove these properties from existing notes, use the command **清除关联数量属性** (`remove-link-stats-properties`) from the command palette, then confirm. It scans all frontmatter, deletes only the three link-count properties (including any historical names retained after a rename), and reports how many were cleaned, skipped, or failed. It can be run repeatedly.
 
 ## Installation and uninstall
 
@@ -62,7 +55,7 @@ This plugin requires Obsidian 1.13.0 or newer.
 
 - Install from build output: run `npm run build`, then copy `main.js`, `manifest.json`, and `styles.css` (if present) into `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`, and enable **Obsidian-Manager** in **Settings → Community plugins**.
 - Install or update locally: run `npm run deploy` (see [Development](#development) and [本地一键部署测试](#本地一键部署测试)).
-- Uninstall: disable **Obsidian-Manager** in **Settings → Community plugins**, then delete the plugin folder `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`. This removes the plugin's `data.json` settings; it does not modify notes, restore files already sent to the trash, or remove link-count properties already written to frontmatter.
+- Uninstall: disable **Obsidian-Manager** in **Settings → Community plugins**, then delete the plugin folder `<Vault>/.obsidian/plugins/Obsidian-RelatedOperations/`. This removes the plugin's `data.json` settings; it does not modify notes or restore files already sent to the trash. If you want to remove link-count properties already written to frontmatter, run the **清除关联数量属性** command first.
 
 ## Development
 
