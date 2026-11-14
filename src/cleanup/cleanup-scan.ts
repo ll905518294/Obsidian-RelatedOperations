@@ -6,6 +6,21 @@ import { findNativeImageLinks } from '../native-image-links';
 import { findDuplicateFiles } from '../duplicate-files';
 import { byPath } from './cleanup-actions';
 import { COMMON_IMAGE_EXTENSIONS, type CleanupCandidates, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
+
+const READ_CONCURRENCY = 8;
+
+export async function forEachWithConcurrency<T>(items: T[], concurrency: number, visit: (item: T, index: number) => Promise<void>): Promise<void> {
+	const limit = Math.max(1, Math.min(concurrency, items.length || 1));
+	let next = 0;
+	const workers = Array.from({ length: limit }, async () => {
+		while (true) {
+			const index = next++;
+			if (index >= items.length) return;
+			await visit(items[index] as T, index);
+		}
+	});
+	await Promise.all(workers);
+}
 export async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true, onCategoryComplete?: (tabs: ScanCategoryTab[], results: Partial<CleanupCandidates>) => void): Promise<CleanupCandidates> {
 	const extensions = parseExtensions(imageExtensions);
 	const ignoredFolders = parseIgnoredFolders(ignoredFoldersValue);
@@ -61,15 +76,17 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 
 export async function findEmptyFiles(files: TFile[], imageExtensions: Set<string>, app: App, onProgress?: (processed: number, total: number, currentFile: string) => void): Promise<TFile[]> {
 	const result: TFile[] = [];
-	for (const [index, file] of files.entries()) {
-		onProgress?.(index + 1, files.length, file.path);
+	let processed = 0;
+	await forEachWithConcurrency(files, READ_CONCURRENCY, async (file) => {
+		processed += 1;
+		onProgress?.(processed, files.length, file.path);
 		const extension = file.extension.toLowerCase();
-		if (extension === 'canvas') continue;
-		if (file.stat.size === 0 && !imageExtensions.has(extension) && !COMMON_IMAGE_EXTENSIONS.has(extension)) { result.push(file); continue; }
-		if (file.extension.toLowerCase() !== 'md') continue;
+		if (extension === 'canvas') return;
+		if (file.stat.size === 0 && !imageExtensions.has(extension) && !COMMON_IMAGE_EXTENSIONS.has(extension)) { result.push(file); return; }
+		if (extension !== 'md') return;
 		const content = await app.vault.cachedRead(file);
 		if (isFrontmatterOnly(content)) result.push(file);
-	}
+	});
 	return result.sort(byPath);
 }
 
@@ -88,25 +105,30 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 		if (needsRawTextSearch(image.name)) exoticNames.push(key);
 	}
 	const markdownFiles = app.vault.getMarkdownFiles();
-	for (const [index, file] of markdownFiles.entries()) {
-		onProgress?.(index + 1, markdownFiles.length, file.path);
-		const content = await app.vault.cachedRead(file);
-		for (const token of pathLikeTokens(content)) {
-			for (const candidate of pathTokenCandidates(token.replace(/^[./\\]+/, ''))) {
-				for (const variant of [candidate, safeDecodePath(candidate)]) {
-					const direct = byPath.get(variant.toLowerCase());
-					if (direct) referenced.add(direct);
-					for (const path of byBasename.get(lastPathSegment(variant).toLowerCase()) ?? []) referenced.add(path);
+	const BATCH = READ_CONCURRENCY * 4;
+	for (let start = 0; start < markdownFiles.length; start += BATCH) {
+		const batch = markdownFiles.slice(start, start + BATCH);
+		const contents = await Promise.all(batch.map((file) => app.vault.cachedRead(file)));
+		for (const [offset, content] of contents.entries()) {
+			const file = batch[offset]!;
+			onProgress?.(start + offset + 1, markdownFiles.length, file.path);
+			for (const token of pathLikeTokens(content)) {
+				for (const candidate of pathTokenCandidates(token.replace(/^[./\\]+/, ''))) {
+					for (const variant of [candidate, safeDecodePath(candidate)]) {
+						const direct = byPath.get(variant.toLowerCase());
+						if (direct) referenced.add(direct);
+						for (const path of byBasename.get(lastPathSegment(variant).toLowerCase()) ?? []) referenced.add(path);
+					}
 				}
 			}
+			for (let index = exoticNames.length - 1; index >= 0; index--) {
+				const key = exoticNames[index]!;
+				if (!content.toLowerCase().includes(key)) continue;
+				for (const path of byBasename.get(key) ?? []) referenced.add(path);
+				exoticNames.splice(index, 1);
+			}
+			if (remaining.every((image) => referenced.has(image.path))) return;
 		}
-		for (let index = exoticNames.length - 1; index >= 0; index--) {
-			const key = exoticNames[index]!;
-			if (!content.toLowerCase().includes(key)) continue;
-			for (const path of byBasename.get(key) ?? []) referenced.add(path);
-			exoticNames.splice(index, 1);
-		}
-		if (remaining.every((image) => referenced.has(image.path))) return;
 	}
 }
 
