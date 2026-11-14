@@ -567,6 +567,37 @@
 	overflow-wrap: anywhere;
 }
 
+/* checkbox 与可见文本关联后，由 label 承担整块点击、对齐与间距。 */
+.orphan-cleanup-panel label:has(> input[type="checkbox"]),
+.related-operations-panel label:has(> input[type="checkbox"]) {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	min-width: 0;
+	max-width: 100%;
+	cursor: pointer;
+}
+
+.orphan-cleanup-panel label:has(> input[type="checkbox"]:disabled),
+.related-operations-panel label:has(> input[type="checkbox"]:disabled) {
+	cursor: default;
+}
+
+.orphan-cleanup-panel label:has(> input[type="checkbox"]) > input[type="checkbox"],
+.related-operations-panel label:has(> input[type="checkbox"]) > input[type="checkbox"] {
+	margin-inline-end: 0;
+}
+
+.orphan-cleanup-table th:first-child label:has(> input[type="checkbox"]),
+.orphan-cleanup-table td:first-child label:has(> input[type="checkbox"]) {
+	justify-content: center;
+	width: 100%;
+}
+
+.orphan-cleanup-image-card-header label:has(> input[type="checkbox"]) {
+	min-width: 0;
+}
+
 .orphan-cleanup-group td {
 	padding: 0.5rem;
 	color: var(--ro-accent-text);
@@ -783,6 +814,24 @@
 	background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
 }
 
+/* 扫描失败：语义色全部由主题变量派生，左侧 3px 实色条提供不依赖色相的边界。 */
+.orphan-cleanup-scan-error {
+	margin: 0 0 0.9rem;
+	padding: 0.6rem 0.75rem 0.6rem 0.85rem;
+	border: 1px solid color-mix(in srgb, var(--text-error) 55%, var(--background-modifier-border));
+	border-left: 3px solid var(--text-error);
+	border-radius: var(--radius-s);
+	color: color-mix(in srgb, var(--text-error) 70%, var(--text-normal));
+	background: color-mix(in srgb, var(--background-modifier-error, var(--text-error)) 12%, var(--background-primary));
+	font-size: var(--font-ui-small);
+	line-height: 1.5;
+}
+
+.orphan-cleanup-scan-error strong {
+	color: inherit;
+	font-weight: 600;
+}
+
 .workspace-leaf-content[data-type='related-operations-orphan-cleanup-view'] {
 	overflow: auto;
 }
@@ -891,8 +940,9 @@
 }
 
 .related-operations-table tbody tr:hover,
-.orphan-cleanup-table tbody tr:hover {
-	background: color-mix(in srgb, var(--interactive-accent) 6%, var(--background-primary));
+.orphan-cleanup-table tbody tr:hover,
+.orphan-cleanup-table tbody tr:nth-child(even):not(.orphan-cleanup-group):hover {
+	background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
 }
 
 .related-operations-table th,
@@ -1318,6 +1368,11 @@
 	.orphan-cleanup-tab.is-active {
 		border-bottom-width: 3px;
 	}
+
+	.orphan-cleanup-scan-error {
+		border-width: 2px;
+		border-left-width: 4px;
+	}
 }
 
 /* 窄屏：收窄内边距，进度环缩小，操作按钮允许换行且不溢出。 */
@@ -1456,6 +1511,12 @@
 	.related-operations-panel input[type="checkbox"]:focus-visible {
 		box-shadow: none;
 		outline-offset: -12px;
+	}
+
+	/* 带 label 的行内勾选在窄屏同样保证 44px 触控高度。 */
+	.orphan-cleanup-panel label:has(> input[type="checkbox"]),
+	.related-operations-panel label:has(> input[type="checkbox"]) {
+		min-height: 44px;
 	}
 
 	/* 首列固定 44px，去掉单元格内边距后 44px 命中区正好落在列内，不压到相邻列。 */
