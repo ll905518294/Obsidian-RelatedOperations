@@ -129,17 +129,15 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 
 ## 8. 截图与 README 一致性维护
 
-README 的 9 张截图位于 `docs/images/`。1.4.x 审计与替换进度：
+README 的 9 张截图位于 `docs/images/`。1.4.x 截图状态：
 
-- **已替换（1.4.4，真实 Obsidian 宿主机截图，9 分类界面）**
-  - `01-dashboard.png`：首页 9 分类空闲态（`0/9`，含「Wiki 笔记链接」页签）。
-  - `02-scan-result.png`：扫描完成 `9/9`，含优先处理与已检查分区。
-  - `06-duplicate-files.png`：重复文件页签（按内容哈希分组、展示引用与状态）。
-- **仍待补拍（暂无对应实机页面截图，未用语义不符的图硬顶）**
-  - `03-unused-images.png`：未引用图片缩略图卡片页。
-  - `04-broken-links.png`：失效笔记链接表格页。
-  - `05-empty-files.png`：空文件/空文件夹列表页。
-- **无需更新**
-  - `07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致。
+- **已用演示库实拍替换（6 张，无缺口）**：通过 Obsidian CDP 在纯合成演示库 `vault-doctor-demo` 实拍，1920×1032，深色 Border 主题，9 分类齐全（含「Wiki 笔记链接」页签），内容全为虚构示例数据，不含任何真实项目/客户/公司名。
+  - `01-dashboard.png`：体检首页 · 扫描前 `0/9`
+  - `02-scan-result.png`：扫描完成 `9/9`
+  - `03-unused-images.png`：未引用图片 2 张
+  - `04-broken-links.png`：失效笔记链接 1 条
+  - `05-empty-files.png`：空文件 2 个
+  - `06-duplicate-files.png`：重复文件 1 组
+- **无需更新**：`07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致。
 
-补拍时保持文件名不变，避免改动 README 引用；截图需体现 9 个分类页签、两段式「确认删除」待确认态与 Wiki 笔记链接页签。
+更新截图时保持文件名不变，避免改动 README 引用；不要用真实 Vault 截图（会暴露私有内容），统一使用演示库实拍并保持 9 个分类页签齐全。

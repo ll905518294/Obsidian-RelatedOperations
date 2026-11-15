@@ -15,6 +15,8 @@
 
 ![Vault 体检首页](docs/images/01-dashboard.png)
 
+> 截图取自演示库 `vault-doctor-demo`，仅含示例内容。
+
 ## 功能总览
 
 | 模块 | 能做什么 |
