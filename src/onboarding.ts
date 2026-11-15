@@ -3,10 +3,19 @@ import { ONBOARDING_STEPS } from './onboarding-content';
 
 export type OnboardingAction = 'start' | 'cleanup' | 'skip';
 
+export interface OnboardingMeta {
+	name: string;
+	version: string;
+}
+
 export class OnboardingModal extends Modal {
 	private step = 0;
 
-	constructor(app: App, private readonly onAction: (action: OnboardingAction) => void = () => {}) {
+	constructor(
+		app: App,
+		private readonly meta: OnboardingMeta,
+		private readonly onAction: (action: OnboardingAction) => void = () => {},
+	) {
 		super(app);
 	}
 
@@ -20,8 +29,9 @@ export class OnboardingModal extends Modal {
 	private renderStep() {
 		const total = ONBOARDING_STEPS.length;
 		const current = ONBOARDING_STEPS[this.step]!;
-		this.titleEl.setText(`使用引导（${this.step + 1}/${total}）`);
+		this.titleEl.setText(`${this.meta.name} · 使用引导（第 ${this.step + 1}/${total} 步）`);
 		this.contentEl.empty();
+		this.contentEl.createEl('p', { text: `版本 ${this.meta.version}`, cls: 'update-intro-summary' });
 		this.contentEl.createEl('h4', { text: current.title, cls: 'update-intro-heading' });
 		this.contentEl.createEl('p', { text: current.summary, cls: 'update-intro-summary' });
 		const block = this.contentEl.createDiv({ cls: 'update-intro-section' });

@@ -120,11 +120,11 @@ export default class RelatedOperationsPlugin extends Plugin {
 			new Notice(`当前版本 ${version} 暂无内置更新说明。`);
 			return;
 		}
-		new UpdateIntroModal(this.app, intro).open();
+		new UpdateIntroModal(this.app, this.manifest.name, intro).open();
 	}
 
 	private openOnboarding() {
-		new OnboardingModal(this.app, (action) => this.finishOnboarding(action)).open();
+		new OnboardingModal(this.app, { name: this.manifest.name, version: this.manifest.version }, (action) => this.finishOnboarding(action)).open();
 	}
 
 	private finishOnboarding(action: OnboardingAction) {
@@ -139,7 +139,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 			// update intro stays silent for this same version.
 			this.settings.onboardingSeen = true;
 			this.settings.lastSeenVersion = version;
-			new OnboardingModal(this.app, (action) => this.finishOnboarding(action)).open();
+			new OnboardingModal(this.app, { name: this.manifest.name, version: this.manifest.version }, (action) => this.finishOnboarding(action)).open();
 			await this.saveSettings();
 			return;
 		}
@@ -151,7 +151,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		if (!shouldShowIntro(version, this.settings.lastSeenVersion)) return;
 		const intro = currentUpdateIntro(version);
 		if (!intro) return;
-		new UpdateIntroModal(this.app, intro).open();
+		new UpdateIntroModal(this.app, this.manifest.name, intro).open();
 		this.settings.lastSeenVersion = version;
 		await this.saveSettings();
 	}

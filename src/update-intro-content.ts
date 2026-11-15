@@ -15,6 +15,19 @@ export interface UpdateIntro {
 // Keep newest first and add an entry with each release.
 export const UPDATE_INTROS: UpdateIntro[] = [
 	{
+		version: '1.6.2',
+		theme: '弹窗标注软件名与版本',
+		summary: '使用引导与更新说明弹窗现在会显示软件名称「Vault Doctor」和当前版本号，方便识别你打开的是哪个软件的说明。',
+		sections: [
+			{
+				title: '改进',
+				items: [
+					'使用引导与更新说明弹窗顶部都会标注软件名称「Vault Doctor」与当前版本号。',
+				],
+			},
+		],
+	},
+	{
 		version: '1.6.1',
 		theme: '所有用户都能看到使用引导',
 		summary: '修复升级老用户打开软件看不到使用引导的问题，未看过引导的用户现在都会自动弹一次；功能与 1.6.0 保持一致。',
