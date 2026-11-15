@@ -163,3 +163,19 @@ test('生产环境不执行不变量告警', () => {
 	}
 	assert.equal(warnings.length, 0);
 });
+
+// Capacitor/mobile builds have no Node `process` global. The cleanup panel is
+// reachable there through the mobile Modal fallback, so the invariant reporter
+// must skip instead of throwing ReferenceError/TypeError.
+test('缺少 process 全局时安全跳过，不抛错', () => {
+	const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'process');
+	assert.ok(descriptor, 'Node 测试环境应存在 process 全局');
+	try {
+		Object.defineProperty(globalThis, 'process', { value: undefined, configurable: true });
+		assert.equal(typeof process, 'undefined');
+		assert.doesNotThrow(() => reportCleanupInvariants(state({ scannedTabs: new Set(['overview']) })));
+	} finally {
+		Object.defineProperty(globalThis, 'process', descriptor);
+	}
+	assert.equal(typeof process, 'object');
+});

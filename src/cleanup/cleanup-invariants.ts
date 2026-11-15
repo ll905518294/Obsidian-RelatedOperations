@@ -114,7 +114,10 @@ export function duplicateSelectionsOutsideGroups(state: CleanupViewContext): str
 let lastReport = '';
 
 export function reportCleanupInvariants(state: CleanupViewContext): void {
-	if (process.env.NODE_ENV === 'production') return;
+	// Mobile (Capacitor) builds have no Node `process`. Only run the dev-time
+	// self-check when it exists; production still short-circuits.
+	const isProduction = typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+	if (isProduction) return;
 	const issues = checkCleanupInvariants(state);
 	if (issues.length === 0) {
 		lastReport = '';

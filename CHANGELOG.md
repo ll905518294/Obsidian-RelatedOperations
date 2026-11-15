@@ -1,5 +1,10 @@
 # CHANGELOG
 
+### 2026-11-15 — 1.4.5：移动端 process 守卫修复
+
+- **[修复]** 移动端（Capacitor 无 Node `process` 全局）经移动端回退 Modal → `OrphanCleanupPanel.render` → `reportCleanupInvariants` 访问 `process.env` 时抛出 `ReferenceError`。现改为 `typeof process !== 'undefined' && process.env?.NODE_ENV === 'production'` 守卫：缺少 `process` 时安全跳过开发期自检，production 仍短路。
+- **[测试]** 新增「缺少 `process` 全局时 `reportCleanupInvariants` 不抛错」的回归测试；测试基线由 261 项增至 262 项。
+
 ### 未发布 — 文档
 
 - **[文档]** README 与 `docs/runbook.md` 的截图统一改用纯合成演示库 `vault-doctor-demo` 的实拍图：`docs/images/01-dashboard.png` 至 `06-duplicate-files.png` 共 6 张全部替换为 1920×1032、深色 Border 主题、9 分类齐全（含「Wiki 笔记链接」页签）的合规截图，内容为虚构示例数据，不含真实项目/客户/公司名；README 增加「截图取自演示库，仅含示例内容」说明。
