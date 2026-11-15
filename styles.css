@@ -1534,3 +1534,64 @@ button.is-armed-confirm.mod-warning:focus-visible {
 		outline-offset: -12px;
 	}
 }
+
+/* update-intro: 版本更新欢迎弹窗（Obsidian 原生 Modal）的深色可读性收敛。
+   仅作用于 update-intro-modal 作用域，前缀限定，不污染其它组件样式。 */
+.update-intro-modal {
+	--update-intro-body-text: var(--text-normal);
+	--update-intro-muted-text: color-mix(in srgb, var(--text-muted) 82%, var(--text-normal));
+}
+
+.update-intro-modal p.update-intro-summary {
+	margin: 0.45rem 0 0.9rem;
+	color: var(--update-intro-muted-text);
+	line-height: 1.6;
+}
+
+.update-intro-modal h4.update-intro-heading {
+	margin: 0 0 0.65rem;
+	font-size: 1.06em;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+	color: var(--update-intro-body-text);
+}
+
+.update-intro-modal .update-intro-section {
+	margin: 0.7rem 0 0;
+	padding: 0.6rem 0.75rem;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+}
+
+.update-intro-modal h5.update-intro-section-title {
+	margin: 0 0 0.45rem;
+	font-size: 0.95em;
+	font-weight: 600;
+	color: var(--update-intro-body-text);
+}
+
+.update-intro-modal ul.update-intro-list {
+	margin: 0;
+	padding-left: 0;
+	list-style: none;
+}
+
+.update-intro-modal ul.update-intro-list li.update-intro-item {
+	position: relative;
+	margin: 0.3rem 0;
+	padding-left: 1.15rem;
+	line-height: 1.55;
+	color: var(--update-intro-body-text);
+}
+
+.update-intro-modal ul.update-intro-list li.update-intro-item::before {
+	content: "•";
+	position: absolute;
+	left: 0.25rem;
+	color: var(--text-muted);
+}
+
+.update-intro-modal .modal-button-container {
+	margin-top: 1.15rem;
+}

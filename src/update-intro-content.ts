@@ -1,0 +1,86 @@
+export interface UpdateIntroSection {
+	title: string;
+	items: string[];
+}
+
+export interface UpdateIntro {
+	version: string;
+	theme: string;
+	summary: string;
+	sections: UpdateIntroSection[];
+}
+
+// Release notes are bundled with the code (the community build only ships
+// main.js/manifest.json/styles.css), so every install sees the same summary.
+// Keep newest first and add an entry with each release.
+export const UPDATE_INTROS: UpdateIntro[] = [
+	{
+		version: '1.5.0',
+		theme: '版本更新欢迎',
+		summary: '新增内置的版本更新欢迎弹窗与「查看更新说明」命令，升级后可随时了解本次改动。',
+		sections: [
+			{
+				title: '新功能',
+				items: [
+					'新增「版本更新欢迎」弹窗：插件升级后首次打开时自动展示一次中文更新说明，按新功能、改进与修复分类。',
+					'弹窗提供「开始使用」按钮，关闭后即可继续使用。',
+					'新增命令「查看更新说明」，可随时从命令面板重新打开当前版本的更新说明。',
+				],
+			},
+			{
+				title: '改进',
+				items: [
+					'更新说明随插件包内置发布，不依赖网络，离线或移动端同样可查看。',
+					'同一版本的欢迎弹窗只展示一次，已查看后不会重复打扰。',
+				],
+			},
+		],
+	},
+	{
+		version: '1.4.5',
+		theme: '移动端兼容与清理面板收尾',
+		summary: '本次更新补齐了移动端的稳定性问题，并收尾体检面板的交互与可访问性细节。',
+		sections: [
+			{
+				title: '新功能',
+				items: [
+					'体检面板覆盖 9 类问题：未引用图片与附件、空文件与空文件夹、失效链接与原生链接、Wiki 笔记链接、重复文件等。',
+					'关联笔记整理支持多选源笔记、按源笔记或路径分组，并可直接移动。',
+					'Wiki 笔记链接可一键转换为标准 Markdown 链接，支持别名、标题锚点与块引用。',
+				],
+			},
+			{
+				title: '改进',
+				items: [
+					'扫描失败时在概览区保留失败分类与原因，可重新扫描重试。',
+					'列表复选框与同行可见文本关联，读屏能读出对应的文件或链接。',
+					'列表刷新或切换后恢复焦点与滚动位置，减少重复定位。',
+				],
+			},
+			{
+				title: '修复',
+				items: [
+					'修复移动端没有 Node process 全局时打开体检面板报错的问题。',
+					'修复图标按钮进入两段式删除待确认态后，读屏仍读出旧名称的问题。',
+					'修复 Wiki 链接标题中含 %、# 等字符时目标地址被错误解析的问题。',
+				],
+			},
+		],
+	},
+];
+
+function normalizeVersion(value: string | null | undefined): string {
+	return (value ?? '').trim().replace(/^v/i, '');
+}
+
+export function shouldShowIntro(installedVersion: string, lastSeenVersion: string | null | undefined): boolean {
+	const installed = normalizeVersion(installedVersion);
+	if (!installed) return false;
+	return normalizeVersion(lastSeenVersion) !== installed;
+}
+
+export function currentUpdateIntro(version: string): UpdateIntro | undefined {
+	const target = normalizeVersion(version);
+	if (!target) return undefined;
+	return UPDATE_INTROS.find((intro) => normalizeVersion(intro.version) === target);
+}

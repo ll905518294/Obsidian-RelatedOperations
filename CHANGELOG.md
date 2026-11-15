@@ -1,5 +1,9 @@
 # CHANGELOG
 
+### 未发布 — 1.5.0：版本更新欢迎弹窗
+
+- **[新功能]** 新增「版本更新欢迎」弹窗与「查看更新说明」命令：安装或升级到新版本后首次加载自动弹出一次该版本的中文更新说明（标题为「版本号 · 主题词」，按新功能/改进/修复分类，含「开始使用」按钮）；已展示的版本写入 `data.json` 的 `lastSeenVersion`，同一版本不再重复弹出；随时可在命令面板搜索「查看更新说明」重新打开当前版本的说明。更新说明随插件包内置，不依赖网络。
+
 ### 2026-11-15 — 1.4.5：移动端 process 守卫修复
 
 - **[修复]** 移动端（Capacitor 无 Node `process` 全局）经移动端回退 Modal → `OrphanCleanupPanel.render` → `reportCleanupInvariants` 访问 `process.env` 时抛出 `ReferenceError`。现改为 `typeof process !== 'undefined' && process.env?.NODE_ENV === 'production'` 守卫：缺少 `process` 时安全跳过开发期自检，production 仍短路。

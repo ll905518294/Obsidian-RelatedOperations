@@ -8,6 +8,8 @@ import { OrphanCleanupModal } from './orphan-cleanup';
 import { ORPHAN_CLEANUP_VIEW_TYPE, OrphanCleanupView } from './orphan-cleanup-view';
 import { openInSystemFolder } from './cleanup/cleanup-actions';
 import { groupingModeFromLegacy, isPathInFolder, normalizeSettings } from './core-utils';
+import { currentUpdateIntro, shouldShowIntro } from './update-intro-content';
+import { UpdateIntroModal } from './update-intro';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
@@ -36,6 +38,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.addSettingTab(new RelatedOperationsSettingTab(this.app, this));
 		this.registerNotebookNavigatorMenus();
 		this.app.workspace.onLayoutReady(() => this.retryNotebookNavigatorRegistration());
+		this.app.workspace.onLayoutReady(() => void this.maybeShowUpdateIntro());
 		this.addCommand({
 			id: 'move-related-notes',
 			name: '整理关联笔记',
@@ -51,6 +54,11 @@ export default class RelatedOperationsPlugin extends Plugin {
 			id: 'scan-and-clean-orphan-resources',
 			name: '打开 vault 体检与清理',
 			callback: () => void this.openOrphanCleanupWindow(),
+		});
+		this.addCommand({
+			id: 'open-update-intro',
+			name: '查看更新说明',
+			callback: () => this.openUpdateIntro(),
 		});
 
 		this.addRibbonIcon('move', '整理关联笔记', () => {
@@ -96,6 +104,26 @@ export default class RelatedOperationsPlugin extends Plugin {
 				);
 			}),
 		);
+	}
+
+	private openUpdateIntro() {
+		const version = this.manifest.version;
+		const intro = currentUpdateIntro(version);
+		if (!intro) {
+			new Notice(`当前版本 ${version} 暂无内置更新说明。`);
+			return;
+		}
+		new UpdateIntroModal(this.app, intro).open();
+	}
+
+	private async maybeShowUpdateIntro() {
+		const version = this.manifest.version;
+		if (!shouldShowIntro(version, this.settings.lastSeenVersion)) return;
+		const intro = currentUpdateIntro(version);
+		if (!intro) return;
+		new UpdateIntroModal(this.app, intro).open();
+		this.settings.lastSeenVersion = version;
+		await this.saveSettings();
 	}
 
 	private async openRelatedNotesWindow(sourceFiles: TFile[]) {

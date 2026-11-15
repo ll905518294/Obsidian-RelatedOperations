@@ -2,7 +2,7 @@
 	"id": "vault-doctor",
 	"name": "Vault Doctor",
 	"author": "ll905518294",
-	"version": "1.4.5",
+	"version": "1.5.0",
 	"minAppVersion": "1.13.0",
 	"description": "Scan your vault for broken links, unreferenced resources and duplicate files, then safely organize related notes.",
 	"isDesktopOnly": false

@@ -1,0 +1,48 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { UPDATE_INTROS, currentUpdateIntro, shouldShowIntro } from '../src/update-intro-content.ts';
+
+test('首次安装或版本变化时显示，同版本不重复显示', () => {
+	assert.equal(shouldShowIntro('1.4.5', ''), true, 'lastSeenVersion 为空时应显示');
+	assert.equal(shouldShowIntro('1.4.5', undefined), true);
+	assert.equal(shouldShowIntro('1.4.5', '1.4.5'), false, '同版本不得重复弹出');
+	assert.equal(shouldShowIntro('1.4.5', '1.4.4'), true, '升级到新版本应显示');
+});
+
+test('忽略空白与前导 v，避免同一版本被误判为升级', () => {
+	assert.equal(shouldShowIntro(' 1.4.5 ', 'v1.4.5'), false);
+	assert.equal(shouldShowIntro('v1.4.5', '1.4.5'), false);
+	assert.equal(shouldShowIntro('1.4.5', ' V1.4.5 '), false);
+});
+
+test('缺少已安装版本时不显示', () => {
+	assert.equal(shouldShowIntro('', '1.4.4'), false);
+	assert.equal(shouldShowIntro('   ', '1.4.4'), false);
+});
+
+test('按版本查询内置说明，兼容前导 v', () => {
+	const intro = currentUpdateIntro('1.4.5');
+	assert.ok(intro);
+	assert.equal(intro.version, '1.4.5');
+	assert.equal(currentUpdateIntro('v1.4.5'), intro);
+	assert.equal(currentUpdateIntro('9.9.9'), undefined);
+	assert.equal(currentUpdateIntro(''), undefined);
+});
+
+test('内置说明内容完整可渲染', () => {
+	assert.ok(UPDATE_INTROS.length > 0);
+	const versions = new Set();
+	for (const intro of UPDATE_INTROS) {
+		assert.match(intro.version, /^\d+\.\d+\.\d+$/, `版本号格式：${intro.version}`);
+		assert.equal(versions.has(intro.version), false, `版本说明不得重复：${intro.version}`);
+		versions.add(intro.version);
+		assert.ok(intro.theme.trim(), '主题词不能为空');
+		assert.ok(intro.summary.trim(), '简介不能为空');
+		assert.ok(intro.sections.length > 0, '至少一个更新分类');
+		for (const section of intro.sections) {
+			assert.ok(section.title.trim(), '分类标题不能为空');
+			assert.ok(section.items.length > 0, `分类「${section.title}」不能为空`);
+			for (const item of section.items) assert.ok(item.trim(), '要点不能为空');
+		}
+	}
+});

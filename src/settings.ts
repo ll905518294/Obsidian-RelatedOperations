@@ -7,6 +7,7 @@ export interface RelatedOperationsSettings {
 	hideCompliant: boolean;
 	orphanImageExtensions: string;
 	orphanIgnoredFolders: string;
+	lastSeenVersion: string;
 	orphanCleanupCache?: OrphanCleanupCache;
 }
 
@@ -25,6 +26,7 @@ export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	hideCompliant: true,
 	orphanImageExtensions: 'png, jpg, jpeg, gif, webp, svg, bmp, avif, ico',
 	orphanIgnoredFolders: '',
+	lastSeenVersion: '',
 };
 
 
