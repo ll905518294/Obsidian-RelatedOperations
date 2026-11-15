@@ -235,15 +235,22 @@ function duplicateFiles() {
 const threeBytes = new Uint8Array([1, 2, 3]);
 const replacedBytes = new Uint8Array([9, 9, 9]);
 
-test('refuses to delete every file of a duplicate group', async () => {
+test('deletes every file of a fully selected duplicate group when they still match', async () => {
 	const files = duplicateFiles();
 	const contents = { 'a.png': threeBytes, 'b.png': threeBytes };
 	const plan = await planDuplicateDeletion(appFor(files, contents), [duplicateGroup(files)], ['a.png', 'b.png']);
-	assert.deepEqual(plan.deletable, []);
-	assert.deepEqual(plan.skipped, [
-		{ path: 'a.png', reason: '每组至少保留 1 个文件' },
-		{ path: 'b.png', reason: '每组至少保留 1 个文件' },
-	]);
+	assert.deepEqual(plan.deletable.map((file) => file.path), ['a.png', 'b.png']);
+	assert.deepEqual(plan.skipped, []);
+});
+
+test('skips only the changed file when a fully selected group no longer matches', async () => {
+	const files = duplicateFiles();
+	// The first selected file is the reference copy; b.png changed after the
+	// scan, so it is skipped while a.png still deletes.
+	const contents = { 'a.png': threeBytes, 'b.png': replacedBytes };
+	const plan = await planDuplicateDeletion(appFor(files, contents), [duplicateGroup(files)], ['a.png', 'b.png']);
+	assert.deepEqual(plan.deletable.map((file) => file.path), ['a.png']);
+	assert.deepEqual(plan.skipped, [{ path: 'b.png', reason: '文件内容已变化，请重新扫描' }]);
 });
 
 test('keeps the unselected copy and only lets selected duplicates through', async () => {

@@ -38,9 +38,10 @@ export async function moveSelected(host: RelatedNotesMoveHost) {
 		return;
 	}
 	const selectedFiles = [...new Map(selected.map((note) => [note.file.path, note.file])).values()];
+	const paths = createPathIndex(host.app);
 	const conflicts = selectedFiles.filter((file) => {
 		const destination = normalizePath(`${targetFolder}/${file.name}`);
-		return destination.toLowerCase() !== file.path.toLowerCase() && pathExistsCaseInsensitive(host.app, destination);
+		return destination.toLowerCase() !== file.path.toLowerCase() && paths.has(destination);
 	});
 	const movable = selectedFiles.filter((file) => !conflicts.includes(file) && !isAlreadyAtTarget(file, host.targetFolder()));
 	if (movable.length === 0) {
@@ -62,6 +63,7 @@ export async function moveSelected(host: RelatedNotesMoveHost) {
 
 export async function undoLastMove(host: RelatedNotesMoveHost) {
 	if (host.lastMove().length === 0) return;
+	const paths = createPathIndex(host.app);
 	const restored: string[] = [];
 	const skipped: string[] = [];
 	const failed: Array<{ path: string; reason: string }> = [];
@@ -73,15 +75,17 @@ export async function undoLastMove(host: RelatedNotesMoveHost) {
 			remaining.push(record);
 			continue;
 		}
-		if (pathExistsCaseInsensitive(host.app, record.from)) {
+		if (paths.has(record.from)) {
 			skipped.push(record.from);
 			remaining.push(record);
 			continue;
 		}
 		try {
 			const folder = parentFolder(record.from);
-			if (folder) await ensureFolder(host.app, folder);
+			if (folder) await ensureFolder(host.app, folder, (created) => paths.add(created));
 			await host.app.fileManager.renameFile(file, record.from);
+			paths.remove(record.to);
+			paths.add(record.from);
 			restored.push(record.from);
 		} catch (error) {
 			failed.push({ path: record.from, reason: error instanceof Error ? error.message : '未知错误' });
@@ -103,21 +107,27 @@ export async function moveFiles(
 	initiallySkipped: string[] = [],
 ): Promise<MoveResult> {
 	const result: MoveResult = { succeeded: [], skipped: initiallySkipped, failed: [], moved: [] };
+	// Snapshot the vault once: checking every destination against the live file
+	// list is O(files × selected) and stalls large batches. Our own renames keep
+	// the index in sync, so two selected files never overwrite each other.
+	const paths = createPathIndex(host.app);
 	try {
-		await ensureFolder(host.app, targetFolder);
+		await ensureFolder(host.app, targetFolder, (created) => paths.add(created));
 	} catch {
 		result.failed.push({ path: targetFolder, reason: '无法创建或访问目标文件夹' });
 		return result;
 	}
 	for (const file of selected) {
 		const destination = normalizePath(`${targetFolder}/${file.name}`);
-		if (destination.toLowerCase() === file.path.toLowerCase() || pathExistsCaseInsensitive(host.app, destination)) {
+		if (destination.toLowerCase() === file.path.toLowerCase() || paths.has(destination)) {
 			result.skipped.push(file.path);
 			continue;
 		}
 		try {
 			const previousPath = file.path;
 			await host.app.fileManager.renameFile(file, destination);
+			paths.remove(previousPath);
+			paths.add(destination);
 			result.succeeded.push(file.path);
 			result.moved.push({ from: previousPath, to: destination });
 		} catch (error) {
@@ -132,12 +142,17 @@ export async function moveFiles(
 	return result;
 }
 
-function pathExistsCaseInsensitive(app: App, path: string) {
-	const normalized = path.toLowerCase();
-	return app.vault.getAllLoadedFiles().some((file) => file.path.toLowerCase() === normalized);
+function createPathIndex(app: App) {
+	const paths = new Set<string>();
+	for (const file of app.vault.getAllLoadedFiles()) paths.add(file.path.toLowerCase());
+	return {
+		has(path: string) { return paths.has(path.toLowerCase()); },
+		add(path: string) { paths.add(path.toLowerCase()); },
+		remove(path: string) { paths.delete(path.toLowerCase()); },
+	};
 }
 
-async function ensureFolder(app: App, path: string) {
+async function ensureFolder(app: App, path: string, onCreated?: (path: string) => void) {
 	let current = '';
 	for (const segment of path.split('/').filter(Boolean)) {
 		current = current ? `${current}/${segment}` : segment;
@@ -145,5 +160,6 @@ async function ensureFolder(app: App, path: string) {
 		if (existing instanceof TFolder) continue;
 		if (existing) throw new Error(`Path is not a folder: ${current}`);
 		await app.vault.createFolder(current);
+		onCreated?.(current);
 	}
 }

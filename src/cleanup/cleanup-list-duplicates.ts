@@ -5,6 +5,7 @@ import { formatBytes, isImageFile, openFolderInVault, openInSystemFolder, parent
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
 import { associateCheckbox } from './cleanup-a11y';
+import { requireSecondClick } from './cleanup-confirm-button';
 
 export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLElement, groups: DuplicateFileGroup[]) {
 	for (const group of groups) {
@@ -87,7 +88,7 @@ export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLE
 				const remove = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
 				remove.disabled = host.scanningTabs.has('duplicates') || host.dirtyTabs.has('duplicates');
 				setIcon(remove, 'trash-2'); remove.title = '删除图片'; remove.setAttribute('aria-label', '删除图片');
-				remove.addEventListener('click', () => void host.deleteDuplicateFile(file));
+				requireSecondClick(remove, () => host.deleteDuplicateFile(file));
 			}
 			const openFolder = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
 			setIcon(openFolder, 'folder-open'); openFolder.title = '打开所在文件夹'; openFolder.setAttribute('aria-label', '打开所在文件夹');

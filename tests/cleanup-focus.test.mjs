@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { captureViewSnapshot, restoreViewSnapshot } from '../src/cleanup/cleanup-focus.ts';
+import { captureViewSnapshot, restoreViewSnapshot, withFocusPreserved } from '../src/cleanup/cleanup-focus.ts';
 
 class Doc {
 	activeElement = null;
@@ -149,4 +149,20 @@ test('没有滚动容器时恢复根节点 scrollTop', () => {
 	root.scrollTop = 0;
 	restoreViewSnapshot(root, snapshot, true);
 	assert.equal(root.scrollTop, 96);
+});
+
+test('withFocusPreserved 重建后恢复到同序号节点', () => {
+	const { doc, root } = makeRoot();
+	makeTab(root, '刷新', '刷新标签');
+	const second = makeTab(root, '刷新', '刷新标签');
+	doc.activeElement = second;
+
+	withFocusPreserved(root, () => {
+		root.empty();
+		makeTab(root, '刷新', '刷新标签');
+		makeTab(root, '刷新', '刷新标签');
+	});
+
+	assert.equal(doc.activeElement.textContent, '刷新');
+	assert.equal(doc.activeElement, root.children[1]);
 });

@@ -465,6 +465,22 @@ test('moveFiles skips an existing same-name destination instead of renaming over
 	assert.equal(occupant.path, 'archive/t.md');
 });
 
+// Two selected notes can share a name from different folders. The first move
+// creates the destination, so the second must be reported as skipped instead
+// of overwriting it.
+test('moveFiles skips the second of two selected files that share a name', async () => {
+	const a = file('src/a.md');
+	const x = file('x/dup.md');
+	const y = file('y/dup.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, x, y] });
+	const result = await panel.moveFiles('archive', [x, y]);
+	assert.deepEqual(result.succeeded, ['archive/dup.md']);
+	assert.deepEqual(result.skipped, ['y/dup.md']);
+	assert.deepEqual(renamed, [['x/dup.md', 'archive/dup.md']]);
+	assert.equal(x.path, 'archive/dup.md');
+	assert.equal(y.path, 'y/dup.md');
+});
+
 test('moveSelected reports same-name conflicts without calling renameFile', async () => {
 	Notice.messages = [];
 	const a = file('src/a.md');
@@ -489,6 +505,19 @@ test('undoLastMove returns the last batch to the original paths', async () => {
 	assert.equal(t.path, 'archive/t.md');
 	await panel.undoLastMove();
 	assert.equal(t.path, 'dst/t.md');
+	assert.deepEqual(renamed, [['dst/t.md', 'archive/t.md'], ['archive/t.md', 'dst/t.md']]);
+});
+
+test('undoLastMove recreates the original folder before restoring', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	await panel.moveFiles('archive', [t]);
+	assert.equal(t.path, 'archive/t.md');
+	assert.equal(panel.app.vault.getAllLoadedFiles().some((item) => item instanceof TFolder && item.path === 'dst'), false);
+	await panel.undoLastMove();
+	assert.equal(t.path, 'dst/t.md');
+	assert.equal(panel.app.vault.getAllLoadedFiles().some((item) => item instanceof TFolder && item.path === 'dst'), true);
 	assert.deepEqual(renamed, [['dst/t.md', 'archive/t.md'], ['archive/t.md', 'dst/t.md']]);
 });
 

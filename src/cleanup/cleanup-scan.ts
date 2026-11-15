@@ -3,6 +3,7 @@ import { hasHiddenPathSegment, isFrontmatterOnly, isIgnoredPath, needsRawTextSea
 import { findBrokenImageLinks } from '../broken-image-links';
 import { findBrokenNoteLinks } from '../broken-note-links';
 import { findNativeImageLinks } from '../native-image-links';
+import { findWikiNoteLinks } from '../wiki-note-links';
 import { findDuplicateFiles } from '../duplicate-files';
 import { byPath } from './cleanup-actions';
 import { COMMON_IMAGE_EXTENSIONS, type CleanupCandidates, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
@@ -94,7 +95,9 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	const brokenLinks = checkLinksAndDuplicates ? findBrokenImageLinks(app, imageExtensions) : [];
 	const nativeLinks = checkLinksAndDuplicates ? findNativeImageLinks(app, imageExtensions) : [];
 	const brokenNoteLinks = checkLinksAndDuplicates ? findBrokenNoteLinks(app, imageExtensions) : [];
+	const wikiLinks = checkLinksAndDuplicates ? findWikiNoteLinks(app) : [];
 	onCategoryComplete?.(['broken-links', 'native-links', 'broken-note-links'], { brokenLinks, nativeLinks, brokenNoteLinks });
+	onCategoryComplete?.(['wiki-links'], { wikiLinks });
 	onProgress?.({ stage: 5, processed: 0, total: 1 });
 	const duplicateResult = checkLinksAndDuplicates ? await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress })) : { groups: [], warnings: [] };
 	onCategoryComplete?.(['duplicates'], { duplicates: duplicateResult.groups, duplicateWarnings: duplicateResult.warnings });
@@ -106,6 +109,7 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 		brokenLinks,
 		nativeLinks,
 		brokenNoteLinks,
+		wikiLinks,
 		duplicates: duplicateResult.groups,
 		duplicateWarnings: duplicateResult.warnings,
 	};

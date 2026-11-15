@@ -24,8 +24,7 @@ function canFocus(element: Element | null): element is HTMLElement {
 	return !!element && typeof (element as HTMLElement).focus === 'function';
 }
 
-function captureFocus(root: HTMLElement): FocusSnapshot | null {
-	const active = root.ownerDocument?.activeElement;
+function captureFocus(root: HTMLElement, active: Element | null): FocusSnapshot | null {
 	if (!active || active === root || !root.contains(active) || !canFocus(active)) return null;
 	const tag = active.tagName;
 	const key = focusKey(active);
@@ -42,23 +41,16 @@ function restoreFocus(root: HTMLElement, snapshot: FocusSnapshot | null): void {
 }
 
 export function withFocusPreserved(root: HTMLElement, render: () => void): void {
-	const snapshot = captureFocus(root);
+	const snapshot = captureFocus(root, root.ownerDocument?.activeElement);
 	render();
 	restoreFocus(root, snapshot);
 }
 
 export function captureViewSnapshot(contentEl: HTMLElement): CleanupViewSnapshot | null {
-	const active = contentEl.ownerDocument?.activeElement;
-	let tag = '';
-	let key = '';
-	let index = 0;
-	if (active && active !== contentEl && contentEl.contains(active) && canFocus(active)) {
-		tag = active.tagName;
-		key = focusKey(active);
-		const peers = Array.from(contentEl.querySelectorAll<HTMLElement>(tag)).filter((element) => focusKey(element) === key);
-		const found = peers.indexOf(active);
-		index = found >= 0 ? found : 0;
-	}
+	const focus = captureFocus(contentEl, contentEl.ownerDocument?.activeElement);
+	const tag = focus?.tag ?? '';
+	const key = focus?.key ?? '';
+	const index = focus?.index ?? 0;
 	const scroller = contentEl.querySelector<HTMLElement>('.orphan-cleanup-scroll');
 	const scrollTop = (scroller ?? contentEl).scrollTop;
 	if (!tag && !scrollTop) return null;

@@ -4,6 +4,7 @@ import { byPath, formatBytes, openInSystemFolder, parentFolder } from './cleanup
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
 import { associateCheckbox } from './cleanup-a11y';
+import { requireSecondClick } from './cleanup-confirm-button';
 
 export function renderImageGrid(host: CleanupViewContext, container: HTMLElement, items: TFile[], allItems: TFile[]) {
 	const grid = container.createDiv({ cls: 'orphan-cleanup-grid' });
@@ -32,7 +33,7 @@ export function renderImageCard(host: CleanupViewContext, container: HTMLElement
 	deleteButton.disabled = host.scanningTabs.has('images') || host.dirtyTabs.has('images');
 	deleteButton.type = 'button';
 	deleteButton.title = '移入回收站';
-	deleteButton.addEventListener('click', () => void host.trashSingleImage(file));
+	requireSecondClick(deleteButton, () => host.trashSingleImage(file));
 	const openFolder = header.createEl('button', { cls: 'orphan-cleanup-open-folder' });
 	openFolder.type = 'button';
 	openFolder.title = '打开所在文件夹';

@@ -7,6 +7,7 @@ export function categoryCount(candidates: CleanupCandidates, tab: ScanCategoryTa
 		case 'broken-links': return candidates.brokenLinks.length;
 		case 'native-links': return candidates.nativeLinks.length;
 		case 'broken-note-links': return candidates.brokenNoteLinks.length;
+		case 'wiki-links': return candidates.wikiLinks.length;
 		case 'empty-files': return candidates.emptyFiles.length;
 		case 'folders': return candidates.folders.length;
 		case 'duplicates': return candidates.duplicates.length;

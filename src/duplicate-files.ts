@@ -155,10 +155,12 @@ export async function removeImageReferencesForFile(app: App, filePath: string) {
  * Re-checks the selected duplicate files right before deletion.
  *
  * Two guarantees:
- * - A group always keeps at least one file; selecting every copy is refused.
- * - A file is deleted only if its current bytes still equal one unselected
- *   copy in the same group. If the content changed after the scan (or the
- *   kept copy disappeared), the file is skipped instead of deleted.
+ * - When part of a group is selected, each selected file must still match an
+ *   unselected copy in the same group.
+ * - When every file of a group is selected, the selected files must still
+ *   match each other, so deleting the whole group only removes one logical
+ *   copy of the content.
+ * Files whose bytes changed after the scan are skipped instead of deleted.
  */
 export async function planDuplicateDeletion(
 	app: App,
@@ -174,18 +176,17 @@ export async function planDuplicateDeletion(
 		const candidates = group.files.filter((file) => selected.has(file.path));
 		if (candidates.length === 0) continue;
 		const keepers = group.files.filter((file) => !selected.has(file.path));
-		if (keepers.length === 0) {
-			for (const file of candidates) skipped.push({ path: file.path, reason: '每组至少保留 1 个文件' });
-			continue;
-		}
 		let keeperHash: string;
 		let keeperSize: number;
 		try {
-			const bytes = await app.vault.readBinary(resolveFile(app, keepers[0]!.path));
+			// With the whole group selected there is no keeper to compare
+			// against, so the first selected file becomes the reference copy.
+			const reference = keepers[0] ?? candidates[0]!;
+			const bytes = await app.vault.readBinary(resolveFile(app, reference.path));
 			keeperSize = bytes.byteLength;
 			keeperHash = await digestBytes(bytes);
 		} catch (error) {
-			for (const file of candidates) skipped.push({ path: file.path, reason: `无法读取保留文件：${reasonOf(error)}` });
+			for (const file of candidates) skipped.push({ path: file.path, reason: keepers.length ? `无法读取保留文件：${reasonOf(error)}` : `无法读取参照文件：${reasonOf(error)}` });
 			continue;
 		}
 		for (const file of candidates) {

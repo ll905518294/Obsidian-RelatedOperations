@@ -2,6 +2,7 @@ import type { App, TFile, TFolder } from 'obsidian';
 import type { BrokenImageLink } from '../broken-image-links';
 import type { BrokenNoteLink } from '../broken-note-links';
 import type { NativeImageLink } from '../native-image-links';
+import type { WikiNoteLink } from '../wiki-note-links';
 import type { DuplicateFileGroup } from '../duplicate-files';
 import type { OrphanCleanupCache } from '../settings';
 
@@ -17,11 +18,12 @@ export interface CleanupCandidates {
 	brokenLinks: BrokenImageLink[];
 	nativeLinks: NativeImageLink[];
 	brokenNoteLinks: BrokenNoteLink[];
+	wikiLinks: WikiNoteLink[];
 	duplicates: DuplicateFileGroup[];
 	duplicateWarnings: Array<{ path: string; reason: string }>;
 }
 
-export type { BrokenImageLink, BrokenNoteLink, NativeImageLink };
+export type { BrokenImageLink, BrokenNoteLink, NativeImageLink, WikiNoteLink };
 
 export interface CleanupResult {
 	deleted: string[];
@@ -36,7 +38,7 @@ export interface OrphanImageExtensions {
 
 export type ScanStage = { label: string; state: 'pending' | 'scanning' | 'done'; elapsedMs: number; startedAt?: number };
 export type ScanProgress = { stage: number; processed: number; total: number; currentFile?: string };
-export type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'native-links' | 'broken-note-links' | 'empty-files' | 'folders' | 'duplicates';
+export type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'native-links' | 'broken-note-links' | 'wiki-links' | 'empty-files' | 'folders' | 'duplicates';
 export type ScanCategoryTab = Exclude<CleanupTab, 'overview'>;
 
 export interface CleanupScanError {
@@ -48,8 +50,9 @@ export const CLEANUP_CATEGORIES: Array<{ tab: ScanCategoryTab; label: string; de
 	{ tab: 'images', label: '未引用图片', description: '未被任何笔记引用的图片资源', icon: 'image' },
 	{ tab: 'attachments', label: '未引用附件', description: '未被引用的非图片附件', icon: 'paperclip' },
 	{ tab: 'broken-links', label: '失效图片链接', description: '指向不存在目标文件的图片链接', icon: 'unlink' },
-	{ tab: 'native-links', label: '原生图片链接', description: '尚未转为 Wiki 链接的图片引用', icon: 'file-image' },
+	{ tab: 'native-links', label: '原生图片链接', description: '尚未转为标准 Markdown 图片链接的 Wiki 图片嵌入', icon: 'file-image' },
 	{ tab: 'broken-note-links', label: '失效笔记链接', description: '指向不存在笔记的内部链接', icon: 'help-circle' },
+	{ tab: 'wiki-links', label: 'Wiki 笔记链接', description: '尚未转为标准 Markdown 链接的 Wiki 引用', icon: 'link' },
 	{ tab: 'empty-files', label: '空文件', description: '内容为空且未被引用的文件', icon: 'file-minus' },
 	{ tab: 'folders', label: '空文件夹', description: '仅包含空子目录的文件夹', icon: 'folder-minus' },
 	{ tab: 'duplicates', label: '重复文件', description: '内容哈希相同的文件组', icon: 'copy' },
@@ -69,6 +72,7 @@ export interface CleanupViewContext {
 	linkSelections: Set<string>;
 	nativeSelections: Set<string>;
 	noteLinkSelections: Set<string>;
+	wikiSelections: Set<string>;
 	duplicateSelections: Set<string>;
 	scanning: boolean;
 	hasScanned: boolean;

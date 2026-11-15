@@ -3,6 +3,7 @@ import type { CleanupViewContext } from './cleanup-types';
 import { brokenLinkKey, findBrokenLinkOffset, type BrokenImageLink } from '../broken-image-links';
 import { brokenNoteLinkKey, findBrokenNoteLinkOffset, type BrokenNoteLink } from '../broken-note-links';
 import { convertNativeImageLink, nativeImageLinkKey, nativeImageLinkOffset, type NativeImageLink } from '../native-image-links';
+import { convertWikiNoteLink, wikiNoteLinkKey, wikiNoteLinkOffset, type WikiNoteLink } from '../wiki-note-links';
 import { updateSelectionSummary } from './cleanup-list-actions';
 import { associateCheckbox } from './cleanup-a11y';
 
@@ -44,6 +45,32 @@ export function renderNativeLinkList(host: CleanupViewContext, container: HTMLEl
 		});
 		const locate = row.createEl('td').createEl('button', { text: '定位' });
 		locate.addEventListener('click', () => void locateNativeLink(host.app, link));
+	}
+}
+
+export function renderWikiLinkList(host: CleanupViewContext, container: HTMLElement, links: WikiNoteLink[]) {
+	const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
+	const header = table.createEl('thead').createEl('tr');
+	for (const text of ['选择', '源笔记', 'Wiki 链接', 'Markdown 链接', '操作']) header.createEl('th', { text });
+	const body = table.createEl('tbody');
+	for (const link of links) {
+		const row = body.createEl('tr');
+		const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });
+		checkbox.checked = host.wikiSelections.has(wikiNoteLinkKey(link));
+		checkbox.setAttribute('aria-label', `选择 ${link.sourcePath} 中的 Wiki 笔记链接`);
+		checkbox.disabled = !convertWikiNoteLink(link);
+		checkbox.addEventListener('change', () => { if (checkbox.checked) host.wikiSelections.add(wikiNoteLinkKey(link)); else host.wikiSelections.delete(wikiNoteLinkKey(link)); updateSelectionSummary(host); });
+		const sourceCell = row.createEl('td', { cls: 'orphan-cleanup-path' });
+		const source = sourceCell.createEl('a', { text: link.sourcePath, cls: 'orphan-cleanup-link' });
+		source.addEventListener('click', (event) => {
+			event.preventDefault();
+			void host.app.workspace.openLinkText(link.sourcePath, '', 'tab');
+		});
+		const originalCell = row.createEl('td', { text: link.original, cls: 'orphan-cleanup-detail' });
+		associateCheckbox(checkbox, [source, originalCell]);
+		row.createEl('td', { text: convertWikiNoteLink(link) ?? '未解析目标', cls: 'orphan-cleanup-detail' });
+		const locate = row.createEl('td').createEl('button', { text: '定位' });
+		locate.addEventListener('click', () => void locateWikiLink(host.app, link));
 	}
 }
 
@@ -117,6 +144,16 @@ async function locateNativeLink(owner: CleanupViewContext['app'], link: NativeIm
 	const view = owner.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) return;
 	const range = nativeImageLinkOffset(view.editor.getValue(), link);
+	if (!range) { new Notice('笔记内容已变化，请重新扫描。'); return; }
+	const from = view.editor.offsetToPos(range.start); const to = view.editor.offsetToPos(range.end);
+	view.editor.setSelection(from, to); view.editor.scrollIntoView({ from, to }, true);
+}
+
+async function locateWikiLink(owner: CleanupViewContext['app'], link: WikiNoteLink) {
+	await owner.workspace.openLinkText(link.sourcePath, '', false, { state: { mode: 'source' } });
+	const view = owner.workspace.getActiveViewOfType(MarkdownView);
+	if (!view) return;
+	const range = wikiNoteLinkOffset(view.editor.getValue(), link);
 	if (!range) { new Notice('笔记内容已变化，请重新扫描。'); return; }
 	const from = view.editor.offsetToPos(range.start); const to = view.editor.offsetToPos(range.end);
 	view.editor.setSelection(from, to); view.editor.scrollIntoView({ from, to }, true);

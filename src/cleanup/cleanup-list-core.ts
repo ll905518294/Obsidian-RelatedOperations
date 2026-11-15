@@ -4,10 +4,11 @@ import { CLEANUP_PAGE_SIZE } from './cleanup-types';
 import { brokenLinkKey } from '../broken-image-links';
 import { brokenNoteLinkKey } from '../broken-note-links';
 import { convertNativeImageLink, nativeImageLinkKey } from '../native-image-links';
+import { convertWikiNoteLink, wikiNoteLinkKey } from '../wiki-note-links';
 import { addReportControls } from './cleanup-flows';
 import { clampPageIndex, pageCount } from './cleanup-selectors';
 import { addGroupingControl, groupedItems, renderImageGrid, renderItemRow } from './cleanup-list-images';
-import { renderBrokenLinkList, renderBrokenNoteLinkList, renderNativeLinkList } from './cleanup-list-links';
+import { renderBrokenLinkList, renderBrokenNoteLinkList, renderNativeLinkList, renderWikiLinkList } from './cleanup-list-links';
 import { renderDuplicateGroups } from './cleanup-list-duplicates';
 import { updateSelectionSummary } from './cleanup-list-actions';
 
@@ -46,13 +47,16 @@ export function renderList(host: CleanupViewContext) {
 	}
 	if (host.activeTab === 'images' || host.activeTab === 'attachments') addGroupingControl(host, toolbar);
 
-	if (currentTab === 'broken-links' || currentTab === 'native-links' || currentTab === 'broken-note-links') {
+	if (currentTab === 'broken-links' || currentTab === 'native-links' || currentTab === 'broken-note-links' || currentTab === 'wiki-links') {
 		const native = currentTab === 'native-links';
 		const note = currentTab === 'broken-note-links';
+		const wiki = currentTab === 'wiki-links';
 		if (note) {
 			renderLinkTab(host, toolbar, content, host.candidates.brokenNoteLinks, host.noteLinkSelections, brokenNoteLinkKey, '没有发现失效笔记链接。', (items) => renderBrokenNoteLinkList(host, content, items));
 		} else if (native) {
 			renderLinkTab(host, toolbar, content, host.candidates.nativeLinks, host.nativeSelections, nativeImageLinkKey, '没有发现原生图片链接。', (items) => renderNativeLinkList(host, content, items), (item) => Boolean(convertNativeImageLink(item)));
+		} else if (wiki) {
+			renderLinkTab(host, toolbar, content, host.candidates.wikiLinks, host.wikiSelections, wikiNoteLinkKey, '没有发现 Wiki 笔记链接。', (items) => renderWikiLinkList(host, content, items), (item) => Boolean(convertWikiNoteLink(item)));
 		} else {
 			renderLinkTab(host, toolbar, content, host.candidates.brokenLinks, host.linkSelections, brokenLinkKey, '没有发现失效图片链接。', (items) => renderBrokenLinkList(host, content, items));
 		}

@@ -3,23 +3,24 @@ import { parseIgnoredFolders } from '../core-utils';
 import { findBrokenImageLinks } from '../broken-image-links';
 import { findBrokenNoteLinks } from '../broken-note-links';
 import { findNativeImageLinks } from '../native-image-links';
+import { findWikiNoteLinks } from '../wiki-note-links';
 import { findDuplicateFiles, removeFileReferencesForFiles, removeImageReferencesForFile, type DuplicateFileGroup } from '../duplicate-files';
 import type { OrphanCleanupCache, RelatedOperationsSettings } from '../settings';
 import { CLEANUP_CATEGORIES, type CleanupCandidates, type CleanupScanError, type CleanupTab, type ImageGrouping, type OrphanCleanupHost, type OrphanCleanupOptions, type OrphanImageExtensions, type ScanCategoryTab, type ScanProgress, type ScanStage } from './cleanup-types';
 import { byPath, reasonFor } from './cleanup-actions';
 import { collectCleanupFileSets, findCleanupCandidates, findEmptyFiles, findRecursivelyEmptyFolders, markFilesReferencedByText, referencedByCanvas } from './cleanup-scan';
-import { CleanupConfirmationModal } from './cleanup-modals';
 import { categoryStatus, renderHelp, renderOverview, renderProcessedSummary, renderTabs, tabEntries, updateScanProgress } from './cleanup-dashboard';
 import { renderActions, renderList, updateSelectionSummary } from './cleanup-list-ui';
 import { revalidateCleanupSelection } from './cleanup-flows';
 import { reportCleanupInvariants } from './cleanup-invariants';
 import { captureViewSnapshot, restoreViewSnapshot } from './cleanup-focus';
 export class OrphanCleanupPanel extends Component {
-	candidates: CleanupCandidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], duplicates: [], duplicateWarnings: [] };
+	candidates: CleanupCandidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], wikiLinks: [], duplicates: [], duplicateWarnings: [] };
 	selections = new Set<string>();
 	linkSelections = new Set<string>();
 	nativeSelections = new Set<string>();
 	noteLinkSelections = new Set<string>();
+	wikiSelections = new Set<string>();
 	duplicateSelections = new Set<string>();
 	activeTab: CleanupTab = 'overview';
 	imageGrouping: ImageGrouping = 'none';
@@ -59,7 +60,7 @@ export class OrphanCleanupPanel extends Component {
 			this.refreshSourceLinks([file]);
 			if (before === this.linkResultsKey()) return;
 			this.saveCacheToSettings();
-			if (['overview', 'broken-links', 'native-links', 'broken-note-links'].includes(this.activeTab)) this.renderContents();
+			if (['overview', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links'].includes(this.activeTab)) this.renderContents();
 			else this.updateTabCounts();
 		}));
 		this.registerEvent(this.app.metadataCache.on('resolved', () => {
@@ -67,17 +68,18 @@ export class OrphanCleanupPanel extends Component {
 			this.markTabDirty('attachments');
 			this.markTabDirty('empty-files');
 			this.markTabDirty('native-links');
+			this.markTabDirty('wiki-links');
 			if (!this.hasScanned || this.scanning) return;
 			const before = this.linkResultsKey();
 			this.candidates.brokenLinks = this.candidates.brokenLinks.filter((link) => !this.app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath));
 			this.candidates.brokenNoteLinks = this.candidates.brokenNoteLinks.filter((link) => !this.app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath));
 			if (before === this.linkResultsKey()) return;
 			this.saveCacheToSettings();
-			if (['overview', 'broken-links', 'native-links', 'broken-note-links'].includes(this.activeTab)) this.renderContents();
+			if (['overview', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links'].includes(this.activeTab)) this.renderContents();
 			else this.updateTabCounts();
 		}));
 		const markVaultChange = () => {
-			for (const tab of ['images', 'attachments', 'empty-files', 'folders', 'duplicates', 'broken-links', 'native-links', 'broken-note-links'] as const) this.markTabDirty(tab);
+			for (const tab of ['images', 'attachments', 'empty-files', 'folders', 'duplicates', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links'] as const) this.markTabDirty(tab);
 		};
 		this.registerEvent(this.app.vault.on('modify', markVaultChange));
 		this.registerEvent(this.app.vault.on('create', markVaultChange));
@@ -87,7 +89,10 @@ export class OrphanCleanupPanel extends Component {
 
 	private markContentDependentTabsDirty(file: TFile) {
 		for (const tab of ['images', 'attachments', 'empty-files', 'duplicates'] as const) this.markTabDirty(tab);
-		if (file.extension.toLowerCase() === 'md') this.markTabDirty('native-links');
+		if (file.extension.toLowerCase() === 'md') {
+			this.markTabDirty('native-links');
+			this.markTabDirty('wiki-links');
+		}
 	}
 
 	private markTabDirty(tab: CleanupTab) {
@@ -97,6 +102,7 @@ export class OrphanCleanupPanel extends Component {
 
 	private linkResultsKey() {
 		return JSON.stringify([this.candidates.brokenLinks, this.candidates.brokenNoteLinks,
+			this.candidates.wikiLinks.map((link) => ({ ...link, file: link.file?.path })),
 			this.candidates.nativeLinks.map((link) => ({ ...link, file: link.file?.path }))]);
 	}
 
@@ -107,13 +113,15 @@ export class OrphanCleanupPanel extends Component {
 		this.candidates.brokenLinks = [...this.candidates.brokenLinks.filter((link) => !paths.has(link.sourcePath)), ...findBrokenImageLinks(this.app, extensions, files)];
 		this.candidates.nativeLinks = [...this.candidates.nativeLinks.filter((link) => !paths.has(link.sourcePath)), ...findNativeImageLinks(this.app, extensions, files)];
 		this.candidates.brokenNoteLinks = [...this.candidates.brokenNoteLinks.filter((link) => !paths.has(link.sourcePath)), ...findBrokenNoteLinks(this.app, extensions, files)];
+		this.candidates.wikiLinks = [...this.candidates.wikiLinks.filter((link) => !paths.has(link.sourcePath)), ...findWikiNoteLinks(this.app, files)];
 		const bySource = (a: { sourcePath: string; position: { start: { offset: number } } }, b: { sourcePath: string; position: { start: { offset: number } } }) => a.sourcePath.localeCompare(b.sourcePath) || a.position.start.offset - b.position.start.offset;
 		this.candidates.brokenLinks.sort(bySource);
 		this.candidates.nativeLinks.sort(bySource);
 		this.candidates.brokenNoteLinks.sort(bySource);
+		this.candidates.wikiLinks.sort(bySource);
 		if (before === this.linkResultsKey()) return;
 		// Link keys contain offsets; a content edit invalidates that source's selections.
-		for (const selection of [this.linkSelections, this.nativeSelections, this.noteLinkSelections]) {
+		for (const selection of [this.linkSelections, this.nativeSelections, this.noteLinkSelections, this.wikiSelections]) {
 			for (const key of selection) if (paths.has(key.split('\u0000')[0]!)) selection.delete(key);
 		}
 	}
@@ -136,7 +144,7 @@ export class OrphanCleanupPanel extends Component {
 		this.pages.clear();
 		this.dirtyTabs.clear();
 		this.dirtyVersions.clear();
-		for (const tab of ['images', 'attachments', 'broken-links', 'native-links', 'broken-note-links', 'empty-files', 'folders', 'duplicates'] as const) this.markTabDirty(tab);
+		for (const tab of ['images', 'attachments', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates'] as const) this.markTabDirty(tab);
 		this.renderContents();
 	}
 
@@ -181,6 +189,7 @@ export class OrphanCleanupPanel extends Component {
 		this.linkSelections.clear();
 		this.nativeSelections.clear();
 		this.noteLinkSelections.clear();
+		this.wikiSelections.clear();
 		this.duplicateSelections.clear();
 		this.pages.clear();
 		this.dirtyTabs.clear();
@@ -277,7 +286,6 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	async deleteDuplicateFile(file: DuplicateFileGroup['files'][number]) {
-		if (!await new CleanupConfirmationModal(this.app, 0, 0, 1, 0).waitForConfirmation()) return;
 		const target = this.app.vault.getAbstractFileByPath(file.path);
 		if (!(target instanceof TFile)) { new Notice('文件不存在，请重新扫描。'); return; }
 		try {
@@ -333,6 +341,9 @@ export class OrphanCleanupPanel extends Component {
 					break;
 				case 'broken-note-links':
 					this.candidates.brokenNoteLinks = findBrokenNoteLinks(this.app, this.settings.orphanImageExtensions);
+					break;
+				case 'wiki-links':
+					this.candidates.wikiLinks = findWikiNoteLinks(this.app);
 					break;
 				case 'empty-files': {
 					const { extensions, visibleFiles } = collectCleanupFileSets(this.app, this.settings.orphanImageExtensions, this.settings.orphanIgnoredFolders);

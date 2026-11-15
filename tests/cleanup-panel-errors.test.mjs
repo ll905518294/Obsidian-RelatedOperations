@@ -190,7 +190,7 @@ test('扫描失败后保存失败分类与原因并渲染持久横幅', async ()
 
 	assert.deepEqual(panel.lastScanError, {
 		reason: '资料库根目录读取失败',
-		failedTabs: ['broken-links', 'native-links', 'broken-note-links', 'empty-files', 'folders', 'duplicates'],
+		failedTabs: ['broken-links', 'native-links', 'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates'],
 	});
 	assert.deepEqual([...panel.scannedTabs].sort(), ['attachments', 'images']);
 	assert.ok(Notice.messages.some((message) => message === '扫描失败：资料库根目录读取失败'));
@@ -216,7 +216,7 @@ test('再次扫描开始时立即清除旧错误，成功后横幅消失', async
 
 	assert.equal(panel.lastScanError, undefined);
 	assert.equal(byClass(panel.contentEl, 'orphan-cleanup-scan-error').length, 0);
-	assert.equal(panel.scannedTabs.size, 8);
+	assert.equal(panel.scannedTabs.size, 9);
 });
 
 test('图片卡片与资源行的复选框关联同行可见文本', () => {

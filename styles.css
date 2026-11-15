@@ -949,6 +949,22 @@
 	box-shadow: var(--ro-shadow);
 }
 
+/* 两段式删除按钮待确认态：语义错误色描边 + 淡红底，文字同时变为「确认删除」作为不依赖颜色的状态提示。 */
+button.is-armed-confirm,
+button.is-armed-confirm.mod-warning {
+	color: color-mix(in srgb, var(--text-error) 70%, var(--text-normal));
+	border: 2px solid var(--text-error);
+	background: color-mix(in srgb, var(--background-modifier-error, var(--text-error)) 8%, var(--background-primary));
+	font-weight: 600;
+}
+
+button.is-armed-confirm:hover,
+button.is-armed-confirm.mod-warning:hover,
+button.is-armed-confirm:focus-visible,
+button.is-armed-confirm.mod-warning:focus-visible {
+	background: color-mix(in srgb, var(--background-modifier-error, var(--text-error)) 15%, var(--background-primary));
+}
+
 .orphan-cleanup-image-card,
 .orphan-cleanup-duplicate-group {
 	border-color: var(--ro-border);

@@ -6,10 +6,11 @@ import { selectCurrentCleanupItems } from '../cleanup-selection';
 import { brokenLinkKey, removeSelectedBrokenLinks } from '../broken-image-links';
 import { brokenNoteLinkKey, createMissingNotes, removeSelectedBrokenNoteLinks } from '../broken-note-links';
 import { convertNativeImageLink, nativeImageLinkKey, replaceNativeImageLinks, revalidateNativeImageLink } from '../native-image-links';
+import { replaceWikiNoteLinks, revalidateWikiNoteLink, wikiNoteLinkKey, type WikiNoteLink } from '../wiki-note-links';
 import { planDuplicateDeletion, removeFileReferencesForFiles } from '../duplicate-files';
 import { findCleanupCandidates } from './cleanup-scan';
 import { reasonFor, trashSelected } from './cleanup-actions';
-import { CleanupConfirmationModal, ConvertNativeLinksConfirmationModal, CreateNotesConfirmationModal, RemoveBrokenLinksConfirmationModal } from './cleanup-modals';
+import { ConvertNativeLinksConfirmationModal, ConvertWikiLinksConfirmationModal, CreateNotesConfirmationModal, RemoveBrokenLinksConfirmationModal } from './cleanup-modals';
 export function addReportControls(host: CleanupViewContext, container: HTMLElement) {
 		const data = buildReportData(host);
 		const copy = container.createEl('button', { text: '复制报告' });
@@ -60,6 +61,7 @@ export function pruneDeletedCandidates(host: CleanupViewContext) {
 		host.candidates.brokenLinks = host.candidates.brokenLinks.filter(sourceExists);
 		host.candidates.nativeLinks = host.candidates.nativeLinks.filter(sourceExists);
 		host.candidates.brokenNoteLinks = host.candidates.brokenNoteLinks.filter(sourceExists);
+		host.candidates.wikiLinks = host.candidates.wikiLinks.filter(sourceExists);
 		for (const selection of [host.selections, host.duplicateSelections]) {
 			for (const path of selection) if (!exists({ path })) selection.delete(path);
 		}
@@ -71,8 +73,6 @@ export async function confirmCleanup(host: CleanupViewContext) {
 		const selectedEmptyFiles = host.candidates.emptyFiles.filter((item) => host.selections.has(item.path));
 		const selectedFolders = host.candidates.folders.filter((item) => host.selections.has(item.path));
 		if (selectedImages.length + selectedAttachments.length + selectedEmptyFiles.length + selectedFolders.length === 0) return;
-		const confirmed = await new CleanupConfirmationModal(host.app, selectedImages.length, selectedAttachments.length, selectedEmptyFiles.length, selectedFolders.length).waitForConfirmation();
-		if (!confirmed) return;
 		let verified: { files: TFile[]; folders: TFolder[]; skipped: string[] };
 		try {
 			verified = await revalidateCleanupSelection(host, 
@@ -99,8 +99,6 @@ export async function confirmCleanup(host: CleanupViewContext) {
 export async function confirmCleanupDuplicates(host: CleanupViewContext) {
 		const selectedFiles = host.candidates.duplicates.flatMap((group) => group.files.filter((file) => host.duplicateSelections.has(file.path)));
 		if (selectedFiles.length === 0) return;
-		const confirmed = await new CleanupConfirmationModal(host.app, 0, 0, selectedFiles.length, 0).waitForConfirmation();
-		if (!confirmed) return;
 	const plan = await planDuplicateDeletion(host.app, host.candidates.duplicates, selectedFiles.map((file) => file.path));
 	const result: CleanupResult = { deleted: [], skipped: plan.skipped.map((item) => item.path), failed: [] };
 	if (plan.deletable.length) {
@@ -206,6 +204,43 @@ export async function confirmConvertLinks(host: CleanupViewContext) {
 		host.processed = { success: converted, skipped, failed: failures };
 		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
 		if (converted > 0) {
+			host.saveCacheToSettings();
+			host.renderContents();
+		}
+	}
+
+export async function confirmConvertWikiLinks(host: CleanupViewContext) {
+		const selected = host.candidates.wikiLinks.filter((item) => host.wikiSelections.has(wikiNoteLinkKey(item)));
+		if (!selected.length) return;
+		if (!await new ConvertWikiLinksConfirmationModal(host.app, selected.length).waitForConfirmation()) return;
+		let converted = 0, skipped = 0, failed = 0;
+		const failures: Array<{ path: string; reason: string }> = [];
+		const currentLinks = selected.map((link) => revalidateWikiNoteLink(host.app, link));
+		const grouped = new Map<string, WikiNoteLink[]>();
+		for (const link of currentLinks) {
+			const list = grouped.get(link.sourcePath) ?? [];
+			list.push(link);
+			grouped.set(link.sourcePath, list);
+		}
+		for (const [path, links] of grouped) {
+			const file = host.app.vault.getFileByPath(path);
+			if (!file) { failed++; failures.push({ path, reason: '文件不存在' }); continue; }
+			try {
+				await host.app.vault.process(file, (content) => {
+					const result = replaceWikiNoteLinks(content, links);
+					converted += result.converted;
+					skipped += result.skipped;
+					return result.content;
+				});
+			} catch (error) {
+				failed++;
+				failures.push({ path, reason: reasonFor(error) });
+			}
+		}
+		host.processed = { success: converted, skipped, failed: failures };
+		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
+		if (converted > 0) {
+			host.wikiSelections.clear();
 			host.saveCacheToSettings();
 			host.renderContents();
 		}

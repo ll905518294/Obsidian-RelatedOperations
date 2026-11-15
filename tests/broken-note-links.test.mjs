@@ -156,6 +156,48 @@ test('does not treat a missing Bases link as a broken note link', () => {
 	assert.deepEqual(findBrokenNoteLinks(app, 'png'), []);
 });
 
+// Obsidian hands us `original` (as typed) plus `link` (path part). Aliases,
+// heading anchors and block ids must be reduced to the note path, while
+// embeds, same-file anchors, external URLs and attachments are not note links.
+test('reduces aliases, headings and block ids to the link path', () => {
+	const cases = [
+		['[[beta|alias]]', 'beta', 'beta'],
+		['[[beta#Heading]]', 'beta#Heading', 'beta'],
+		['[[beta^block]]', 'beta^block', 'beta'],
+		['[[beta#^block]]', 'beta#^block', 'beta'],
+		['[[dir/beta.md|alias]]', 'dir/beta.md', 'dir/beta.md'],
+		['[text](../dir/beta.md)', '../dir/beta.md', '../dir/beta.md'],
+		['[text](beta.md#Heading)', 'beta.md#Heading', 'beta.md'],
+	];
+	for (const [original, link, expected] of cases) {
+		const cache = { links: [{ original, link, position: { start: { offset: 0 }, end: { offset: original.length } } }] };
+		const app = {
+			vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+			metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+		};
+		const broken = findBrokenNoteLinks(app, 'png');
+		assert.deepEqual(broken.map((item) => item.linkPath), [expected], original);
+	}
+});
+
+test('skips embeds, same-file anchors, external URLs and attachments', () => {
+	const cases = [
+		['![[beta]]', 'beta'],
+		['[[#Heading]]', '#Heading'],
+		['[text](https://example.com/beta)', 'https://example.com/beta'],
+		['[[photo.png]]', 'photo.png'],
+		['[[doc.pdf]]', 'doc.pdf'],
+	];
+	for (const [original, link] of cases) {
+		const cache = { links: [{ original, link, position: { start: { offset: 0 }, end: { offset: original.length } } }] };
+		const app = {
+			vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+			metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+		};
+		assert.deepEqual(findBrokenNoteLinks(app, 'png'), [], original);
+	}
+});
+
 // Creating N missing notes from links in one note must read that note once,
 // not once per link (a 2000-link note would otherwise be parsed 2000 times).
 test('reads each source note once when creating multiple missing notes', async () => {

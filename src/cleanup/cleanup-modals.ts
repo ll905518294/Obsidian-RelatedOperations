@@ -1,46 +1,6 @@
 import { App, Modal, TFile, setIcon } from 'obsidian';
 import { openInSystemFolder } from './cleanup-actions';
-export class CleanupConfirmationModal extends Modal {
-	private resolver?: (confirmed: boolean) => void;
-	private settled = false;
-
-	constructor(app: App, private readonly imageCount: number, private readonly attachmentCount: number, private readonly emptyFileCount: number, private readonly folderCount: number) {
-		super(app);
-	}
-
-	waitForConfirmation(): Promise<boolean> {
-		return new Promise((resolve) => {
-			this.resolver = resolve;
-			this.open();
-		});
-	}
-
-	onOpen() {
-		this.titleEl.setText('确认移入回收站');
-		this.contentEl.createEl('p', { text: `即将移入 Obsidian 回收站：${this.imageCount} 张图片、${this.attachmentCount} 个附件、${this.emptyFileCount} 个空文件、${this.folderCount} 个文件夹。` });
-		this.contentEl.createEl('p', { text: '这不会永久删除文件，可在 Obsidian 回收站中恢复。', cls: 'orphan-cleanup-warning' });
-		const actions = this.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });
-		const confirm = actions.createEl('button', { text: '确认移入回收站', cls: 'mod-cta' });
-		confirm.addEventListener('click', () => this.finish(true));
-		const cancel = actions.createEl('button', { text: '取消' });
-		cancel.addEventListener('click', () => this.finish(false));
-	}
-
-	onClose() {
-		this.contentEl.empty();
-		if (!this.settled) {
-			this.settled = true;
-			this.resolver?.(false);
-		}
-	}
-
-	private finish(confirmed: boolean) {
-		if (this.settled) return;
-		this.settled = true;
-		this.resolver?.(confirmed);
-		this.close();
-	}
-}
+import { requireSecondClick } from './cleanup-confirm-button';
 
 export class CreateNotesConfirmationModal extends Modal {
 	private resolver?: (confirmed: boolean) => void;
@@ -118,6 +78,23 @@ export class ConvertNativeLinksConfirmationModal extends Modal {
 	private finish(value: boolean) { if (this.settled) return; this.settled = true; this.resolver?.(value); this.close(); }
 }
 
+export class ConvertWikiLinksConfirmationModal extends Modal {
+	private resolver?: (confirmed: boolean) => void;
+	private settled = false;
+	constructor(app: App, private readonly count: number) { super(app); }
+	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
+	onOpen() {
+		this.titleEl.setText('确认转换 Wiki 链接');
+		this.contentEl.createEl('p', { text: `即将把 ${this.count} 条 Wiki 笔记链接转换为标准 Markdown 链接。` });
+		this.contentEl.createEl('p', { text: '无法解析或无变化的链接会跳过；已转换内容可用编辑历史撤销。', cls: 'orphan-cleanup-warning' });
+		const actions = this.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });
+		actions.createEl('button', { text: '确认转换', cls: 'mod-cta' }).addEventListener('click', () => this.finish(true));
+		actions.createEl('button', { text: '取消' }).addEventListener('click', () => this.finish(false));
+	}
+	onClose() { this.contentEl.empty(); if (!this.settled) { this.settled = true; this.resolver?.(false); } }
+	private finish(value: boolean) { if (this.settled) return; this.settled = true; this.resolver?.(value); this.close(); }
+}
+
 export class ImagePreviewModal extends Modal {
 	private index: number;
 	private imageEl!: HTMLImageElement;
@@ -155,7 +132,7 @@ export class ImagePreviewModal extends Modal {
 		setIcon(openFolder, 'folder-open');
 		openFolder.addEventListener('click', () => this.openCurrentFolder());
 		const remove = actions.createEl('button', { text: '删除', cls: 'mod-warning' });
-		remove.addEventListener('click', () => {
+		requireSecondClick(remove, () => {
 			const file = this.files[this.index];
 			if (file) void this.trashCurrent(file);
 		});

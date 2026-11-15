@@ -55,21 +55,21 @@ test('panel updates edited source only and repeated current-tab refresh is effec
 	panel.candidates.brokenNoteLinks = [link, { ...link, sourcePath: 'other.md' }];
 	panel.noteLinkSelections.add('a.md\u00000:8'); panel.noteLinkSelections.add('other.md\u00000:8');
 	panel.load(); metadata.emit('changed', file);
-	assert.deepEqual(checked, ['a.md', 'a.md', 'a.md']);
+	assert.deepEqual(checked, ['a.md', 'a.md', 'a.md', 'a.md']);
 	assert.deepEqual(panel.candidates.brokenNoteLinks.map(l => l.sourcePath), ['other.md']);
 	assert.deepEqual([...panel.noteLinkSelections], ['other.md\u00000:8']);
 	panel.activeTab = 'broken-note-links'; app.vault.getMarkdownFiles = () => [file];
 	await panel.refreshCurrentTab(); await panel.refreshCurrentTab();
-	assert.equal(checked.length, 5);
+	assert.equal(checked.length, 6);
 	panel.dirtyTabs.clear();
 	vault.emit('rename', file, 'old.md');
-	for (const tab of ['images', 'attachments', 'empty-files', 'folders', 'duplicates', 'broken-links', 'native-links', 'broken-note-links']) {
+	for (const tab of ['images', 'attachments', 'empty-files', 'folders', 'duplicates', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links']) {
 		assert.equal(panel.dirtyTabs.has(tab), true, `${tab} must refresh after a file is renamed`);
 	}
 	await panel.activateTab('broken-note-links');
 	assert.equal(panel.dirtyTabs.has('broken-note-links'), false);
-	assert.equal(checked.length, 6);
-	panel.unload(); metadata.emit('changed', file); assert.equal(checked.length, 6);
+	assert.equal(checked.length, 7);
+	panel.unload(); metadata.emit('changed', file); assert.equal(checked.length, 7);
 });
 
 test('failed dirty-tab refresh remains dirty for the next attempt', async () => {
@@ -147,7 +147,7 @@ test('restored cache is treated as stale until each category is refreshed', () =
 	const panel = new Panel({ metadataCache: events(), vault: events() }, {}, { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, { cachedCandidates: cached });
 	panel.renderContents = () => {};
 	panel.restoreFromCache();
-	for (const tab of ['images', 'attachments', 'broken-links', 'native-links', 'broken-note-links', 'empty-files', 'folders', 'duplicates']) assert.equal(panel.dirtyTabs.has(tab), true);
+	for (const tab of ['images', 'attachments', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates']) assert.equal(panel.dirtyTabs.has(tab), true);
 });
 
 test('full scan stays on overview and publishes category results before completion', async () => {
@@ -161,7 +161,7 @@ test('full scan stays on overview and publishes category results before completi
 	await panel.scan();
 	assert.equal(snapshots[0].activeTab, 'overview');
 	assert.ok(snapshots.some(s => s.scanning && s.completed.includes('attachments') && !s.completed.includes('duplicates') && s.count === 1));
-	assert.equal(panel.scannedTabs.size, 8);
+	assert.equal(panel.scannedTabs.size, 9);
 	assert.equal(panel.scanning, false);
 	delete globalThis.window;
 });
@@ -183,7 +183,7 @@ test('home tab totals all categories and issue tabs lead without changing their 
 	let entries = panel.tabEntries();
 	assert.deepEqual(entries[0], ['overview', '体检首页', 9]);
 	assert.deepEqual(entries.slice(1, 4).map(([tab]) => tab), ['attachments', 'native-links', 'duplicates']);
-	assert.equal(entries.length, 9);
+	assert.equal(entries.length, 10);
 	panel.candidates.attachments = [];
 	entries = panel.tabEntries();
 	assert.equal(entries[0][2], 7);

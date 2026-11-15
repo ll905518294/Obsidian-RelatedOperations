@@ -20,6 +20,7 @@ function candidates(overrides = {}) {
 		brokenLinks: [],
 		nativeLinks: [],
 		brokenNoteLinks: [],
+		wikiLinks: [],
 		duplicates: [],
 		duplicateWarnings: [],
 		...overrides,
@@ -33,6 +34,7 @@ test('categoryCount 按分类返回候选数量', () => {
 		brokenLinks: [{ sourcePath: 'd' }],
 		nativeLinks: [{ sourcePath: 'e' }, { sourcePath: 'f' }],
 		brokenNoteLinks: [{ sourcePath: 'g' }],
+		wikiLinks: [{ sourcePath: 'h' }],
 		emptyFiles: [{ path: 'h' }],
 		folders: [{ path: 'i' }, { path: 'j' }, { path: 'k' }],
 		duplicates: [{ hash: 'l' }],
@@ -42,6 +44,7 @@ test('categoryCount 按分类返回候选数量', () => {
 	assert.equal(categoryCount(value, 'broken-links'), 1);
 	assert.equal(categoryCount(value, 'native-links'), 2);
 	assert.equal(categoryCount(value, 'broken-note-links'), 1);
+	assert.equal(categoryCount(value, 'wiki-links'), 1);
 	assert.equal(categoryCount(value, 'empty-files'), 1);
 	assert.equal(categoryCount(value, 'folders'), 3);
 	assert.equal(categoryCount(value, 'duplicates'), 1);
@@ -91,13 +94,13 @@ test('tabEntries 首页居首，扫描中不重排，非扫描时按有无问题
 	const scanning = tabEntries(value, true).map(([tab]) => tab);
 	assert.deepEqual(scanning, [
 		'overview', 'images', 'attachments', 'broken-links', 'native-links',
-		'broken-note-links', 'empty-files', 'folders', 'duplicates',
+		'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates',
 	]);
 
 	const sorted = tabEntries(value, false);
 	assert.deepEqual(sorted.map(([tab]) => tab), [
 		'overview', 'images', 'broken-links', 'attachments', 'native-links',
-		'broken-note-links', 'empty-files', 'folders', 'duplicates',
+		'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates',
 	]);
 	assert.equal(sorted[0][1], '体检首页');
 	assert.equal(sorted[0][2], 3);
