@@ -29,6 +29,15 @@ test('按版本查询内置说明，兼容前导 v', () => {
 	assert.equal(currentUpdateIntro(''), undefined);
 });
 
+test('1.6.0 内置说明存在且覆盖本次发布内容', () => {
+	const intro = currentUpdateIntro('1.6.0');
+	assert.ok(intro, '1.6.0 必须有更新说明条目');
+	assert.equal(intro.theme, '首次使用引导');
+	const text = intro.sections.map((section) => section.title + section.items.join('\n')).join('\n');
+	assert.match(text, /使用引导/);
+	assert.match(text, /它能做什么|首次显示使用引导|仅桌面端/);
+});
+
 test('内置说明内容完整可渲染', () => {
 	assert.ok(UPDATE_INTROS.length > 0);
 	const versions = new Set();

@@ -15,6 +15,28 @@ export interface UpdateIntro {
 // Keep newest first and add an entry with each release.
 export const UPDATE_INTROS: UpdateIntro[] = [
 	{
+		version: '1.6.0',
+		theme: '首次使用引导',
+		summary: '新增首次安装的三步使用引导，并明确插件为仅桌面端；升级到 1.6.0 后即可在此查看本次改动。',
+		sections: [
+			{
+				title: '新功能',
+				items: [
+					'首次安装并加载插件时自动弹出 3 步「使用引导」：它能做什么、安全说明、怎么开始。',
+					'引导支持「上一步 / 下一步」逐页浏览，最后可「开始使用 / 立即打开体检 / 跳过」。',
+					'新增命令「打开使用引导」，可随时从命令面板重新查看三步引导。',
+				],
+			},
+			{
+				title: '改进',
+				items: [
+					'设置新增「首次显示使用引导」开关，可关闭首次安装时的自动弹出。',
+					'插件明确为仅桌面端（isDesktopOnly），不再在移动端尝试加载运行。',
+				],
+			},
+		],
+	},
+	{
 		version: '1.5.0',
 		theme: '版本更新欢迎',
 		summary: '新增内置的版本更新欢迎弹窗与「查看更新说明」命令，升级后可随时了解本次改动。',
