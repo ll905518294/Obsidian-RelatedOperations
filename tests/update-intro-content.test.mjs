@@ -56,6 +56,16 @@ test('1.6.2 内置说明存在且覆盖软件名与版本展示', () => {
 	assert.match(text, /版本号/);
 });
 
+test('1.6.3 内置说明存在且覆盖使用引导截图', () => {
+	const intro = currentUpdateIntro('1.6.3');
+	assert.ok(intro, '1.6.3 必须有更新说明条目');
+	assert.equal(intro.theme, '使用引导加入界面截图');
+	const text = intro.sections.map((section) => section.title + section.items.join('\n')).join('\n');
+	assert.match(text, /扫描结果/);
+	assert.match(text, /重复文件/);
+	assert.match(text, /开始扫描/);
+});
+
 test('内置说明内容完整可渲染', () => {
 	assert.ok(UPDATE_INTROS.length > 0);
 	const versions = new Set();

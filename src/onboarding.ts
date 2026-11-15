@@ -1,5 +1,8 @@
 import { Modal, type App } from 'obsidian';
 import { ONBOARDING_STEPS } from './onboarding-content';
+import step1What from '../assets/onboarding/step1-what.png';
+import step2Safety from '../assets/onboarding/step2-safety.png';
+import step3Start from '../assets/onboarding/step3-start.png';
 
 export type OnboardingAction = 'start' | 'cleanup' | 'skip';
 
@@ -7,6 +10,30 @@ export interface OnboardingMeta {
 	name: string;
 	version: string;
 }
+
+interface OnboardingFigure {
+	image: string;
+	alt: string;
+	caption: string;
+}
+
+const ONBOARDING_FIGURES: OnboardingFigure[] = [
+	{
+		image: step1What,
+		alt: '体检面板扫描完成后的结果页',
+		caption: '扫描完成后，体检面板会按问题分类列出统计与待处理项（例如 9 类体检结果）。',
+	},
+	{
+		image: step2Safety,
+		alt: '重复文件列表页',
+		caption: '在列表中勾选需要处理的条目，经你确认后才执行；删除还需二次确认。',
+	},
+	{
+		image: step3Start,
+		alt: '体检面板首页',
+		caption: '打开体检面板后，点右上角「开始扫描」即可开始检查整个库。',
+	},
+];
 
 export class OnboardingModal extends Modal {
 	private step = 0;
@@ -34,6 +61,12 @@ export class OnboardingModal extends Modal {
 		this.contentEl.createEl('p', { text: `版本 ${this.meta.version}`, cls: 'update-intro-summary' });
 		this.contentEl.createEl('h4', { text: current.title, cls: 'update-intro-heading' });
 		this.contentEl.createEl('p', { text: current.summary, cls: 'update-intro-summary' });
+		const figure = ONBOARDING_FIGURES[this.step];
+		if (figure) {
+			const fig = this.contentEl.createEl('figure', { cls: 'onboarding-figure' });
+			fig.createEl('img', { cls: 'onboarding-image', attr: { src: figure.image, alt: figure.alt } });
+			fig.createEl('figcaption', { cls: 'onboarding-caption', text: figure.caption });
+		}
 		const block = this.contentEl.createDiv({ cls: 'update-intro-section' });
 		const list = block.createEl('ul', { cls: 'update-intro-list' });
 		for (const item of current.items) {

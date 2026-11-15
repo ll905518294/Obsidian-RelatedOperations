@@ -15,6 +15,21 @@ export interface UpdateIntro {
 // Keep newest first and add an entry with each release.
 export const UPDATE_INTROS: UpdateIntro[] = [
 	{
+		version: '1.6.3',
+		theme: '使用引导加入界面截图',
+		summary: '使用引导三步各加入一张界面截图，分别展示扫描结果、重复文件清理与体检首页，更直观。',
+		sections: [
+			{
+				title: '改进',
+				items: [
+					'使用引导第一步展示扫描结果页，说明 9 类体检问题。',
+					'使用引导第二步展示重复文件列表，说明选择、确认与两段式删除。',
+					'使用引导第三步展示体检首页，指引点击「开始扫描」。',
+				],
+			},
+		],
+	},
+	{
 		version: '1.6.2',
 		theme: '弹窗标注软件名与版本',
 		summary: '使用引导与更新说明弹窗现在会显示软件名称「Vault Doctor」和当前版本号，方便识别你打开的是哪个软件的说明。',
