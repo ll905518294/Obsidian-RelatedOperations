@@ -44,6 +44,10 @@ export function requireSecondClick(
 	onConfirm: () => unknown,
 	options: { timeoutMs?: number } = {},
 ): ConfirmButtonHandle {
+	// Icon/rich-content buttons keep their SVG (or other) child nodes across
+	// the arming round-trip. Obsidian's setText assigns `textContent`, which
+	// would wipe those children; snapshot them so reset can put them back.
+	const originalChildNodes = button.childNodes ? Array.from(button.childNodes) : [];
 	const originalText = button.textContent ?? '';
 	const originalClassName = button.className;
 	const originalTitle = readAttribute(button, 'title');
@@ -52,6 +56,19 @@ export function requireSecondClick(
 	let armed = false;
 	let timer = 0;
 
+	const restoreContent = () => {
+		if (originalChildNodes.length > 0) {
+			// Restore the child nodes exactly as they were before arming.
+			const empty = (button as { empty?: () => void }).empty;
+			if (typeof empty === 'function') empty.call(button);
+			else button.textContent = '';
+			for (const node of originalChildNodes) button.appendChild(node);
+			return;
+		}
+		// Plain text button: keep the original label.
+		button.setText(originalText);
+	};
+
 	const reset = () => {
 		if (timer) {
 			window.clearTimeout(timer);
@@ -59,7 +76,7 @@ export function requireSecondClick(
 		}
 		if (!armed) return;
 		armed = false;
-		button.setText(originalText);
+		restoreContent();
 		button.className = originalClassName;
 		// Put back exactly what was there before arming: an attribute that did
 		// not exist must be removed again, not left as an empty string.

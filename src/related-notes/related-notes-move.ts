@@ -19,7 +19,7 @@ export interface RelatedNotesMoveHost {
 	lastMove(): MoveRecord[];
 	setLastMove(records: MoveRecord[]): void;
 	updateUndoButton(): void;
-	pruneMovedNotes(movedPaths: Set<string>): void;
+	pruneMovedNotes(moved: MoveRecord[]): void;
 	recomputeRelatedNotes(): void;
 }
 
@@ -57,7 +57,7 @@ export async function moveSelected(host: RelatedNotesMoveHost) {
 	if (!confirmed) return;
 	const result = await moveFiles(host, targetFolder, movable, conflicts.map((file) => file.path));
 	new Notice(formatMoveResult(result));
-	host.pruneMovedNotes(new Set(result.succeeded));
+	host.pruneMovedNotes(result.moved);
 	host.updateUndoButton();
 }
 

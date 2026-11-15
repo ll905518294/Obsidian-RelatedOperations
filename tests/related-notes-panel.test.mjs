@@ -119,7 +119,15 @@ export class TFile extends TAbstractFile {
 export class TFolder extends TAbstractFile {
 	constructor(path) { super(path); this.children = []; }
 }
-export class Modal { constructor(app) { this.app = app; } open() {} close() {} }
+export class Modal {
+	constructor(app) {
+		this.app = app;
+		this.titleEl = document.createElement('h2');
+		this.contentEl = document.createElement('div');
+	}
+	open() { (globalThis.__openModals ??= []).push(this); if (this.onOpen) this.onOpen(); }
+	close() {}
+}
 export class ItemView {
 	constructor(leaf) {
 		this.leaf = leaf;
@@ -144,11 +152,11 @@ const bundle = await build({
 });
 const { RelatedNotesPanel, RelatedNotesView, TFile, TFolder, Notice } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
-function makeApp(files) {
+function makeApp(files, resolvedLinks = {}) {
 	const renamed = [];
 	return {
 		app: {
-			metadataCache: { resolvedLinks: {}, getFileCache: () => ({}) },
+			metadataCache: { resolvedLinks, getFileCache: () => ({}) },
 			vault: {
 				getAllLoadedFiles: () => files,
 				getAbstractFileByPath: (p) => files.find((f) => f.path === p) ?? null,
@@ -162,7 +170,7 @@ function makeApp(files) {
 }
 
 function panelFor(relatedNotes, sourceFiles, options = {}) {
-	const { app, renamed } = makeApp(options.files ?? []);
+	const { app, renamed } = makeApp(options.files ?? [], options.resolvedLinks ?? {});
 	const el = document.createElement('div');
 	const panel = new RelatedNotesPanel(
 		app, el, sourceFiles[0], sourceFiles, relatedNotes,
@@ -176,6 +184,18 @@ function panelFor(relatedNotes, sourceFiles, options = {}) {
 }
 
 const file = (path) => new TFile(path);
+
+// Drive the real move confirmation: moveSelected opens the modal synchronously,
+// so the confirm button already exists when it returns its pending promise.
+async function moveSelectedConfirmed(panel) {
+	globalThis.__openModals = [];
+	const moving = panel.moveSelected();
+	const modal = globalThis.__openModals.at(-1);
+	const confirm = modal.contentEl.querySelectorAll('button').find((button) => button.textContent === '确认整理');
+	assert.ok(confirm, '确认整理按钮应存在');
+	confirm.fire('click');
+	await moving;
+}
 
 test('tab counts dedupe a note that appears from multiple sources', () => {
 	const a = file('src/a.md');
@@ -533,6 +553,72 @@ test('undoLastMove refuses to overwrite a file that reappeared at the original p
 	assert.equal(t.path, 'archive/t.md');
 	assert.equal(occupant.path, 'dst/t.md');
 	assert.deepEqual(renamed, [['dst/t.md', 'archive/t.md']]);
+});
+
+// Undo reuses the same case-insensitive path index as the move path: an
+// occupant that differs only by case must still block the restore.
+test('undoLastMove treats a case-variant occupant at the original path as a conflict', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	await panel.moveFiles('archive', [t]);
+	const occupant = file('DST/t.md');
+	panel.app.vault.getAllLoadedFiles().push(occupant);
+	Notice.messages = [];
+	await panel.undoLastMove();
+	assert.equal(t.path, 'archive/t.md');
+	assert.equal(occupant.path, 'DST/t.md');
+	assert.deepEqual(renamed, [['dst/t.md', 'archive/t.md']]);
+	assert.match(Notice.messages.at(-1), /已跳过：1/);
+});
+
+// Reproduction: a successful move left the selected note's ORIGINAL path in
+// the selection map (pruning used the post-rename path). Undo restores the file
+// at that original path, so the stale entry made it look re-selected even
+// though the user never checked it again.
+test('move then undo leaves no stale selection key behind', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t],
+		resolvedLinks: { 'src/a.md': { 'dst/t.md': 1 } },
+	});
+	panel.selections.set('dst/t.md', true);
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	await moveSelectedConfirmed(panel);
+	assert.equal(t.path, 'archive/t.md');
+	assert.deepEqual([...panel.selections.keys()], [], '移动成功后不得保留旧路径勾选键');
+	await panel.undoLastMove();
+	assert.equal(t.path, 'dst/t.md');
+	assert.deepEqual([...panel.selections.keys()], [], '撤销后不得复活旧勾选');
+	const checkboxes = el.querySelectorAll('tr[data-related-path] input[type="checkbox"]');
+	assert.equal(checkboxes.length, 1);
+	assert.equal(checkboxes[0].checked, false, '还原的笔记应显示为未勾选');
+});
+
+// Regression guard: batch move must clear every moved key, and the selection
+// summary, tab counts and rendered rows must all reflect the pruned list.
+test('batch move clears every moved selection key and keeps counters consistent', async () => {
+	const a = file('src/a.md');
+	const t1 = file('dst/t1.md');
+	const t2 = file('dst/t2.md');
+	const relatedNotes = [t1, t2].map((target) => ({ file: target, relation: 'outgoing', sourceFile: a }));
+	const { panel, el } = panelFor(relatedNotes, [a], { files: [a, t1, t2] });
+	el.querySelector('.related-operations-select-all').fire('click');
+	assert.equal(el.querySelector('.related-operations-selection-summary').textContent, '已选 2 篇（跨标签页）');
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	await moveSelectedConfirmed(panel);
+	assert.deepEqual([...panel.selections.keys()], []);
+	assert.equal(el.querySelector('.related-operations-selection-summary').textContent, '已选 0 篇（跨标签页）');
+	assert.equal(el.querySelectorAll('tr[data-related-path]').length, 0);
+	assert.equal(el.querySelector('.related-operations-tab').textContent, '出链 (0)');
+	const selectAll = el.querySelector('.related-operations-select-all');
+	assert.equal(selectAll.disabled, true);
+	assert.equal(selectAll.textContent, '全选当前分组');
 });
 
 test('target folder input lists matching vault folders', () => {

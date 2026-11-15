@@ -10,7 +10,6 @@ class El {
 		this.dataset = {};
 		this.className = '';
 		this.attrs = {};
-		this._text = '';
 		this._listeners = [];
 		this.disabled = false;
 		this.title = '';
@@ -27,8 +26,15 @@ class El {
 		el.parent = this;
 		return el;
 	}
-	setText(text) { this._text = String(text); }
-	get textContent() { return this._text + this.children.map((child) => child.textContent).join(''); }
+	setText(text) {
+		// Obsidian's setText is `textContent = t`, which wipes child nodes.
+		this.children.length = 0;
+		this._textContent = String(text);
+	}
+	get textContent() {
+		const own = this._textContent ?? '';
+		return own + this.children.map((child) => child.textContent).join('');
+	}
 	addClass(...names) { for (const name of names) if (!this.hasClass(name)) this.className = this.className ? `${this.className} ${name}` : name; }
 	removeClass(name) { this.className = this.className.split(/\s+/).filter((item) => item && item !== name).join(' '); }
 	hasClass(name) { return this.className.split(/\s+/).includes(name); }
@@ -36,6 +42,9 @@ class El {
 	getAttribute(key) { return key in this.attrs ? this.attrs[key] : null; }
 	removeAttribute(key) { delete this.attrs[key]; }
 	addEventListener(type, callback) { this._listeners.push({ type, callback }); }
+	empty() { this.children.length = 0; this._textContent = ''; }
+	appendChild(node) { this.children.push(node); node.parent = this; }
+	get childNodes() { return this.children; }
 	dispatch(type, event = {}) {
 		for (const listener of [...this._listeners]) {
 			if (listener.type === type) listener.callback({ preventDefault() {}, stopPropagation() {}, target: this, ...event });
@@ -285,6 +294,36 @@ test('连续两次武装-复位不累积属性', () => {
 	assert.equal(target.getAttribute('aria-description'), null);
 	assert.equal(target.className, 'orphan-cleanup-icon-button');
 	assert.equal(target.textContent, '');
+});
+
+test('图标按钮武装后复位不丢失 SVG 子节点', () => {
+	const target = new El('button');
+	target.className = 'orphan-cleanup-icon-button';
+	target.setAttribute('aria-label', '删除图片');
+	target.setAttribute('title', '删除图片');
+	const svg = new El('svg');
+	target.appendChild(svg);
+	let confirmed = 0;
+	requireSecondClick(target, () => { confirmed += 1; });
+	assert.equal(target.childNodes.length, 1);
+
+	target.dispatch('click');
+	// Arming shows the confirm label and (in a real button) wipes the icon.
+	assert.equal(target.textContent, '确认删除');
+
+	// Timeout / blur / batch reset must restore the SVG child nodes.
+	target.dispatch('blur');
+	assert.equal(target.childNodes.length, 1);
+	assert.equal(target.childNodes[0].tagName, 'SVG');
+	assert.equal(target.textContent, '');
+	assert.ok(!target.hasClass('is-armed-confirm'));
+
+	// A second arm-reset round also restores the icon.
+	target.dispatch('click');
+	target.dispatch('blur');
+	assert.equal(target.childNodes.length, 1);
+	assert.equal(target.childNodes[0].tagName, 'SVG');
+	assert.equal(confirmed, 0);
 });
 
 function makeVaultFile(path, bytes) {

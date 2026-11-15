@@ -102,7 +102,7 @@ export class RelatedNotesPanel {
 			lastMove: () => this.lastMove,
 			setLastMove: (records) => { this.lastMove = records; },
 			updateUndoButton: () => this.updateUndoButton(),
-			pruneMovedNotes: (movedPaths) => this.pruneMovedNotes(movedPaths),
+			pruneMovedNotes: (moved) => this.pruneMovedNotes(moved),
 			recomputeRelatedNotes: () => this.recomputeRelatedNotes(),
 		};
 	}
@@ -270,8 +270,12 @@ export class RelatedNotesPanel {
 		this.updateUndoButton();
 	}
 
-	private pruneMovedNotes(movedPaths: Set<string>) {
-		if (movedPaths.size === 0) return;
+	private pruneMovedNotes(moved: MoveRecord[]) {
+		if (moved.length === 0) return;
+		// The host rewrites note.file.path to the destination, while selections
+		// stay keyed by the path the user checked. Prune both representations by
+		// every path the move touched so neither side keeps a stale key.
+		const movedPaths = new Set(moved.flatMap((record) => [record.from, record.to]));
 		this.relatedNotes = this.relatedNotes.filter((note) => !movedPaths.has(note.file.path));
 		for (const path of movedPaths) this.selectedPaths.delete(path);
 		this.groups = buildRelatedGroups(this.relatedNotes);

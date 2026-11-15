@@ -83,3 +83,55 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - 测试：`tests/`
 - 部署脚本：`scripts/deploy-and-restart.ps1`
 - 构建配置：`esbuild.config.mjs`
+
+## 7. 社区目录提交（1.4.x）
+
+提交入口为 <https://community.obsidian.md/> 网页表单（`obsidianmd/obsidian-releases` 的 Issue/PR 通道已关闭）。本节事实均于 2026-11-15 用 `gh` 拉取官方文档与 `community-plugins.json` 核实。
+
+### 7.1 插件现值（`manifest.json`）
+
+- `id`：`vault-doctor`
+- `name`：`Vault Doctor`
+- `author`：`ll905518294`
+- `description`：`Scan your vault for broken links, unreferenced resources and duplicate files, then safely organize related notes.`（< 250 字符、以句号结尾、无 emoji）
+- `minAppVersion`：`1.13.0`
+- `isDesktopOnly`：`false`
+- `fundingUrl`：未设置（不收赞助，符合要求，勿添加）
+
+### 7.2 审核要点逐条对照
+
+| 官方要求（来源） | 本项目现状 | 结论 |
+| --- | --- | --- |
+| README 描述用途与使用方法（Submit guide） | README 首屏“用途”+「快速上手」「检查项说明」覆盖 | 满足 |
+| 根目录有 LICENSE 并注明协议（Developer policies） | `LICENSE`（0-BSD），README 末尾注明 | 满足 |
+| 根目录有 `manifest.json`（Submit guide） | 存在，`id` 唯一 | 满足 |
+| `id` 全目录唯一且不含 `obsidian`（Submit guide） | 最新 `community-plugins.json` 未出现 `vault-doctor`；id 不含 `obsidian` | 满足 |
+| description ≤ 250、句号结尾、无 emoji（Submission requirements） | 见 7.1 | 满足 |
+| `minAppVersion` 为实际最低兼容版本（Submission requirements） | `1.13.0` | 满足 |
+| `fundingUrl` 仅用于赞助链接（Submission requirements） | 未设置 | 满足 |
+| Node.js/Electron API 则 `isDesktopOnly=true`（Submission requirements） | 插件整体支持移动端；`window.require('electron')` 仅在 `Platform.isDesktopApp` 分支内调用「在资源管理器中显示」，移动端走 `Notice` 降级 | **需在提交前决定**：严格按字面要求应设 `true`；若坚持移动端可用，需在提交/README 说明该调用受平台守卫、非桌面不可达 |
+| 不在命令 ID 中重复插件 ID（Submission requirements） | 命令 ID 未内嵌 `vault-doctor` | 满足 |
+| 移除模板示例代码（Submission requirements） | 已按体检定位重写，无模板样例残留 | 满足 |
+| 不混淆代码、无动态广告、无客户端遥测、不自更新（Developer policies） | 插件无网络请求、无遥测、不自更新 | 满足 |
+| 网络使用需在 README 披露（Developer policies） | 无网络请求，README 已声明 | 满足 |
+| 不访问 Vault 之外文件，除非披露（Developer policies） | 仅访问当前 Vault；「在资源管理器中显示」只定位文件，README 已说明 | 满足 |
+| 遵守 Obsidian 商标（Developer policies） | 名称与 README 未暗示官方第一方 | 满足 |
+| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | `gh release view 1.4.2`：正式 release、tag=1.4.2、资产含 `main.js`、`manifest.json`、`styles.css` | 满足 |
+
+### 7.3 提交操作步骤（用户本人完成）
+
+1. 浏览器打开 <https://community.obsidian.md/>，用 Obsidian 账号登录。
+2. 在 Profile 中把 GitHub 账号 **Connect** 到该账号（用于验证仓库归属）。
+3. 进入 **Plugins → New plugin**，填写仓库 URL：`https://github.com/ll905518294/obsidian-vault-doctor`。
+4. 目录会读取默认分支 HEAD 的 `manifest.json`，因此提交前先提交并推送 `manifest.json`。
+5. 提交后由自动审核给出反馈；需修正时更新仓库并发布**递增版本**的新 release（版本号必须与 tag 完全一致）。
+6. 通过后可在论坛 Share & showcase 与 Discord `#updates` 公告。
+
+## 8. 截图与 README 一致性维护
+
+README 的 9 张截图位于 `docs/images/`。1.4.x 审计结论：
+
+- `01-dashboard.png` ~ `06-duplicate-files.png`：仍是 **8 分类**旧界面（无「Wiki 笔记链接」页签，首页显示 `X/8 个分类已扫描`），与当前 9 分类不符，需在真实 Obsidian 中按 9 分类重新截图后替换。
+- `07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致，无需更新。
+
+更新截图时保持文件名不变，避免改动 README 引用；截图需体现 9 个分类页签、两段式「确认删除」待确认态与 Wiki 笔记链接页签。
