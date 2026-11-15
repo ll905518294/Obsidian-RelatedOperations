@@ -20,7 +20,7 @@ export class App {}
 `;
 const bundle = await build({
 	stdin: {
-		contents: "export { getRelatedNotes, getRelatedNotesForFiles, relationLabel, defaultTargetFolder } from './src/related-notes.ts'; export { TFile } from 'obsidian';",
+		contents: "export { getRelatedNotes, getRelatedNotesForFiles, relationLabel, defaultTargetFolder } from './src/related-notes.ts'; export { findWikiNoteLinks, replaceWikiNoteLinks } from './src/wiki-note-links.ts'; export { TFile } from 'obsidian';",
 		resolveDir: process.cwd(),
 	},
 	bundle: true, write: false, format: 'esm', platform: 'node',
@@ -29,7 +29,7 @@ const bundle = await build({
 		b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: stub }));
 	} }],
 });
-const { getRelatedNotesForFiles, relationLabel, defaultTargetFolder, TFile } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const { getRelatedNotesForFiles, relationLabel, defaultTargetFolder, findWikiNoteLinks, replaceWikiNoteLinks, TFile } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 const md = 'md';
 
@@ -285,4 +285,50 @@ test('skips resolving unrelated linking sources during the incoming pass', () =>
 	const result = getRelatedNotesForFiles(app, [selected]);
 	assert.deepEqual(result.map((r) => [r.file.path, r.relation]), [[linking.path, 'incoming']]);
 	assert.ok(lookups <= 4, `resolved ${lookups} paths; unrelated sources must not be resolved`);
+});
+
+// Cross-module contract with the wiki-link converter: resolvedLinks is keyed by
+// resolved file paths, so rewriting `[[note]]` into `[note](<note.md>)` must
+// leave the related-note graph identical. This pins that converting a link
+// never silently drops the edge.
+test('converting wiki note links preserves the resolved related-note edge', () => {
+	const source = note('s/source.md');
+	const target = note('t/target.md');
+	const plain = '[[t/target]]';
+	const anchored = '[[t/target#小节]]';
+	const content = `见 ${plain} 与 ${anchored}。`;
+	const positionOf = (original) => {
+		const start = content.indexOf(original);
+		const linePosition = (offset) => ({ offset, line: 0, col: offset });
+		return { start: linePosition(start), end: linePosition(start + original.length) };
+	};
+	const byPath = new Map([[source.path, source], [target.path, target]]);
+	const app = {
+		metadataCache: {
+			resolvedLinks: { 's/source.md': { 't/target.md': 2 } },
+			getFileCache: (file) => (file === source ? {
+				links: [
+					{ original: plain, position: positionOf(plain) },
+					{ original: anchored, position: positionOf(anchored) },
+				],
+			} : null),
+			getFirstLinkpathDest: (linkPath, from) => (linkPath === 't/target' && from === 's/source.md' ? target : null),
+		},
+		vault: {
+			getAbstractFileByPath: (path) => byPath.get(path) ?? null,
+			getMarkdownFiles: () => [source],
+		},
+	};
+	const before = getRelatedNotesForFiles(app, [source]).map((row) => [row.file.path, row.relation]);
+	assert.deepEqual(before, [['t/target.md', 'outgoing']]);
+	const links = findWikiNoteLinks(app, [source]);
+	assert.equal(links.length, 2);
+	const result = replaceWikiNoteLinks(content, links);
+	assert.equal(result.converted, 2);
+	assert.equal(result.skipped, 0);
+	assert.equal(result.content, '见 [t/target](<t/target.md>) 与 [t/target > 小节](<t/target.md#小节>)。');
+	// The converted destinations point at the same file path keys the host
+	// stores in resolvedLinks, so the relation is unchanged.
+	const after = getRelatedNotesForFiles(app, [source]).map((row) => [row.file.path, row.relation]);
+	assert.deepEqual(after, before);
 });

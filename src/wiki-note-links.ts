@@ -50,10 +50,10 @@ export function convertWikiNoteLink(link: WikiNoteLink): string | null {
 	if (!link.file || link.reason) return null;
 	const parsed = parseWiki(link.original);
 	if (!parsed) return null;
-	const target = link.file.path;
+	const target = escapeDestination(link.file.path);
 	let url = `<${target}>`;
-	if (parsed.heading) url = `<${target}#${parsed.heading}>`;
-	if (parsed.blockId) url = `<${target}#^${parsed.blockId}>`;
+	if (parsed.heading) url = `<${target}#${escapeDestination(parsed.heading)}>`;
+	if (parsed.blockId) url = `<${target}#^${escapeDestination(parsed.blockId)}>`;
 	const alias = parsed.alias;
 	let text: string;
 	if (alias) text = alias;
@@ -61,6 +61,14 @@ export function convertWikiNoteLink(link: WikiNoteLink): string | null {
 	else if (parsed.blockId) text = `${parsed.path} > ^${parsed.blockId}`;
 	else text = parsed.path;
 	return `[${text}](${url})`;
+}
+
+// Markdown link destinations are URI-decoded by Obsidian and by this repo's own
+// link scans, so a raw `%` would corrupt headings such as `100%（完成）`. `#`
+// would end the fragment and `<`/`>` would end the `<...>` destination. Spaces,
+// slashes and non-ASCII stay literal for readability.
+function escapeDestination(value: string) {
+	return value.replaceAll('%', '%25').replaceAll('#', '%23').replaceAll('<', '%3C').replaceAll('>', '%3E');
 }
 
 export function replaceWikiNoteLinks(content: string, links: WikiNoteLink[]) {

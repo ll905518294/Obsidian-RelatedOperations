@@ -956,6 +956,14 @@ button.is-armed-confirm.mod-warning {
 	border: 2px solid var(--text-error);
 	background: color-mix(in srgb, var(--background-modifier-error, var(--text-error)) 8%, var(--background-primary));
 	font-weight: 600;
+	/* 待确认文案不能折行或竖排：固定 1.8rem 的图标按钮被 setText 后，缺此会竖排成「确/认/删/除」。 */
+	white-space: nowrap;
+}
+
+/* 图标按钮待确认态：放弃固定 1.8rem，改为随「确认删除」横排文案自适应宽度（触控命中由窄屏 min-width:44px 兜底）。 */
+.orphan-cleanup-icon-button.is-armed-confirm,
+.orphan-cleanup-icon-button.is-armed-confirm.mod-warning {
+	width: auto;
 }
 
 button.is-armed-confirm:hover,
@@ -1473,6 +1481,14 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	.orphan-cleanup-image-delete {
 		width: 44px;
 		min-width: 44px;
+	}
+
+	/* 待确认态按钮不再固定 44px，改为随「确认删除」横排文案自适应，min-width 保住触控命中区。 */
+	.orphan-cleanup-icon-button.is-armed-confirm,
+	.orphan-cleanup-icon-button.is-armed-confirm.mod-warning,
+	.orphan-cleanup-image-delete.is-armed-confirm,
+	.orphan-cleanup-image-delete.is-armed-confirm.mod-warning {
+		width: auto;
 	}
 
 	/*

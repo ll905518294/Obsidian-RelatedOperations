@@ -33,6 +33,8 @@ class El {
 	removeClass(name) { this.className = this.className.split(/\s+/).filter((item) => item && item !== name).join(' '); }
 	hasClass(name) { return this.className.split(/\s+/).includes(name); }
 	setAttribute(key, value) { this.attrs[key] = String(value); }
+	getAttribute(key) { return key in this.attrs ? this.attrs[key] : null; }
+	removeAttribute(key) { delete this.attrs[key]; }
 	addEventListener(type, callback) { this._listeners.push({ type, callback }); }
 	dispatch(type, event = {}) {
 		for (const listener of [...this._listeners]) {
@@ -158,8 +160,9 @@ test('第一次点击只进入待确认状态，不执行删除', () => {
 	assert.equal(target.textContent, '确认删除');
 	assert.ok(target.hasClass('is-armed-confirm'));
 	assert.ok(target.hasClass('mod-warning'));
-	assert.equal(target.attrs.title, '再次点击确认删除');
-	assert.equal(target.attrs['aria-description'], '再次点击确认删除');
+	assert.equal(target.getAttribute('title'), '确认删除');
+	assert.equal(target.getAttribute('aria-description'), '再次点击确认删除');
+	assert.equal(target.getAttribute('aria-label'), null);
 	assert.equal(pendingTimers().length, 1);
 });
 
@@ -173,6 +176,8 @@ test('第二次点击执行删除并复位按钮', () => {
 	assert.equal(target.textContent, '移入回收站');
 	assert.ok(!target.hasClass('is-armed-confirm'));
 	assert.ok(!target.hasClass('mod-warning'));
+	assert.equal(target.getAttribute('title'), null);
+	assert.equal(target.getAttribute('aria-description'), null);
 	assert.equal(pendingTimers().length, 0);
 });
 
@@ -219,6 +224,67 @@ test('选择变化可通过 resetArmedConfirmButtons 批量复位', () => {
 	armed.dispatch('click');
 	plain.dispatch('click');
 	assert.equal(confirmed, 1);
+});
+
+test('图标按钮武装时同步更新可访问名称，复位后完整还原', () => {
+	const target = new El('button');
+	target.className = 'orphan-cleanup-icon-button';
+	target.setAttribute('aria-label', '删除图片');
+	target.setAttribute('title', '删除图片');
+	let confirmed = 0;
+	requireSecondClick(target, () => { confirmed += 1; });
+
+	target.dispatch('click');
+	assert.equal(confirmed, 0);
+	// The accessible name (aria-label) must follow the visible text, otherwise
+	// a screen reader keeps announcing the pre-arm label.
+	assert.equal(target.getAttribute('aria-label'), '确认删除');
+	assert.equal(target.getAttribute('aria-description'), '再次点击确认删除');
+	assert.equal(target.getAttribute('title'), '确认删除');
+	assert.ok(target.hasClass('is-armed-confirm'));
+
+	target.dispatch('blur');
+	assert.equal(target.getAttribute('aria-label'), '删除图片');
+	assert.equal(target.getAttribute('title'), '删除图片');
+	assert.equal(target.getAttribute('aria-description'), null);
+	assert.ok(!target.hasClass('is-armed-confirm'));
+});
+
+test('文本按钮武装时不添加 aria-label，复位后不残留属性', () => {
+	const target = button('删除选中文件', 'mod-cta');
+	let confirmed = 0;
+	requireSecondClick(target, () => { confirmed += 1; });
+
+	target.dispatch('click');
+	assert.equal(target.textContent, '确认删除');
+	assert.equal(target.getAttribute('aria-label'), null);
+	assert.equal(target.getAttribute('aria-description'), '再次点击确认删除');
+
+	target.dispatch('blur');
+	assert.equal(target.textContent, '删除选中文件');
+	assert.equal(target.getAttribute('aria-label'), null);
+	assert.equal(target.getAttribute('aria-description'), null);
+	assert.equal(target.getAttribute('title'), null);
+});
+
+test('连续两次武装-复位不累积属性', () => {
+	const target = new El('button');
+	target.className = 'orphan-cleanup-icon-button';
+	target.setAttribute('aria-label', '删除图片');
+	target.setAttribute('title', '删除图片');
+	requireSecondClick(target, () => {});
+
+	for (let round = 0; round < 2; round += 1) {
+		target.dispatch('click');
+		assert.equal(target.getAttribute('aria-label'), '确认删除');
+		assert.equal(target.getAttribute('aria-description'), '再次点击确认删除');
+		target.dispatch('click');
+	}
+	assert.equal(target.getAttribute('aria-label'), '删除图片');
+	assert.equal(target.getAttribute('title'), '删除图片');
+	assert.equal(target.getAttribute('aria-description'), null);
+	assert.equal(target.className, 'orphan-cleanup-icon-button');
+	assert.equal(target.textContent, '');
 });
 
 function makeVaultFile(path, bytes) {

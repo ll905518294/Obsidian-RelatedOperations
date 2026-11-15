@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { convertWikiNoteLink, findWikiNoteLinks, replaceWikiNoteLinks, revalidateWikiNoteLink, wikiNoteLinkKey, wikiNoteLinkOffset } from '../src/wiki-note-links.ts';
+import { findBrokenNoteLinks } from '../src/broken-note-links.ts';
 
 const link = (original, path = 'a.md', start = 0, extra = {}) => ({
 	sourcePath: 'note.md',
@@ -120,4 +121,93 @@ test('wikiNoteLinkKey is unique per source and position', () => {
 	const l2 = link('[[a]]', 'a.md', 8);
 	assert.notEqual(wikiNoteLinkKey(l1), wikiNoteLinkKey(l2));
 	assert.equal(revalidateWikiNoteLink({ metadataCache: { getFirstLinkpathDest: () => ({ path: 'b.md' }) } }, link('[[a]]')).file.path, 'b.md');
+});
+
+// A raw `%` in a destination is a percent-escape to every consumer that
+// decodes markdown links (this repo decodes in broken-note-links and the scan
+// path reader). A heading such as `100%（完成）` must round-trip, so `%` is
+// escaped; `#` would end the fragment and `<`/`>` would end `<...>`.
+test('escapes percent, hash and angle brackets in heading, block id and path', () => {
+	assert.equal(
+		convertWikiNoteLink(link('[[a#100%（完成）]]', 'a.md', 0, { heading: '100%（完成）' })),
+		'[a > 100%（完成）](<a.md#100%25（完成）>)',
+	);
+	assert.equal(
+		convertWikiNoteLink(link('[[a#C# 教程]]', 'a.md', 0, { heading: 'C# 教程' })),
+		'[a > C# 教程](<a.md#C%23 教程>)',
+	);
+	assert.equal(
+		convertWikiNoteLink(link('[[a#a<b>c]]', 'a.md', 0, { heading: 'a<b>c' })),
+		'[a > a<b>c](<a.md#a%3Cb%3Ec>)',
+	);
+	assert.equal(convertWikiNoteLink(link('[[100%]]', '100%.md')), '[100%](<100%25.md>)');
+});
+
+test('keeps spaces, slashes and Chinese literal in the destination', () => {
+	assert.equal(
+		convertWikiNoteLink(link('[[a#第 1/2 章]]', 'a.md', 0, { heading: '第 1/2 章' })),
+		'[a > 第 1/2 章](<a.md#第 1/2 章>)',
+	);
+});
+
+// Relative wiki paths are resolved by Obsidian; conversion must emit the real
+// vault path so `../` note-vs-folder ambiguity cannot reappear later.
+test('relative wiki paths convert to the resolved absolute vault path', () => {
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'sub/note.md' }] },
+		metadataCache: {
+			getFileCache: () => ({ links: [{ original: '[[../dir/a]]', link: '../dir/a', position: { start: { offset: 0 }, end: { offset: 12 } } }] }),
+			getFirstLinkpathDest: (parsed) => (parsed === '../dir/a' ? { path: 'dir/a.md' } : null),
+		},
+	};
+	const [found] = findWikiNoteLinks(app);
+	assert.equal(found.file.path, 'dir/a.md');
+	assert.equal(convertWikiNoteLink(found), '[../dir/a](<dir/a.md>)');
+	const plain = link('[[dir/a]]', 'dir/a.md');
+	assert.equal(convertWikiNoteLink(plain), '[dir/a](<dir/a.md>)');
+});
+
+test('converts several references to the same target without shifting offsets', () => {
+	const content = '[[a]] | [[a#H|别名]] | [[a^b]]';
+	const specs = [
+		['[[a]]', 'a.md', {}],
+		['[[a#H|别名]]', 'a.md', { heading: 'H' }],
+		['[[a^b]]', 'a.md', { blockId: 'b' }],
+	];
+	const links = specs.map(([original, path, extra]) => link(original, path, content.indexOf(original), extra));
+	const result = replaceWikiNoteLinks(content, links);
+	assert.equal(result.converted, 3);
+	assert.equal(result.skipped, 0);
+	assert.equal(result.content, '[a](<a.md>) | [别名](<a.md#H>) | [a > ^b](<a.md#^b>)');
+});
+
+// Idempotency: markdown links produced by the conversion must never be offered
+// as wiki candidates again on a rescan.
+test('already converted markdown links are not candidates again', () => {
+	const cache = {
+		links: [
+			{ original: '[[a]]', link: 'a', position: { start: { offset: 0 }, end: { offset: 5 } } },
+			{ original: '[a](<a.md>)', link: 'a.md', position: { start: { offset: 10 }, end: { offset: 23 } } },
+		],
+	};
+	const found = findWikiNoteLinks(app(cache));
+	assert.equal(found.length, 1);
+	assert.equal(found[0].original, '[[a]]');
+});
+
+// After conversion the link is markdown syntax. When its target disappears the
+// broken-note-links scan must report it (path split at `#`, fragment ignored).
+test('converted markdown link is reported as broken once the target is removed', () => {
+	const cache = {
+		links: [
+			{ original: '[a > 标题](<a.md#标题>)', link: 'a.md#标题', position: { start: { offset: 0 }, end: { offset: 23 } } },
+		],
+	};
+	const broken = findBrokenNoteLinks(
+		{ vault: { getMarkdownFiles: () => [{ path: 'note.md' }] }, metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null } },
+		'png',
+	);
+	assert.equal(broken.length, 1);
+	assert.equal(broken[0].linkPath, 'a.md');
+	assert.equal(broken[0].syntax, 'markdown');
 });

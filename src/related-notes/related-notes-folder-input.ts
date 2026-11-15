@@ -18,28 +18,26 @@ export function addFolderInput(
 	input.id = inputId;
 	input.addClass(className);
 	const suggestions = field.createDiv({ cls: 'related-operations-folder-suggestions' });
-	const relative = false;
 	input.addEventListener('focus', () => {
-		populateFolderSuggestions(app, suggestions, input, relative);
+		populateFolderSuggestions(app, suggestions, input);
 		suggestions.addClass('is-visible');
 	});
 	input.addEventListener('input', () => {
 		onInput(input.value);
-		populateFolderSuggestions(app, suggestions, input, relative);
+		populateFolderSuggestions(app, suggestions, input);
 		suggestions.addClass('is-visible');
 	});
 	input.addEventListener('blur', () => {
 		window.setTimeout(() => suggestions.removeClass('is-visible'), 150);
 	});
-	populateFolderSuggestions(app, suggestions, input, relative);
+	populateFolderSuggestions(app, suggestions, input);
 }
 
-export function populateFolderSuggestions(app: App, container: HTMLElement, input: HTMLInputElement, relative: boolean) {
+export function populateFolderSuggestions(app: App, container: HTMLElement, input: HTMLInputElement) {
 	container.empty();
 	const values = app.vault.getAllLoadedFiles()
 		.filter((file): file is TFolder => file instanceof TFolder)
 		.map((folder) => folder.path)
-		.filter((path) => relative ? false : true)
 		.filter((path) => path.toLowerCase().includes(input.value.trim().toLowerCase()));
 	for (const value of values.sort()) {
 		const option = container.createEl('button', { text: value, cls: 'related-operations-folder-suggestion' });

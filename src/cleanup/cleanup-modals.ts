@@ -84,7 +84,7 @@ export class ConvertWikiLinksConfirmationModal extends Modal {
 	constructor(app: App, private readonly count: number) { super(app); }
 	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
 	onOpen() {
-		this.titleEl.setText('确认转换 Wiki 链接');
+		this.titleEl.setText('Wiki 链接转换确认');
 		this.contentEl.createEl('p', { text: `即将把 ${this.count} 条 Wiki 笔记链接转换为标准 Markdown 链接。` });
 		this.contentEl.createEl('p', { text: '无法解析或无变化的链接会跳过；已转换内容可用编辑历史撤销。', cls: 'orphan-cleanup-warning' });
 		const actions = this.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });

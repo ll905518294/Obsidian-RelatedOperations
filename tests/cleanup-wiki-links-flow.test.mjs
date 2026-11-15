@@ -35,6 +35,8 @@ const bundle = await build({
 			export { OrphanCleanupPanel as Panel } from './src/orphan-cleanup.ts';
 			export { confirmConvertWikiLinks } from './src/cleanup/cleanup-flows.ts';
 			export { findWikiNoteLinks, wikiNoteLinkKey } from './src/wiki-note-links.ts';
+			export { updateSelectionSummary } from './src/cleanup/cleanup-list-actions.ts';
+			export { requireSecondClick } from './src/cleanup/cleanup-confirm-button.ts';
 		`,
 		resolveDir: process.cwd(),
 	},
@@ -46,7 +48,7 @@ const bundle = await build({
 		b.onLoad({ filter: /.*/, namespace: 'modal-stub' }, () => ({ contents: modalStub }));
 	} }],
 });
-const { Panel, confirmConvertWikiLinks, findWikiNoteLinks, wikiNoteLinkKey } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const { Panel, confirmConvertWikiLinks, findWikiNoteLinks, wikiNoteLinkKey, updateSelectionSummary, requireSecondClick } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 const noteContent = '前文 [[a|笔记]] 后文';
 function makeApp({ resolve = true } = {}) {
@@ -106,3 +108,68 @@ test('unresolved targets after revalidation are skipped without writing', async 
 	assert.deepEqual(writes, []);
 	assert.deepEqual(panel.processed, { success: 0, skipped: 1, failed: [] });
 });
+
+// Duplicate deletion and wiki conversion share one panel; their selection sets
+// and counts must stay independent, and a half-armed delete button must not
+// survive a re-render caused by switching to the wiki tab.
+test('duplicate two-step confirmation and wiki conversion keep separate selections', async () => {
+	globalThis.window = { setTimeout, clearTimeout };
+	const { app, writes } = makeApp();
+	const panel = makePanel(app);
+	panel.candidates.wikiLinks = findWikiNoteLinks(app);
+	panel.candidates.duplicates = [{ hash: 'h', size: 3, files: [{ path: 'dup/a.png' }, { path: 'dup/b.png' }] }];
+	panel.hasScanned = true;
+	panel.wikiSelections.add(wikiNoteLinkKey(panel.candidates.wikiLinks[0]));
+	panel.duplicateSelections.add('dup/a.png');
+
+	const armed = makeButton('删除选中文件');
+	const contentEl = makeContainer([armed]);
+	panel.contentEl = contentEl;
+	requireSecondClick(armed, () => {});
+	armed.click();
+	assert.match(armed.textContent, /确认删除/, '第一次点击应进入待确认态');
+
+	const summary = { text: '', setText(value) { this.text = value; } };
+	panel.activeTab = 'duplicates';
+	updateSelectionSummary(panel, summary);
+	assert.match(summary.text, /^已选：1 个文件$/, '重复文件计数不应混入 Wiki 链接');
+	assert.equal(armed.className.includes('is-armed-confirm'), false, '重算选择摘要必须重置待确认态');
+
+	panel.activeTab = 'wiki-links';
+	updateSelectionSummary(panel, summary);
+	assert.match(summary.text, /1 条 Wiki 链接/, 'Wiki 计数应独立显示');
+	assert.equal(/^已选：\d+ 个文件$/.test(summary.text), false, 'Wiki 页不应显示重复文件计数');
+
+	await confirmConvertWikiLinks(panel);
+	assert.deepEqual(writes, ['前文 [笔记](<目标/a.md>) 后文']);
+	assert.deepEqual([...panel.duplicateSelections], ['dup/a.png'], 'Wiki 转换不得清空重复删除选择');
+	delete globalThis.window;
+});
+
+function makeButton(text) {
+	const listeners = new Map();
+	return {
+		textContent: text,
+		className: 'mod-cta',
+		title: '',
+		attrs: {},
+		addEventListener(name, callback) {
+			const list = listeners.get(name) ?? [];
+			list.push(callback);
+			listeners.set(name, list);
+		},
+		click() { for (const callback of listeners.get('click') ?? []) callback(); },
+		setText(value) { this.textContent = value; },
+		addClass(...classes) { this.className = `${this.className} ${classes.join(' ')}`; },
+		setAttribute(name, value) { this.attrs[name] = value; },
+	};
+}
+
+function makeContainer(buttons) {
+	return {
+		querySelector: () => null,
+		querySelectorAll: (selector) => (selector.includes('is-armed-confirm')
+			? buttons.filter((button) => button.className.includes('is-armed-confirm'))
+			: []),
+	};
+}

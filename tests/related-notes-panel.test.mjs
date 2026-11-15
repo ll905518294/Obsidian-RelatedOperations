@@ -53,6 +53,7 @@ class El {
 	getAttribute(k) { return this.attrs[k]; }
 	addEventListener(name, cb) { (this.listeners[name] ??= []).push(cb); }
 	fire(name, event = {}) { for (const cb of this.listeners[name] ?? []) cb({ preventDefault() {}, ...event }); }
+	dispatchEvent(event) { this.fire(event.type, event); return true; }
 	remove() {
 		if (!this.parent) return;
 		this.parent.children = this.parent.children.filter((c) => c !== this);
@@ -606,4 +607,101 @@ test('large multi-source batch keeps dedupe, select-all, merge and move list cor
 	assert.ok(renderMs < 5000 && mergeMs < 5000 && moveMs < 5000);
 	assert.ok(previewMs < 5000);
 	t.diagnostic(`large batch: render=${renderMs.toFixed(1)}ms merge=${mergeMs.toFixed(1)}ms move=${moveMs.toFixed(1)}ms preview=${previewMs.toFixed(1)}ms`);
+});
+
+// An empty query is a folder picker, not a no-op: it lists every vault folder
+// in sorted order and never leaks file entries into the suggestions.
+test('folder suggestions list every vault folder sorted and skip files', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const folders = [new TFolder('zeta'), new TFolder('archive/2026'), new TFolder('archive')];
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t, new TFile('architecture.md'), ...folders],
+	});
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = '';
+	input.fire('input');
+	const labels = el.querySelectorAll('.related-operations-folder-suggestion').map((button) => button.textContent);
+	assert.deepEqual(labels, ['archive', 'archive/2026', 'zeta']);
+});
+
+// Vault paths are matched case-insensitively so the typed folder still finds
+// the real one on case-sensitive editors.
+test('folder suggestions match case-insensitively', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const folders = [new TFolder('archive'), new TFolder('archive/2026'), new TFolder('notes')];
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t, ...folders] });
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'ARCH';
+	input.fire('input');
+	const labels = el.querySelectorAll('.related-operations-folder-suggestion').map((button) => button.textContent);
+	assert.deepEqual(labels, ['archive', 'archive/2026']);
+});
+
+// Clicking a suggestion is a full input commit: it writes the value, fires the
+// input event (so previews recompute) and hides the suggestion popup.
+test('clicking a folder suggestion fills the input and refreshes the preview', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const folders = [new TFolder('archive'), new TFolder('archive/2026')];
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t, ...folders] });
+	const previews = () => el.querySelectorAll('tr[data-related-path]').map((row) => row.children.at(-1).textContent);
+	assert.deepEqual(previews(), ['src/Pages/t.md']);
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	const button = el.querySelectorAll('.related-operations-folder-suggestion').find((item) => item.textContent === 'archive/2026');
+	const popup = button.parent;
+	button.fire('click');
+	assert.equal(input.value, 'archive/2026');
+	assert.deepEqual(previews(), ['archive/2026/t.md']);
+	assert.equal(popup.hasClass('is-visible'), false);
+});
+
+// Vault paths collide case-insensitively in practice. A file already living at
+// Archive/T.md must block a move to archive/t.md instead of overwriting it.
+test('moveFiles treats a case-variant destination as an existing conflict', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const occupant = file('Archive/T.md');
+	const { panel, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t, occupant] });
+	const result = await panel.moveFiles('archive', [t]);
+	assert.deepEqual(result.succeeded, []);
+	assert.deepEqual(result.skipped, ['dst/t.md']);
+	assert.deepEqual(renamed, []);
+	assert.equal(t.path, 'dst/t.md');
+	assert.equal(occupant.path, 'Archive/T.md');
+});
+
+// Typing a note path where a folder is expected must fail loudly, not create a
+// half-made folder chain and rename the note into it.
+test('moveFiles fails cleanly when the target path is an existing file', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	const result = await panel.moveFiles('dst/t.md', [t]);
+	assert.deepEqual(result.succeeded, []);
+	assert.deepEqual(result.failed, [{ path: 'dst/t.md', reason: '无法创建或访问目标文件夹' }]);
+	assert.deepEqual(renamed, []);
+	assert.equal(t.path, 'dst/t.md');
+});
+
+// A vanished moved file is a partial undo failure: the restored notes must be
+// reported, and the failed record kept so the user can retry later.
+test('undoLastMove keeps failed restores retryable and reports the split', async () => {
+	const a = file('src/a.md');
+	const t1 = file('dst/t1.md');
+	const t2 = file('dst/t2.md');
+	const { panel } = panelFor([], [a], { files: [a, t1, t2] });
+	await panel.moveFiles('archive', [t1, t2]);
+	const files = panel.app.vault.getAllLoadedFiles();
+	files.splice(files.indexOf(t2), 1);
+	Notice.messages = [];
+	await panel.undoLastMove();
+	const notice = Notice.messages.at(-1);
+	assert.match(notice, /已撤销：1/);
+	assert.match(notice, /失败：1/);
+	assert.match(notice, /archive\/t2\.md/);
+	assert.deepEqual(panel.lastMove, [{ from: 'dst/t2.md', to: 'archive/t2.md' }]);
 });
