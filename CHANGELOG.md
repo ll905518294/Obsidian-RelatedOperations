@@ -8,6 +8,7 @@
 ### 未发布 — 文档
 
 - **[文档]** README 与 `docs/runbook.md` 的截图统一改用纯合成演示库 `vault-doctor-demo` 的实拍图：`docs/images/01-dashboard.png` 至 `06-duplicate-files.png` 共 6 张全部替换为 1920×1032、深色 Border 主题、9 分类齐全（含「Wiki 笔记链接」页签）的合规截图，内容为虚构示例数据，不含真实项目/客户/公司名；README 增加「截图取自演示库，仅含示例内容」说明。
+- **[文档]** README 演示库截图补齐 `docs/images/07-related-notes.png` 与 `08-settings.png`：均为 1920×1032 深色实拍，内容分别为演示库 `vault-doctor-demo` 的关联笔记视图（`Projects/项目A-概览.md`）与 Vault Doctor 插件设置页，全部为合成示例数据；07 在清理演示库根目录空临时文件后重拍，侧栏不含残留条目。
 
 ### 2026-11-15 — 1.4.4：关联笔记目标文件夹过滤重建
 
