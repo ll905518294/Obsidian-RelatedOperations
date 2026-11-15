@@ -150,6 +150,10 @@ export class RelatedNotesPanel {
 		addFolderInput(this.app, target, '目标文件夹', this.targetFolder, 'related-operations-target-folder', (value) => {
 			this.targetFolder = value;
 			this.updatePreviews();
+		}, (value) => {
+			this.targetFolder = value;
+			this.updatePreviews();
+			this.renderList();
 		});
 		const shortcuts = target.createDiv({ cls: 'related-operations-target-shortcuts' });
 		for (const [label, value] of [['当前目录', parentFolder(this.sourceFile.path)], ['源笔记名目录', defaultTargetFolder(this.sourceFile)], ['当前目录/Pages', joinVaultPath(parentFolder(this.sourceFile.path), 'Pages')]] as const) {
@@ -160,6 +164,7 @@ export class RelatedNotesPanel {
 				const input = this.containerEl.querySelector<HTMLInputElement>('.related-operations-target-folder');
 				if (input) input.value = value;
 				this.updatePreviews();
+				this.renderList();
 			});
 		}
 		target.createSpan({ text: '→', cls: 'related-operations-target-arrow' });

@@ -9,6 +9,7 @@ export function addFolderInput(
 	value: string,
 	className: string,
 	onInput: (value: string) => void,
+	onCommit?: (value: string) => void,
 ) {
 	const field = container.createDiv({ cls: 'related-operations-folder-field' });
 	const inputId = `related-operations-folder-input-${folderInputSequence++}`;
@@ -27,6 +28,14 @@ export function addFolderInput(
 		populateFolderSuggestions(app, suggestions, input);
 		suggestions.addClass('is-visible');
 	});
+	const commit = () => {
+		if (!onCommit) return;
+		const next = input.value;
+		// Defer the rebuild so a click on a toolbar/action button that blurred
+		// this field is delivered before the list is replaced.
+		window.setTimeout(() => onCommit(next), 0);
+	};
+	input.addEventListener('change', commit);
 	input.addEventListener('blur', () => {
 		window.setTimeout(() => suggestions.removeClass('is-visible'), 150);
 	});
@@ -46,6 +55,7 @@ export function populateFolderSuggestions(app: App, container: HTMLElement, inpu
 		option.addEventListener('click', () => {
 			input.value = value;
 			input.dispatchEvent(new Event('input'));
+			input.dispatchEvent(new Event('change'));
 			container.removeClass('is-visible');
 		});
 	}

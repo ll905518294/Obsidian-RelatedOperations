@@ -296,6 +296,31 @@ test('连续两次武装-复位不累积属性', () => {
 	assert.equal(target.textContent, '');
 });
 
+// Selection changes call resetArmedConfirmButtons instead of blur/click; that
+// path must also put the accessible name back, or a screen reader keeps hearing
+// 「确认删除」 for a button that no longer asks for confirmation.
+test('选择变化复位时恢复图标按钮的原始 aria-label', () => {
+	const root = new El('div');
+	const target = root.createEl('button');
+	target.className = 'orphan-cleanup-icon-button';
+	target.setAttribute('aria-label', '删除图片');
+	target.setAttribute('title', '删除图片');
+	target.appendChild(new El('svg'));
+	let confirmed = 0;
+	requireSecondClick(target, () => { confirmed += 1; });
+
+	target.dispatch('click');
+	assert.equal(target.getAttribute('aria-label'), '确认删除');
+
+	resetArmedConfirmButtons(root);
+	assert.equal(confirmed, 0);
+	assert.equal(target.getAttribute('aria-label'), '删除图片');
+	assert.equal(target.getAttribute('title'), '删除图片');
+	assert.equal(target.getAttribute('aria-description'), null);
+	assert.ok(!target.hasClass('is-armed-confirm'));
+	assert.equal(target.childNodes.length, 1, 'SVG 子节点应保留');
+});
+
 test('图标按钮武装后复位不丢失 SVG 子节点', () => {
 	const target = new El('button');
 	target.className = 'orphan-cleanup-icon-button';

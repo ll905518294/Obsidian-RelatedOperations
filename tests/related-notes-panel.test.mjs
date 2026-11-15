@@ -322,6 +322,36 @@ test('per-source relations stay exact when a target is linked both ways across s
 	assert.deepEqual(tabs, ['出链 (1)', '入链 (1)', '双向链接 (0)']);
 });
 
+// Selections are keyed by path across tabs: switching tabs must keep them and
+// the summary must keep counting them, while "select all current group" only
+// adds the active tab's notes.
+test('selection survives tab switches and stays counted across tabs', () => {
+	const a = file('src/a.md');
+	const outgoing = file('dst/out.md');
+	const incoming = file('src/in.md');
+	const relatedNotes = [
+		{ file: outgoing, relation: 'outgoing', sourceFile: a },
+		{ file: incoming, relation: 'incoming', sourceFile: a },
+	];
+	const { panel, el } = panelFor(relatedNotes, [a]);
+	const summary = () => el.querySelector('.related-operations-selection-summary').textContent;
+	const rowFor = (path) => el.querySelectorAll('tr[data-related-path]').find((row) => row.dataset.relatedPath === path);
+	const box = rowFor('dst/out.md').querySelector('input[type="checkbox"]');
+	box.checked = true;
+	box.fire('change');
+	assert.equal(summary(), '已选 1 篇（跨标签页）：out');
+	const incomingTab = el.querySelectorAll('.related-operations-tab').find((tab) => tab.textContent.startsWith('入链'));
+	incomingTab.fire('click');
+	assert.equal(summary(), '已选 1 篇（跨标签页）：out');
+	assert.equal(rowFor('src/in.md').querySelector('input[type="checkbox"]').checked, false);
+	el.querySelector('.related-operations-select-all').fire('click');
+	assert.deepEqual(
+		[...panel.selections.entries()].filter(([, selected]) => selected).map(([path]) => path).sort(),
+		['dst/out.md', 'src/in.md'],
+	);
+	assert.equal(summary(), '已选 2 篇（跨标签页）');
+});
+
 // Default (merge off) keeps the per-source view: the same target appears once
 // per source row, as before the merge option existed.
 test('merge view is off by default and keeps per-source rows', () => {
@@ -455,6 +485,29 @@ test('view state round-trips the merge preference and saves layout on toggle', a
 	mergeButton.fire('click');
 	assert.equal(view.getState().mergeTargetView, false);
 	assert.equal(saves, 1);
+});
+
+// The list display preferences are panel settings, not view state: changing
+// them must write through to the settings object and request a save.
+test('grouping and hide-compliant preferences persist to settings', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const settings = { groupingMode: 'none', hideCompliant: false };
+	let saves = 0;
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t],
+		settings,
+		saveSettings: async () => { saves++; },
+	});
+	const grouping = el.querySelector('.related-operations-grouping-select');
+	assert.equal(grouping.value, 'none');
+	grouping.value = 'path';
+	grouping.fire('change');
+	assert.equal(settings.groupingMode, 'path');
+	assert.equal(saves, 1);
+	el.querySelector('.related-operations-hide-button').fire('click');
+	assert.equal(settings.hideCompliant, true);
+	assert.equal(saves, 2);
 });
 
 test('merged relation cell shows which source is outgoing and which is incoming', () => {
@@ -656,6 +709,47 @@ test('target folder changes refresh the preview on every grouped row', () => {
 	input.value = 'archive';
 	input.fire('input');
 	assert.deepEqual(previews(), ['archive/t1.md', 'archive/t2.md', 'archive/t3.md']);
+});
+
+// Committing a target folder must re-apply the hide-compliant filter: typing
+// only updates previews in place, but leaving the field (change) re-renders the
+// list so notes already at the new target disappear and the count updates.
+test('committing a target folder re-applies the hide-compliant filter', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t],
+		settings: { groupingMode: 'none', hideCompliant: true },
+	});
+	const rows = () => el.querySelectorAll('tr[data-related-path]');
+	assert.equal(rows().length, 1);
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'dst';
+	input.fire('input');
+	assert.equal(rows().length, 1, '打字过程中先原位更新，不重建列表');
+	assert.equal(rows()[0].hasClass('is-already-target'), true);
+	input.fire('change');
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(rows().length, 0);
+	assert.match(el.querySelector('.related-operations-empty').textContent, /已隐藏 1 条/);
+	assert.match(el.querySelector('.related-operations-hide-button').textContent, /（1）/);
+});
+
+// Shortcut buttons are an immediate commit: they must re-render so a note that
+// becomes movable under the new target is actually shown.
+test('target folder shortcuts re-apply the hide-compliant filter immediately', () => {
+	const a = file('src/a.md');
+	const t = file('src/Pages/t.md');
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t],
+		settings: { groupingMode: 'none', hideCompliant: true },
+	});
+	const rows = () => el.querySelectorAll('tr[data-related-path]');
+	assert.equal(rows().length, 0, '默认目标 src/Pages 下该笔记应被隐藏');
+	const shortcut = el.querySelectorAll('.related-operations-target-shortcuts button').find((button) => button.textContent === '当前目录');
+	shortcut.fire('click');
+	assert.equal(rows().length, 1);
+	assert.equal(rows()[0].dataset.relatedPath, 'src/Pages/t.md');
 });
 
 test('large multi-source batch keeps dedupe, select-all, merge and move list correct', async (t) => {
