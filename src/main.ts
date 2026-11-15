@@ -15,11 +15,9 @@ import { OnboardingModal, type OnboardingAction } from './onboarding';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
-	private returningUser = false;
 	settings!: RelatedOperationsSettings;
 	async onload() {
 		const rawSettings: unknown = await this.loadData();
-		this.returningUser = !!rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings) && Object.keys(rawSettings).length > 0;
 		const loaded = normalizeSettings(DEFAULT_SETTINGS, rawSettings);
 		if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
 			const persisted = rawSettings as Record<string, unknown>;
@@ -135,7 +133,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 
 	private async maybeShowStartupIntro() {
 		const version = this.manifest.version;
-		const decision = decideStartupIntro(version, this.settings.lastSeenVersion, this.settings.onboardingSeen, this.returningUser);
+		const decision = decideStartupIntro(version, this.settings.lastSeenVersion, this.settings.onboardingSeen);
 		if (decision === 'onboarding') {
 			// Mark both flags up front so a reload cannot show it twice and the
 			// update intro stays silent for this same version.

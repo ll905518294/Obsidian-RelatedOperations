@@ -34,18 +34,16 @@ test('第三步包含 + 图标提示与开始扫描入口', () => {
 
 test('首次安装只弹引导，升级只弹更新说明', () => {
 	assert.equal(decideStartupIntro('1.6.0', '', false), 'onboarding', '首次安装应弹引导');
-	assert.equal(decideStartupIntro('1.6.0', '', true), 'none', '关闭开关后首次安装不再自动弹');
-	assert.equal(decideStartupIntro('1.6.0', '1.5.0', false), 'update', '升级用户应弹更新说明');
-	assert.equal(decideStartupIntro('1.6.0', '1.6.0', false), 'none', '同版本不再弹');
 	assert.equal(decideStartupIntro('', '', false), 'none', '缺少版本时不弹');
-	assert.equal(decideStartupIntro('1.6.0', ' v1.6.0 ', false), 'none', '前导 v 与空白不应误判为升级');
+	assert.equal(decideStartupIntro('1.6.0', '1.6.0', false), 'onboarding', '未看过引导时同版本也弹引导');
+	assert.equal(decideStartupIntro('1.6.0', ' v1.6.0 ', true), 'none', '看过引导后同版本不再弹');
 });
 
-// Vaults upgraded from releases older than `lastSeenVersion` also have an empty
-// value, but they are existing users and must get the update notes, not the
-// first-install wizard.
-test('有历史设置但缺少 lastSeenVersion 的老用户按升级处理', () => {
-	assert.equal(decideStartupIntro('1.6.0', '', false, true), 'update');
-	assert.equal(decideStartupIntro('1.6.0', '', true, true), 'update');
-	assert.equal(decideStartupIntro('1.6.0', '1.6.0', false, true), 'none');
+// The wizard shows until seen, even for vaults upgraded from older releases,
+// which already carry a `lastSeenVersion` value in their settings.
+test('看过引导后按版本变化决定更新说明，未看过则始终弹引导', () => {
+	assert.equal(decideStartupIntro('1.6.1', '1.6.0', true), 'update', '看过引导且版本有变化应弹更新说明');
+	assert.equal(decideStartupIntro('1.6.1', '1.6.1', true), 'none', '看过引导且版本相同不再弹');
+	assert.equal(decideStartupIntro('1.6.1', '', false), 'onboarding', '新建库未看过引导应弹引导');
+	assert.equal(decideStartupIntro('1.6.1', '1.5.0', false), 'onboarding', '升级老用户未看过引导也应弹引导');
 });

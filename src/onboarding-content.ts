@@ -46,21 +46,14 @@ export type StartupIntroDecision = 'onboarding' | 'update' | 'none';
 /**
  * Decides which first-run surface to show once the workspace is ready.
  *
- * `lastSeenVersion` is empty only before the plugin has shown anything, which
- * is the reliable "first install" marker. Existing users upgrading already
- * have a value (even though `onboardingSeen` defaults to false), so they get
- * the update notes instead of the onboarding wizard.
+ * The onboarding wizard takes priority: it shows until the user has seen it
+ * once (`onboardingSeen === false`), regardless of whether the vault is brand
+ * new or an upgrade with existing settings, so every user who has not seen the
+ * wizard yet will get it when the plugin loads. Once seen, version changes
+ * fall back to the update notes and identical versions stay silent.
  */
-export function decideStartupIntro(
-	installedVersion: string,
-	lastSeenVersion: string | null | undefined,
-	onboardingSeen: boolean,
-	returningUser = false,
-): StartupIntroDecision {
+export function decideStartupIntro(installedVersion: string, lastSeenVersion: string | null | undefined, onboardingSeen: boolean): StartupIntroDecision {
 	if (!installedVersion.trim()) return 'none';
-	// `lastSeenVersion` is missing both on a genuine first install and on vaults
-	// that upgrade from a release older than the field itself; persisted settings
-	// tell the two apart.
-	if (!returningUser && (lastSeenVersion ?? '').trim() === '') return onboardingSeen ? 'none' : 'onboarding';
+	if (!onboardingSeen) return 'onboarding';
 	return shouldShowIntro(installedVersion, lastSeenVersion) ? 'update' : 'none';
 }

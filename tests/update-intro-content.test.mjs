@@ -38,6 +38,15 @@ test('1.6.0 内置说明存在且覆盖本次发布内容', () => {
 	assert.match(text, /它能做什么|首次显示使用引导|仅桌面端/);
 });
 
+test('1.6.1 内置说明存在且覆盖老用户引导修复', () => {
+	const intro = currentUpdateIntro('1.6.1');
+	assert.ok(intro, '1.6.1 必须有更新说明条目');
+	assert.equal(intro.theme, '所有用户都能看到使用引导');
+	const text = intro.sections.map((section) => section.title + section.items.join('\n')).join('\n');
+	assert.match(text, /未看过使用引导.*老用户/);
+	assert.match(text, /打开使用引导/);
+});
+
 test('内置说明内容完整可渲染', () => {
 	assert.ok(UPDATE_INTROS.length > 0);
 	const versions = new Set();
