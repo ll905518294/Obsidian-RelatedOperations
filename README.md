@@ -10,7 +10,7 @@
 
 - 仓库：<https://github.com/ll905518294/obsidian-vault-doctor>
 - 发布：<https://github.com/ll905518294/obsidian-vault-doctor/releases>
-- 系统要求：Obsidian 1.13.0 及以上，桌面端与移动端均可使用
+- 系统要求：Obsidian 1.13.0 及以上，仅支持桌面端（Windows / macOS / Linux）
 - 许可证：0-BSD
 
 ![Vault 体检首页](docs/images/01-dashboard.png)
@@ -38,7 +38,7 @@
 
 ## Vault 体检与清理
 
-点击左侧栏的**打开 vault 体检与清理**图标，或运行同名命令打开体检工具。桌面端以工作区标签页打开，移动端回退为弹窗。点击**开始扫描**后，**体检首页**与各分类标签页并列展示，可随时切回总览。
+点击左侧栏的**打开 vault 体检与清理**图标，或运行同名命令打开体检工具。工具以工作区标签页打开。点击**开始扫描**后，**体检首页**与各分类标签页并列展示，可随时切回总览。
 
 扫描默认不勾选任何条目；确认无误后自行勾选并执行清理。
 
@@ -155,6 +155,7 @@ npm run deploy    # 构建并部署到当前打开的 Vault（见下）
 
 ## 已知限制
 
+- 仅支持桌面端（移动端不可用）。
 - 重复检测只识别字节级相同的文件，不识别内容相似。
 - 失效链接移除与原生图片链接、Wiki 笔记链接转换直接编辑 Markdown，依赖 Obsidian 编辑历史撤销，不经过回收站。
 - `npm run deploy` 依赖 Windows PowerShell、Obsidian CLI 与恰好一个打开的 Vault。
@@ -179,7 +180,7 @@ npm run deploy    # 构建并部署到当前打开的 Vault（见下）
 不会。插件没有任何网络请求，也不收集或上传 Vault 内容。
 
 **支持移动端吗？**
-支持。插件在移动端以弹窗形式提供体检与关联笔记功能；`npm run deploy` 一键部署脚本仅适用于 Windows 桌面。
+不支持。插件为仅桌面端（`isDesktopOnly: true`），需要使用 `window.require('electron')` 在系统资源管理器中定位文件；`npm run deploy` 一键部署脚本仅适用于 Windows 桌面。
 
 **和 Notebook Navigator 是什么关系？**
 Notebook Navigator 是可选集成：安装后可接入其多选与文件夹菜单，未安装时插件核心功能仍可正常使用。

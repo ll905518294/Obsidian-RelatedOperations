@@ -10,8 +10,8 @@
 ## 2. 系统概览
 - 核心模块：
   - `src/main.ts`：插件生命周期、命令、Ribbon、菜单和视图注册。
-  - `src/related-notes*.ts`：关联笔记计算、桌面视图和移动端 Modal。
-  - `src/orphan-cleanup*.ts`：Vault 体检与清理流程、桌面视图和移动端 Modal。
+  - `src/related-notes*.ts`：关联笔记计算、工作区视图和 Modal 回退实现。
+  - `src/orphan-cleanup*.ts`：Vault 体检与清理流程、工作区视图和 Modal 回退实现。
   - `src/broken-*-links.ts`、`src/native-image-links.ts`：链接扫描与转换。
   - `src/cleanup/`（面板、分类列表、流程与可访问性）、`src/cleanup-*.ts`、`src/duplicate-files.ts`：候选筛选、风险分级、报告和重复文件扫描。
   - 关联数量属性功能已完全移除（不写入、不更新，也不提供清除命令）。
@@ -28,7 +28,7 @@
 - 只对已解析或可安全判定的目标执行操作；外部 URL、代码块和 frontmatter 按功能规则保守处理。
 - 不覆盖已有目标文件；失败项与已完成项分别报告。
 - 监听器、定时器和视图必须通过 Obsidian 注册机制清理。
-- 移动端避免依赖桌面 Electron API，桌面功能提供 Modal fallback。
+- 插件定位为仅桌面端（`isDesktopOnly: true`）；工作区视图无法打开时回退到 Modal。
 
 ## 5. 当前边界
 - 全量体检与单分类刷新共用 `src/cleanup/cleanup-scan.ts` 的 `collectCleanupFileSets()` 可见性规则（隐藏路径段、忽略目录、md/canvas 排除、图片扩展名拆分）；新增可见性边界只改这一处。

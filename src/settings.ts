@@ -8,6 +8,7 @@ export interface RelatedOperationsSettings {
 	orphanImageExtensions: string;
 	orphanIgnoredFolders: string;
 	lastSeenVersion: string;
+	onboardingSeen: boolean;
 	orphanCleanupCache?: OrphanCleanupCache;
 }
 
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	orphanImageExtensions: 'png, jpg, jpeg, gif, webp, svg, bmp, avif, ico',
 	orphanIgnoredFolders: '',
 	lastSeenVersion: '',
+	onboardingSeen: false,
 };
 
 
@@ -81,6 +83,26 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 						name: '忽略目录',
 						desc: '用逗号、空格或换行分隔目录；目录及其子目录不会列入未引用资源和空文件夹扫描。',
 						control: { type: 'text', key: 'orphanIgnoredFolders', placeholder: 'attachments, archive' },
+					},
+				],
+			},
+			{
+				type: 'group',
+				heading: '使用引导',
+				items: [
+					{
+						name: '首次显示使用引导',
+						// One stored flag: `onboardingSeen`. The toggle is inverted so
+						// "on" means "show the wizard on first install".
+						desc: '开启后，首次安装并加载插件时会自动弹出一次使用引导；关闭后不再自动弹出，仍可通过命令「打开使用引导」重看。',
+						render: (setting) => {
+							setting.addToggle((toggle) => toggle
+								.setValue(!this.plugin.settings.onboardingSeen)
+								.onChange(async (value) => {
+									this.plugin.settings.onboardingSeen = !value;
+									await this.plugin.saveSettings();
+								}));
+						},
 					},
 				],
 			},

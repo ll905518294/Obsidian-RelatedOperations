@@ -13,6 +13,7 @@
 - 部署预检：`npm run deploy:check`（只构建和检查，不复制、不重启）
 - 部署并重启：`npm run deploy`（失败时默认恢复到备份；加 `-NoRollbackOnFail` 可保留新文件用于排查）
 - 产物：项目根目录的 `main.js`，以及 `manifest.json`、可选 `styles.css`。
+- 平台范围：插件为仅桌面端（`isDesktopOnly: true`），移动端不做验证。原因是 `src/cleanup/cleanup-actions.ts` 通过 `window.require('electron')` 调用系统资源管理器定位文件，移动端没有该能力。
 
 ## 3. 常见问题排查
 ### 插件未加载
@@ -95,7 +96,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - `author`：`ll905518294`
 - `description`：`Scan your vault for broken links, unreferenced resources and duplicate files, then safely organize related notes.`（< 250 字符、以句号结尾、无 emoji）
 - `minAppVersion`：`1.13.0`
-- `isDesktopOnly`：`false`
+- `isDesktopOnly`：`true`（插件定位为仅桌面端）
 - `fundingUrl`：未设置（不收赞助，符合要求，勿添加）
 
 ### 7.2 审核要点逐条对照
@@ -109,7 +110,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 | description ≤ 250、句号结尾、无 emoji（Submission requirements） | 见 7.1 | 满足 |
 | `minAppVersion` 为实际最低兼容版本（Submission requirements） | `1.13.0` | 满足 |
 | `fundingUrl` 仅用于赞助链接（Submission requirements） | 未设置 | 满足 |
-| Node.js/Electron API 则 `isDesktopOnly=true`（Submission requirements） | 插件整体支持移动端；`window.require('electron')` 仅在 `Platform.isDesktopApp` 分支内调用「在资源管理器中显示」，移动端走 `Notice` 降级 | **需在提交前决定**：严格按字面要求应设 `true`；若坚持移动端可用，需在提交/README 说明该调用受平台守卫、非桌面不可达 |
+| Node.js/Electron API 则 `isDesktopOnly=true`（Submission requirements） | 插件定位仅桌面端，`manifest.json` 已设 `isDesktopOnly: true`；`window.require('electron')` 用于在系统资源管理器中定位文件 | 满足 |
 | 不在命令 ID 中重复插件 ID（Submission requirements） | 命令 ID 未内嵌 `vault-doctor` | 满足 |
 | 移除模板示例代码（Submission requirements） | 已按体检定位重写，无模板样例残留 | 满足 |
 | 不混淆代码、无动态广告、无客户端遥测、不自更新（Developer policies） | 插件无网络请求、无遥测、不自更新 | 满足 |

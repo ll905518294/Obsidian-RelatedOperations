@@ -10,12 +10,16 @@ import { openInSystemFolder } from './cleanup/cleanup-actions';
 import { groupingModeFromLegacy, isPathInFolder, normalizeSettings } from './core-utils';
 import { currentUpdateIntro, shouldShowIntro } from './update-intro-content';
 import { UpdateIntroModal } from './update-intro';
+import { decideStartupIntro } from './onboarding-content';
+import { OnboardingModal, type OnboardingAction } from './onboarding';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
+	private returningUser = false;
 	settings!: RelatedOperationsSettings;
 	async onload() {
 		const rawSettings: unknown = await this.loadData();
+		this.returningUser = !!rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings) && Object.keys(rawSettings).length > 0;
 		const loaded = normalizeSettings(DEFAULT_SETTINGS, rawSettings);
 		if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
 			const persisted = rawSettings as Record<string, unknown>;
@@ -38,7 +42,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		this.addSettingTab(new RelatedOperationsSettingTab(this.app, this));
 		this.registerNotebookNavigatorMenus();
 		this.app.workspace.onLayoutReady(() => this.retryNotebookNavigatorRegistration());
-		this.app.workspace.onLayoutReady(() => void this.maybeShowUpdateIntro());
+		this.app.workspace.onLayoutReady(() => void this.maybeShowStartupIntro());
 		this.addCommand({
 			id: 'move-related-notes',
 			name: '整理关联笔记',
@@ -59,6 +63,11 @@ export default class RelatedOperationsPlugin extends Plugin {
 			id: 'open-update-intro',
 			name: '查看更新说明',
 			callback: () => this.openUpdateIntro(),
+		});
+		this.addCommand({
+			id: 'open-onboarding',
+			name: '打开使用引导',
+			callback: () => this.openOnboarding(),
 		});
 
 		this.addRibbonIcon('move', '整理关联笔记', () => {
@@ -114,6 +123,29 @@ export default class RelatedOperationsPlugin extends Plugin {
 			return;
 		}
 		new UpdateIntroModal(this.app, intro).open();
+	}
+
+	private openOnboarding() {
+		new OnboardingModal(this.app, (action) => this.finishOnboarding(action)).open();
+	}
+
+	private finishOnboarding(action: OnboardingAction) {
+		if (action === 'cleanup') void this.openOrphanCleanupWindow();
+	}
+
+	private async maybeShowStartupIntro() {
+		const version = this.manifest.version;
+		const decision = decideStartupIntro(version, this.settings.lastSeenVersion, this.settings.onboardingSeen, this.returningUser);
+		if (decision === 'onboarding') {
+			// Mark both flags up front so a reload cannot show it twice and the
+			// update intro stays silent for this same version.
+			this.settings.onboardingSeen = true;
+			this.settings.lastSeenVersion = version;
+			new OnboardingModal(this.app, (action) => this.finishOnboarding(action)).open();
+			await this.saveSettings();
+			return;
+		}
+		if (decision === 'update') await this.maybeShowUpdateIntro();
 	}
 
 	private async maybeShowUpdateIntro() {
