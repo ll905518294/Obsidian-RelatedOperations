@@ -1,5 +1,5 @@
 import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
-import { removeCachedLinkRanges } from './core-utils.ts';
+import { errorMessage, isExternalLink, isInsideIgnoredRange, removeCachedLinkRanges } from './core-utils.ts';
 
 export interface BrokenNoteLink {
 	sourcePath: string;
@@ -25,9 +25,9 @@ function findBrokenNoteLinksInCache(sourcePath: string, cache: CachedMetadata, i
   return (cache.links ?? []).flatMap((reference) => {
     if (reference.original.startsWith('!')) return [];
     const parsed = parseLink(reference.original, reference.link);
-		if (!parsed || isExternal(parsed.path) || isImageOrAttachment(parsed.path, images) || isInsideIgnoredRange(cache, reference.position)) return [];
+		if (!parsed || isExternalLink(parsed.path) || isImageOrAttachment(parsed.path, images) || isInsideIgnoredRange(cache, reference.position)) return [];
 		if (app.metadataCache.getFirstLinkpathDest(parsed.path, sourcePath)) return [];
-		return [{ sourcePath, original: reference.original, linkPath: parsed.path, position: reference.position, syntax: parsed.syntax as 'wiki' | 'markdown' }];
+		return [{ sourcePath, original: reference.original, linkPath: parsed.path, position: reference.position, syntax: parsed.syntax }];
 	});
 }
 
@@ -48,13 +48,15 @@ export async function removeSelectedBrokenNoteLinks(app: App, links: BrokenNoteL
 			result.skipped++;
 			continue;
 		}
-		(grouped.get(link.sourcePath) ?? (grouped.set(link.sourcePath, []), grouped.get(link.sourcePath)!)).push(link);
+		const group = grouped.get(link.sourcePath) ?? [];
+		group.push(link);
+		grouped.set(link.sourcePath, group);
 	}
 	for (const [path, selected] of grouped) {
 		const file = app.vault.getFileByPath(path);
 		if (!file) { result.failed.push({ path, reason: `${selected.length} 条链接：源笔记不存在` }); continue; }
 		try { await app.vault.process(file, (content) => { const changed = removeBrokenNoteLinks(content, selected); result.removed += changed.removed; result.skipped += changed.skipped; return changed.content; }); }
-		catch (error) { result.failed.push({ path, reason: `${selected.length} 条链接：${error instanceof Error ? error.message : '未知错误'}` }); }
+		catch (error) { result.failed.push({ path, reason: `${selected.length} 条链接：${errorMessage(error)}` }); }
 	}
 	return result;
 }
@@ -73,7 +75,11 @@ export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Pro
 	for (const link of links) {
 		const path = missingNotePath(link);
 		if (!path) result.skipped.push({ path: link.linkPath, reason: '目标路径无效' });
-		else (targets.get(path) ?? (targets.set(path, []), targets.get(path)!)).push(link);
+		else {
+			const group = targets.get(path) ?? [];
+			group.push(link);
+			targets.set(path, group);
+		}
 	}
 	for (const [path, targetLinks] of targets) {
 		if (knownPaths.has(path)) {
@@ -108,7 +114,7 @@ export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Pro
 			knownPaths.add(path);
 			result.created.push(path);
 		} catch (error) {
-			result.failed.push({ path, reason: error instanceof Error ? error.message : '创建失败' });
+			result.failed.push({ path, reason: errorMessage(error, '创建失败') });
 		}
 	}
 	return result;
@@ -157,7 +163,7 @@ export function missingNotePath(link: BrokenNoteLink): string | null {
 	return /\.md$/i.test(path) ? path : `${path}.md`;
 }
 
-function parseLink(original: string, raw: string) {
+function parseLink(original: string, raw: string): { path: string; syntax: 'wiki' | 'markdown' } | null {
 	const syntax = original.startsWith('[[') ? 'wiki' : original.startsWith('[') ? 'markdown' : null;
 	if (!syntax) return null;
 	const target = raw.split('|', 1)[0] ?? raw;
@@ -186,10 +192,4 @@ const KNOWN_ATTACHMENT_EXTENSIONS = new Set([
 	'base',
 ]);
 
-function isExternal(path: string) { return /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(path); }
 function parseExtensions(value: string) { return new Set(value.split(/[,，\s]+/).map((x) => x.replace(/^\./, '').toLowerCase()).filter(Boolean)); }
-function isInsideIgnoredRange(cache: CachedMetadata, position: Pos) {
-	const frontmatter = cache.frontmatterPosition;
-	return (frontmatter && contains(frontmatter, position)) || (cache.sections ?? []).some((section) => section.type === 'code' && contains(section.position, position));
-}
-function contains(a: Pos, b: Pos) { return b.start.offset >= a.start.offset && b.end.offset <= a.end.offset; }

@@ -106,7 +106,7 @@ export class ImagePreviewModal extends Modal {
 		app: App,
 		private readonly files: TFile[],
 		index: number,
-		private readonly onDelete: (file: TFile) => Promise<void>,
+		private readonly onDelete?: (file: TFile) => Promise<void>,
 	) {
 		super(app);
 		this.index = index;
@@ -131,11 +131,13 @@ export class ImagePreviewModal extends Modal {
 		openFolder.setAttribute('aria-label', '打开所在文件夹');
 		setIcon(openFolder, 'folder-open');
 		openFolder.addEventListener('click', () => this.openCurrentFolder());
-		const remove = actions.createEl('button', { text: '删除', cls: 'mod-warning' });
-		requireSecondClick(remove, () => {
-			const file = this.files[this.index];
-			if (file) void this.trashCurrent(file);
-		});
+		if (this.onDelete) {
+			const remove = actions.createEl('button', { text: '删除', cls: 'mod-warning' });
+			requireSecondClick(remove, () => {
+				const file = this.files[this.index];
+				if (file) void this.trashCurrent(file);
+			});
+		}
 		this.scope.register(null, 'ArrowLeft', () => { this.navigate(-1); return false; });
 		this.scope.register(null, 'ArrowRight', () => { this.navigate(1); return false; });
 		this.updatePreview();
@@ -175,7 +177,9 @@ export class ImagePreviewModal extends Modal {
 	}
 
 	private async trashCurrent(file: TFile) {
-		await this.onDelete(file);
+		const onDelete = this.onDelete;
+		if (!onDelete) return;
+		await onDelete(file);
 		this.close();
 	}
 }

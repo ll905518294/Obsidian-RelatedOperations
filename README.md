@@ -212,11 +212,21 @@
 
 ## 安装与卸载
 
-插件尚未上架 Obsidian 社区市场（提交通过 <https://community.obsidian.md/> 网页完成，需 Obsidian 账号并绑定 GitHub），上架前可手动安装：
+插件尚未上架 Obsidian 社区市场（提交通过 <https://community.obsidian.md/> 网页完成，需 Obsidian 账号并绑定 GitHub），上架前可手动安装。Obsidian 只认插件目录里的文件，所以两种方式都要把文件放进 `<Vault>/.obsidian/plugins/vault-doctor/`。
+
+**方式 A：下载 ZIP（省事，推荐）**
+
+1. 从 [Releases](https://github.com/ll905518294/obsidian-vault-doctor/releases) 下载 `vault-doctor-<版本号>.zip`。
+2. 把 ZIP 里的内容**解压到** `<Vault>/.obsidian/plugins/vault-doctor/`（ZIP 内文件就在根层，不要先解出一层文件夹再套一层）。
+3. 在 **设置 → 第三方插件** 中启用 **Vault Doctor**。
+
+**方式 B：下载三件套（Obsidian 官方分发格式）**
 
 1. 从 [Releases](https://github.com/ll905518294/obsidian-vault-doctor/releases) 下载最新版 `main.js`、`manifest.json`、`styles.css`。
 2. 将三个文件放入 `<Vault>/.obsidian/plugins/vault-doctor/`。
 3. 在 **设置 → 第三方插件** 中启用 **Vault Doctor**。
+
+两种方式的文件完全相同：ZIP 只是把三件套打成一个包，方便下载和搬运，不是 Windows 安装程序，也不会自动写系统路径。社区目录按 Obsidian 的三件套格式审核，所以 Releases 会同时保留三件套与 ZIP。
 
 启用后在 **设置 → 第三方插件 → 已安装插件** 可以看到它；点右侧 **⋯ → 设置** 打开配置页，**⋯ → 在系统资源管理器中显示** 可直接定位安装目录。
 
@@ -232,10 +242,14 @@ npm run dev       # 开发构建（watch）
 npm run build     # 生产构建（tsc 检查 + esbuild 打包）
 npm run lint      # ESLint 检查
 npm test          # Node 原生测试
+npm run package   # 打包安装包：dist/vault-doctor-<版本号>.zip
+npm run package:check  # 只校验打包输入，不写文件
 npm run deploy    # 构建并部署到当前打开的 Vault（见下）
 ```
 
 测试使用 Node.js 22+ 的原生 TypeScript 类型擦除；插件产物本身以 ES2021 为目标。`npm run build` 只生成项目根目录的构建产物，不会修改 Vault。
+
+`npm run package` 读 `manifest.json` 的版本号，把 `main.js`、`manifest.json` 和可选的 `styles.css` 打成 `dist/vault-doctor-<版本号>.zip`（ZIP 内文件位于根层），并在写出后重新解压校验条目、大小、CRC-32 与包内版本号。它不依赖第三方压缩库，也不会自动构建——`main.js` 不存在时直接报错，先跑 `npm run build`。
 
 ### 本地一键部署（Windows）
 

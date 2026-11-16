@@ -15,6 +15,9 @@ import {
 	isIgnoredPath,
 	isCaseSensitiveFileSystem,
 	platformFromUserAgent,
+	isExternalLink,
+	isInsideIgnoredRange,
+	errorMessage,
 } from '../src/core-utils.ts';
 import { groupingModeFromLegacy } from '../src/core-utils.ts';
 
@@ -342,4 +345,26 @@ test('does not remove a note link after its target is restored', async () => {
 	const result = await removeSelectedBrokenNoteLinks(app, [link]);
 	assert.deepEqual(result, { removed: 0, skipped: 1, failed: [] });
 	assert.equal(processed, false);
+});
+
+test('isExternalLink recognizes schemes and protocol-relative URLs', () => {
+	assert.equal(isExternalLink('https://example.com/a.png'), true);
+	assert.equal(isExternalLink('mailto:a@b.com'), true);
+	assert.equal(isExternalLink('//cdn.example.com/a.png'), true);
+	assert.equal(isExternalLink('assets/a.png'), false);
+	assert.equal(isExternalLink('#heading'), false);
+});
+
+test('isInsideIgnoredRange excludes frontmatter and code sections', () => {
+	const range = (start, end) => ({ start: { offset: start }, end: { offset: end } });
+	const cache = { frontmatterPosition: range(0, 10), sections: [{ type: 'code', position: range(20, 30) }] };
+	assert.equal(isInsideIgnoredRange(cache, range(2, 5)), true);
+	assert.equal(isInsideIgnoredRange(cache, range(22, 25)), true);
+	assert.equal(isInsideIgnoredRange(cache, range(12, 15)), false);
+});
+
+test('errorMessage prefers the thrown message and falls back for unknown values', () => {
+	assert.equal(errorMessage(new Error('boom')), 'boom');
+	assert.equal(errorMessage('text'), '未知错误');
+	assert.equal(errorMessage(undefined, '创建失败'), '创建失败');
 });

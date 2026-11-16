@@ -4,16 +4,18 @@
 
 ## 项目概览
 - 名称：Vault Doctor（插件 id：`vault-doctor`；GitHub 仓库与本地目录：`obsidian-vault-doctor`）
-- 目标与非目标：检查 Vault 健康状况、整理关联笔记、清理未引用资源；不覆盖已有文件，不自动删除文件。
+- 目标与非目标：检查 Vault 健康状况、整理关联笔记、清理未引用资源、转换图片格式；不覆盖已有文件，扫描阶段不改动任何文件，清理操作只在用户勾选并确认后才把文件移入 Obsidian 回收站或系统回收站。
 - 技术栈：TypeScript、Obsidian API、esbuild、Node.js 原生测试。
 
 ## 常用命令与目录
 - 安装 / 运行 / 构建 / 测试：`npm install`、`npm run dev`、`npm run build`、`npm test`、`npm run lint`
+- 打包安装包 / 打包预检：`npm run package`（产出 `dist/vault-doctor-<版本号>.zip`）、`npm run package:check`
 - 部署校验 / 部署：`npm run deploy:check`、`npm run deploy`
-- 关键目录职责：`src/` 为插件逻辑，`tests/` 为原生 Node 测试，`scripts/` 为部署脚本。
+- 关键目录职责：`src/` 为插件逻辑，`tests/` 为原生 Node 测试，`scripts/` 为部署脚本与打包脚本（`scripts/package-plugin.mjs`）。
 
 ## 稳定约定与限制
 - 构建产物 `main.js` 写入项目根目录并供 Obsidian 加载；源码依赖需由 esbuild 打包。
+- 发布资产为 Obsidian 标准三件套 `main.js`、`manifest.json` 与可选的 `styles.css`；ZIP 只是把三件套打在根层的便捷形式，不是 Windows 安装器，`dist/` 属于生成物并已被 `.gitignore` 忽略。
 - 关联笔记只处理已解析的 Markdown 文件；清理操作使用 Obsidian 原生文件管理器或本地回收站。
 - 部署前构建并校验 `main.js`、`manifest.json` 和可选的 `styles.css`；失败时保留或恢复备份。
 - 界面文字强调色用 `var(--ro-accent-text)`，不要直接用 `--text-accent`：浅色主题下 `--text-accent` 对比度只有 3.19~3.56（低于正文 4.5），深色下 4.99~5.72 已达标；`--ro-accent-text` 是 `color-mix(in srgb, var(--text-accent) 65%, var(--text-normal))`，浅色提到 5.41~6.03、深色提到 6.22~7.12。该变量定义在 `.related-operations-panel`、`.orphan-cleanup-panel` 与 `.modal-content` 上——`related-operations-confirm-target` 用在关联笔记的确认弹窗里，弹窗不在面板作用域内。
@@ -27,12 +29,12 @@
 - 影响与注意事项：新增功能优先放入现有职责模块，避免继续膨胀入口文件。
 
 ### 验证基线
-- 事实：项目定义了 `npm run build`、`npm run lint`、`npm test` 和部署校验命令。
+- 事实：项目定义了 `npm run build`、`npm run lint`、`npm test`、`npm run package`、`npm run package:check` 和部署校验命令。
 - 证据：`package.json` scripts。
-- 影响与注意事项：代码改动至少运行相关测试；发布前运行构建和部署预检。
+- 影响与注意事项：代码改动至少运行相关测试；发布前运行构建、打包与部署预检。测试条数随并行开发变化，不应把某个具体数字当作长期事实。
 
 ### 体检清理面板架构（OrphanCleanupPanel）
-- 事实：`OrphanCleanupPanel` 与 `OrphanCleanupModal` 位于 `src/cleanup/cleanup-panel.ts`；`src/orphan-cleanup.ts` 是再导出入口，`src/orphan-cleanup-view.ts` 提供工作区 `ItemView` 宿主。面板使用多 Tab 结构（overview/images/attachments/broken-links/native-links/broken-note-links/empty-files/folders/duplicates）。
+- 事实：`OrphanCleanupPanel` 与 `OrphanCleanupModal` 位于 `src/cleanup/cleanup-panel.ts`；`src/orphan-cleanup.ts` 是再导出入口，`src/orphan-cleanup-view.ts` 提供工作区 `ItemView` 宿主。面板使用多 Tab 结构（overview/images/attachments/broken-links/native-links/broken-note-links/wiki-links/empty-files/folders/duplicates）；`image-convert`（图片转换）由 `tabEntries()` 追加在标签条末尾，不属于 `CLEANUP_CATEGORIES`，因此不计入 9 类体检问题与首页总数。
 - 每个 Tab 有独立的 selection Set：`selections`（文件类）、`linkSelections`（失效图片链接）、`nativeSelections`（原生链接）、`noteLinkSelections`（失效笔记链接）、`duplicateSelections`（重复文件）。
 - 多选模式统一模式：声明 Set → scan() 中 clear → renderList() 中添加 addSelectionControls → 每行 checkbox → renderActions() 和 updateSelectionSummary() 处理该 Tab。
 - 注意事项：nested 对象（如 DuplicateFileGroup.files）需显式 `.map(f => f.path)` 转成 string 再 add 到 Set，否则 TypeScript 类型报错。

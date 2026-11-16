@@ -203,10 +203,18 @@ test('图片网格保留预览资源路径与点击打开预览', () => {
 	assert.deepEqual(previews.map((img) => img.src), ['app://pics/a.png', 'app://pics/b.png']);
 	assert.ok(previews.every((img) => img.title === '点击预览'));
 	assert.ok(previews.every((img) => img.attrs.alt.endsWith('预览')));
+	assert.ok(previews.every((img) => img.attrs.role === 'button'));
+	assert.ok(previews.every((img) => img.attrs.tabindex === '0'));
+	assert.ok(previews.every((img) => img.attrs['aria-haspopup'] === 'dialog'));
+	assert.equal(previews[0].attrs['aria-label'], '预览 pics/a.png');
+	assert.equal(previews[1].attrs['aria-label'], '预览 pics/b.png');
 
 	const before = Modal.opens;
 	previews[0].dispatch('click');
 	assert.equal(Modal.opens, before + 1);
+
+	previews[1].dispatch('keydown', { key: 'Enter' });
+	assert.equal(Modal.opens, before + 2);
 });
 
 test('重复文件组选择可整组切换并同步选择集', () => {

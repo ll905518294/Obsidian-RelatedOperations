@@ -50,12 +50,14 @@ export class OnboardingModal extends Modal {
 		// Reuse the readable update-intro tokens; both modals share the same
 		// body/list styling without adding global rules.
 		this.modalEl.addClass('update-intro-modal', 'onboarding-modal');
+		this.titleEl.setAttribute('tabindex', '-1');
 		this.renderStep();
 	}
 
 	private renderStep() {
 		const total = ONBOARDING_STEPS.length;
 		const current = ONBOARDING_STEPS[this.step]!;
+		const focusTitle = () => this.titleEl.focus({ preventScroll: true });
 		this.titleEl.setText(`${this.meta.name} · 使用引导（第 ${this.step + 1}/${total} 步）`);
 		this.contentEl.empty();
 		this.contentEl.createEl('p', { text: `版本 ${this.meta.version}`, cls: 'update-intro-summary' });
@@ -88,11 +90,16 @@ export class OnboardingModal extends Modal {
 				this.step += 1;
 				this.renderStep();
 			});
+			focusTitle();
 			return;
 		}
 		actions.createEl('button', { text: '跳过' }).addEventListener('click', () => this.finish('skip'));
 		actions.createEl('button', { text: '立即打开体检' }).addEventListener('click', () => this.finish('cleanup'));
 		actions.createEl('button', { text: '开始使用', cls: 'mod-cta' }).addEventListener('click', () => this.finish('start'));
+		// Rebuilding contentEl removes the focused step button; move focus to the
+		// persistent title so keyboard users hear the new step instead of losing
+		// their place at the document body.
+		focusTitle();
 	}
 
 	private finish(action: OnboardingAction) {

@@ -14,6 +14,8 @@
 		"deploy:check": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-and-restart.ps1 -CheckOnly",
 		"test": "node --test --experimental-strip-types tests/**/*.test.mjs",
 		"test:deploy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-and-restart.tests.ps1",
+		"package": "node scripts/package-plugin.mjs",
+		"package:check": "node scripts/package-plugin.mjs --check",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint ."
 	},

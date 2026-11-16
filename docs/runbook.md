@@ -9,10 +9,13 @@
 - 生产构建：`npm run build`
 - 单元测试：`npm test`
 - 静态检查：`npm run lint`
+- 打包安装包：`npm run package`（产出 `dist/vault-doctor-<版本号>.zip`）
+- 打包预检：`npm run package:check`（只校验输入与打包规则，不写文件）
 - 部署脚本测试：`npm run test:deploy`
 - 部署预检：`npm run deploy:check`（只构建和检查，不复制、不重启）
 - 部署并重启：`npm run deploy`（失败时默认恢复到备份；加 `-NoRollbackOnFail` 可保留新文件用于排查）
-- 产物：项目根目录的 `main.js`，以及 `manifest.json`、可选 `styles.css`。
+- 产物：项目根目录的 `main.js`，以及 `manifest.json`、可选 `styles.css`；`npm run package` 再产出 `dist/vault-doctor-<版本号>.zip`（`dist/` 已被 `.gitignore` 忽略）。
+- 打包脚本为 `scripts/package-plugin.mjs`：零第三方依赖（`node:zlib` + 手工写 ZIP 中央目录），ZIP 内只含根层的三件套，写出后会重新解压校验条目、大小、CRC-32 与包内 `manifest.json` 版本号；`main.js` 缺失时报错并提示先执行 `npm run build`，不会自动构建。
 - 平台范围：插件为仅桌面端（`isDesktopOnly: true`），移动端不做验证。原因是 `src/cleanup/cleanup-actions.ts` 通过 `window.require('electron')` 调用系统资源管理器定位文件，移动端没有该能力。
 
 ## 3. 常见问题排查
@@ -58,11 +61,12 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - [ ] 本次包含图片转换时，按第 9 节在演示库完成验证。
 - [ ] `npm run test:deploy` 与 `npm run deploy:check` 通过（两者都不复制文件、不重启 Obsidian）。
 - [ ] 三件套存在：`Get-Item main.js, manifest.json, styles.css`。
+- [ ] `npm run package` 通过，`dist/vault-doctor-$v.zip` 存在；解压或读取该 ZIP，确认只有 `main.js`、`manifest.json`、`styles.css`，且包内 `manifest.json` 的 `version` 等于 `$v`。
 - [ ] tag 与版本一致：`git tag --list $v`（应显示 `$v`），用 `git push origin $v` 推送。
-- [ ] 发布后核对：`gh release view $v --json tagName,name,body,assets`，确认 `assets` 包含 `main.js`、`manifest.json`、`styles.css`（若存在）。
-- [ ] 可选：`Get-FileHash main.js, manifest.json, styles.css -Algorithm SHA256`，与 release 正文中的 SHA-256 对照。
+- [ ] 发布后核对：`gh release view $v --json tagName,name,body,assets`，确认 `assets` 包含 `main.js`、`manifest.json`、`styles.css`（若存在）与 `vault-doctor-$v.zip`。
+- [ ] 可选：`Get-FileHash main.js, manifest.json, styles.css, dist/vault-doctor-$v.zip -Algorithm SHA256`，与 release 正文中的 SHA-256 对照。
 
-发布后 release workflow 会再次运行 `npm run lint` 与 `npm test`；任一步失败、版本不匹配或 `versions.json` 映射不一致都会阻止发布。
+发布后 release workflow 会再次运行 `npm run lint`、`npm test` 与 `npm run package`，并把 ZIP 与三件套一起附到 release；任一步失败、版本不匹配或 `versions.json` 映射不一致都会阻止发布。
 
 ## 5a. 发布后回退预案
 
@@ -86,7 +90,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - 部署脚本：`scripts/deploy-and-restart.ps1`
 - 构建配置：`esbuild.config.mjs`
 
-## 7. 社区目录提交（1.4.x）
+## 7. 社区目录提交（当前 1.7.0）
 
 提交入口为 <https://community.obsidian.md/> 网页表单（`obsidianmd/obsidian-releases` 的 Issue/PR 通道已关闭）。本节事实均于 2026-11-15 用 `gh` 拉取官方文档与 `community-plugins.json` 核实。
 
@@ -118,7 +122,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 | 网络使用需在 README 披露（Developer policies） | 无网络请求，README 已声明 | 满足 |
 | 不访问 Vault 之外文件，除非披露（Developer policies） | 仅访问当前 Vault；「在资源管理器中显示」只定位文件，README 已说明 | 满足 |
 | 遵守 Obsidian 商标（Developer policies） | 名称与 README 未暗示官方第一方 | 满足 |
-| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | `gh release view 1.4.2`：正式 release、tag=1.4.2、资产含 `main.js`、`manifest.json`、`styles.css` | 满足 |
+| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | 2026-11-17 用 `gh release view 1.7.0` 核实：非 draft/pre-release、tag=1.7.0、资产含 `main.js`、`manifest.json`、`styles.css` | 满足 |
 
 ### 7.3 提交操作步骤（用户本人完成）
 
@@ -131,7 +135,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 
 ## 8. 截图与 README 一致性维护
 
-README 的 9 张截图位于 `docs/images/`。1.4.x 截图状态：
+README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-settings.png`）。当前截图状态（对照 1.7.0）：
 
 - **已用演示库实拍替换（6 张，无缺口）**：通过 Obsidian CDP 在纯合成演示库 `vault-doctor-demo` 实拍，1920×1032，深色 Border 主题，9 分类齐全（含「Wiki 笔记链接」页签），内容全为虚构示例数据，不含任何真实项目/客户/公司名。
   - `01-dashboard.png`：体检首页 · 扫描前 `0/9`
@@ -141,6 +145,7 @@ README 的 9 张截图位于 `docs/images/`。1.4.x 截图状态：
   - `05-empty-files.png`：空文件 2 个
   - `06-duplicate-files.png`：重复文件 1 组
 - **无需更新**：`07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致。
+- `00-installed.png`（已安装插件列表与 **⋯** 操作菜单）只用于安装说明，本轮未单独核对它与 1.7.0 界面的一致性。
 
 更新截图时保持文件名不变，避免改动 README 引用；不要用真实 Vault 截图（会暴露私有内容），统一使用演示库实拍并保持 9 个分类页签齐全。
 

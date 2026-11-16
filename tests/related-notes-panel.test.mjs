@@ -322,6 +322,34 @@ test('per-source relations stay exact when a target is linked both ways across s
 	assert.deepEqual(tabs, ['出链 (1)', '入链 (1)', '双向链接 (0)']);
 });
 
+// The same target can appear once per source. They share one selection key, so
+// checking one row must check every row for that path, and the group-wide
+// select-all state must count unique target paths rather than rows.
+test('per-source rows for the same target stay in sync when one is checked', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('dst/t.md');
+	const relatedNotes = [
+		{ file: t, relation: 'outgoing', sourceFile: a },
+		{ file: t, relation: 'outgoing', sourceFile: b },
+	];
+	const { el } = panelFor(relatedNotes, [a, b]);
+	const rows = () => el.querySelectorAll('tr[data-related-path]');
+	const boxes = () => rows().map((row) => row.querySelector('input[type="checkbox"]'));
+	assert.equal(rows().length, 2);
+	const selectAll = el.querySelector('.related-operations-select-all');
+
+	boxes()[0].checked = true;
+	boxes()[0].fire('change');
+	assert.deepEqual(boxes().map((box) => box.checked), [true, true]);
+	assert.equal(selectAll.textContent, '取消全选当前分组');
+
+	boxes()[1].checked = false;
+	boxes()[1].fire('change');
+	assert.deepEqual(boxes().map((box) => box.checked), [false, false]);
+	assert.equal(selectAll.textContent, '全选当前分组');
+});
+
 // Selections are keyed by path across tabs: switching tabs must keep them and
 // the summary must keep counting them, while "select all current group" only
 // adds the active tab's notes.

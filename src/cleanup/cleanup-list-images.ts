@@ -3,7 +3,7 @@ import type { CleanupViewContext, ImageGrouping } from './cleanup-types';
 import { byPath, formatBytes, openInSystemFolder, parentFolder } from './cleanup-actions';
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
-import { associateCheckbox } from './cleanup-a11y';
+import { associateCheckbox, makePreviewTrigger } from './cleanup-a11y';
 import { requireSecondClick } from './cleanup-confirm-button';
 
 export function renderImageGrid(host: CleanupViewContext, container: HTMLElement, items: TFile[], allItems: TFile[]) {
@@ -43,7 +43,7 @@ export function renderImageCard(host: CleanupViewContext, container: HTMLElement
 	const preview = card.createEl('img', { attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
 	preview.src = host.app.vault.getResourcePath(file);
 	preview.title = '点击预览';
-	preview.addEventListener('click', () => new ImagePreviewModal(host.app, items, items.indexOf(file), (selectedFile) => host.trashPreviewImage(selectedFile)).open());
+	makePreviewTrigger(preview, `预览 ${file.path}`, () => new ImagePreviewModal(host.app, items, items.indexOf(file), (selectedFile) => host.trashPreviewImage(selectedFile)).open());
 	preview.addEventListener('error', () => {
 		preview.replaceWith(card.createSpan({ text: '无法预览', cls: 'orphan-cleanup-preview-failed' }));
 	});
@@ -128,7 +128,7 @@ export function addImagePreview(host: CleanupViewContext, row: HTMLElement, file
 	const preview = cell.createEl('img', { attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
 	preview.src = host.app.vault.getResourcePath(file);
 	preview.title = '点击放大预览';
-	preview.addEventListener('click', () => new ImagePreviewModal(host.app, [file], 0, (selectedFile) => host.trashPreviewImage(selectedFile)).open());
+	makePreviewTrigger(preview, `预览 ${file.path}`, () => new ImagePreviewModal(host.app, [file], 0, (selectedFile) => host.trashPreviewImage(selectedFile)).open());
 	preview.addEventListener('error', () => {
 		preview.replaceWith(cell.createSpan({ text: '无法预览', cls: 'orphan-cleanup-preview-failed' }));
 	});

@@ -59,6 +59,14 @@ jobs:
             - name: Test
               run: npm test
 
+            - name: Package release ZIP
+              run: |
+                  npm run package
+                  version="$(jq -r .version manifest.json)"
+                  zip="dist/vault-doctor-${version}.zip"
+                  [ -f "$zip" ] || { echo "::error::packaging did not produce $zip"; exit 1; }
+                  echo "PACKAGE_ZIP=$zip" >> "$GITHUB_ENV"
+
             - name: Check for optional styles
               id: styles
               run: |
@@ -75,13 +83,14 @@ jobs:
               run: |
                   version="$(jq -r .version manifest.json)"
                   min_app="$(jq -r .minAppVersion manifest.json)"
+                  zip="${PACKAGE_ZIP:-}"
                   {
                     echo "Version: $version"
                     echo "Minimum Obsidian: $min_app"
                     echo ""
                     echo "SHA-256:"
-                    for file in main.js manifest.json styles.css; do
-                      if [ -f "$file" ]; then sha256sum "$file"; fi
+                    for file in main.js manifest.json styles.css "$zip"; do
+                      if [ -n "$file" ] && [ -f "$file" ]; then sha256sum "$file"; fi
                     done
                   } > release-notes.md
                   cat release-notes.md
@@ -92,10 +101,15 @@ jobs:
               run: |
                   tag="${GITHUB_REF#refs/tags/}"
 
+                  if [ -z "${PACKAGE_ZIP:-}" ]; then
+                    echo "::error::PACKAGE_ZIP is empty, the packaging step did not run"; exit 1
+                  fi
+
                   gh release create "$tag" \
                     --title="$tag" \
                     --notes-file release-notes.md \
-                    main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
+                    main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }} \
+                    "${PACKAGE_ZIP}"
 
             - name: Verify release assets
               env:
@@ -108,4 +122,9 @@ jobs:
                     echo "$names" | grep -qx "$file" \
                       || { echo "::error::release $tag is missing asset $file"; exit 1; }
                   done
+                  zip_name="$(basename "${PACKAGE_ZIP:-}")"
+                  if [ -n "$zip_name" ]; then
+                    echo "$names" | grep -qx "$zip_name" \
+                      || { echo "::error::release $tag is missing asset $zip_name"; exit 1; }
+                  fi
                   echo "Release assets verified: $(echo "$names" | tr '\n' ' ')"

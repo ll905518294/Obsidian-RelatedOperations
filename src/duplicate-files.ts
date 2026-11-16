@@ -1,5 +1,5 @@
 import type { App, TAbstractFile, TFile } from 'obsidian';
-import { hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils.ts';
+import { errorMessage, hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils.ts';
 
 export interface DuplicateFileItem {
 	path: string;
@@ -71,7 +71,7 @@ export async function findDuplicateFiles(
 			items.push({ path: file.path, extension: file.extension, size: file.stat.size, mtime: file.stat.mtime, referenced: referenced.has(file.path), referencingNotes: [...(referencingByPath.get(file.path) ?? [])].sort((a, b) => a.localeCompare(b)) });
 			hashGroups.set(key, items);
 		} catch (error) {
-			warnings.push({ path: file.path, reason: error instanceof Error ? error.message : '无法读取文件内容' });
+			warnings.push({ path: file.path, reason: errorMessage(error, '无法读取文件内容') });
 		}
 	}
 	return {
@@ -127,7 +127,7 @@ export async function removeFileReferencesForFiles(app: App, filePaths: Iterable
 				return updated;
 			});
 		} catch (error) {
-			failed.push(`${source.path}（${error instanceof Error ? error.message : '未知错误'}）`);
+			failed.push(`${source.path}（${errorMessage(error)}）`);
 		}
 	}
 	return { removed, failed };
@@ -186,7 +186,7 @@ export async function planDuplicateDeletion(
 			keeperSize = bytes.byteLength;
 			keeperHash = await digestBytes(bytes);
 		} catch (error) {
-			for (const file of candidates) skipped.push({ path: file.path, reason: keepers.length ? `无法读取保留文件：${reasonOf(error)}` : `无法读取参照文件：${reasonOf(error)}` });
+			for (const file of candidates) skipped.push({ path: file.path, reason: keepers.length ? `无法读取保留文件：${errorMessage(error)}` : `无法读取参照文件：${errorMessage(error)}` });
 			continue;
 		}
 		for (const file of candidates) {
@@ -198,7 +198,7 @@ export async function planDuplicateDeletion(
 				}
 				deletable.push(file);
 			} catch (error) {
-				skipped.push({ path: file.path, reason: reasonOf(error) });
+				skipped.push({ path: file.path, reason: errorMessage(error) });
 			}
 		}
 	}
@@ -245,6 +245,3 @@ function isFileLike(target: TAbstractFile | null): target is TFile {
 	return !!target && !('children' in target) && 'extension' in target;
 }
 
-function reasonOf(error: unknown) {
-	return error instanceof Error ? error.message : '未知错误';
-}

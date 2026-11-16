@@ -22,6 +22,22 @@ test('converts basic, aliased, heading and block-id wiki links to markdown', () 
 	assert.equal(convertWikiNoteLink(link('[[a^块id]]', 'a.md', 0, { blockId: '块id' })), '[a > ^块id](<a.md#^块id>)');
 });
 
+// Obsidian keeps the raw `original` for links inside tables, where the alias
+// separator is written as `\|`. Its own parser strips that trailing backslash
+// from the target, so re-parsing `original` must do the same or resolution
+// silently drops the link.
+test('parses escaped pipe aliases used inside tables', () => {
+	const original = '[[a\\|别名]]';
+	const cache = {
+		links: [{ original, link: 'a', position: { start: { offset: 0 }, end: { offset: original.length } } }],
+	};
+	const resolver = (path) => (path === 'a' ? { path: 'a.md' } : null);
+	const found = findWikiNoteLinks(app(cache, resolver));
+	assert.equal(found.length, 1);
+	assert.equal(found[0].linkPath, 'a');
+	assert.equal(convertWikiNoteLink(found[0]), '[别名](<a.md>)');
+});
+
 test('uses the resolved target path in the markdown URL', () => {
 	const resolved = link('[[a]]', 'folder/a（示例）.md');
 	assert.equal(convertWikiNoteLink(resolved), '[a](<folder/a（示例）.md>)');

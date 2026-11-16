@@ -4,7 +4,7 @@ import type { DuplicateFileGroup } from '../duplicate-files';
 import { formatBytes, isImageFile, openFolderInVault, openInSystemFolder, parentFolder } from './cleanup-actions';
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
-import { associateCheckbox } from './cleanup-a11y';
+import { associateCheckbox, makePreviewTrigger } from './cleanup-a11y';
 import { requireSecondClick } from './cleanup-confirm-button';
 
 export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLElement, groups: DuplicateFileGroup[]) {
@@ -49,7 +49,7 @@ export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLE
 					const target = host.app.vault.getAbstractFileByPath(previewFile.path);
 					if (target instanceof TFile) preview.src = host.app.vault.getResourcePath(target);
 					preview.title = '点击预览';
-					preview.addEventListener('click', () => { if (target instanceof TFile) new ImagePreviewModal(host.app, [target], 0, async () => {}).open(); });
+					makePreviewTrigger(preview, `预览 ${previewFile.path}`, () => { if (target instanceof TFile) new ImagePreviewModal(host.app, [target], 0).open(); });
 				} else previewCell.setText('无图片预览');
 			}
 			const fileCell = row.createEl('td', { cls: 'orphan-cleanup-path' });

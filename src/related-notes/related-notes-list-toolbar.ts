@@ -77,9 +77,11 @@ export function renderListToolbar(
 	const selectAll = selectionToolbar.createEl('button', { text: '全选当前分组', cls: 'related-operations-select-all' });
 	selectAll.type = 'button';
 	selectAll.addEventListener('click', () => {
-		const movable = currentGroup.filter((note) => !isAlreadyAtTarget(note.file, host.targetFolder()));
-		const allSelected = movable.length > 0 && movable.every((note) => host.selections().get(note.file.path) === true);
-		for (const note of movable) host.selections().set(note.file.path, !allSelected);
+		const movable = new Set(currentGroup
+			.filter((note) => !isAlreadyAtTarget(note.file, host.targetFolder()))
+			.map((note) => note.file.path));
+		const allSelected = movable.size > 0 && [...movable].every((path) => host.selections().get(path) === true);
+		for (const path of movable) host.selections().set(path, !allSelected);
 		host.syncRowCheckboxes(currentGroup);
 		host.updateSelectAllState(selectAll, currentGroup);
 		host.updateSelectionSummary();

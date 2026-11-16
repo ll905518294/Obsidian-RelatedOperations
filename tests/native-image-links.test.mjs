@@ -5,9 +5,25 @@ import { convertNativeImageLink, findNativeImageLinks, replaceNativeImageLinks, 
 const file = (path, basename = path.split('/').at(-1).replace(/\.[^.]+$/, '')) => ({ path, basename });
 const link = (original, path, start, extra = {}) => ({ sourcePath: 'note.md', original, linkPath: path, position: { start: { offset: start }, end: { offset: start + original.length } }, file: Object.hasOwn(extra, 'file') ? extra.file : file(path), reason: extra.reason });
 
-test('converts basic and aliased embeds with empty alt text', () => {
+test('converts basic embeds and preserves alias text as alt text', () => {
 	assert.equal(convertNativeImageLink(link('![[folder/a b（示例）.png]]', 'folder/a b（示例）.png', 0)), '![](<folder/a b（示例）.png>)');
-	assert.equal(convertNativeImageLink(link('![[image.png|示意图]]', 'image.png', 0)), '![](<image.png>)');
+	assert.equal(convertNativeImageLink(link('![[image.png|示意图]]', 'image.png', 0)), '![示意图](<image.png>)');
+});
+
+test('parses escaped pipe aliases used inside tables', () => {
+	const original = '![[image.png\\|示意图]]';
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+		metadataCache: {
+			getFileCache: () => ({
+				embeds: [{ original, link: 'image.png', position: { start: { offset: 0 }, end: { offset: original.length } } }],
+			}),
+			getFirstLinkpathDest: (path) => (path === 'image.png' ? { path: 'image.png' } : null),
+		},
+	};
+	const found = findNativeImageLinks(app, 'png');
+	assert.equal(found.length, 1);
+	assert.equal(convertNativeImageLink(found[0]), '![示意图](<image.png>)');
 });
 
 test('skips dimensions and unresolved targets', () => {
@@ -31,7 +47,7 @@ test('marks a raw dimension mixed with an alias as a dimension like a pure dimen
 	const pure = findNativeImageLinks(app({ embeds: embeds('![[image.png|300x200]]') }), 'png');
 	assert.equal(convertNativeImageLink(pure[0]), null);
 	const alias = findNativeImageLinks(app({ embeds: embeds('![[image.png|示意图]]') }), 'png');
-	assert.equal(convertNativeImageLink(alias[0]), '![](<image.png>)');
+	assert.equal(convertNativeImageLink(alias[0]), '![示意图](<image.png>)');
 });
 
 test('treats bare width plus alias as a dimension but keeps numeric aliases convertible', () => {
@@ -46,7 +62,7 @@ test('treats bare width plus alias as a dimension but keeps numeric aliases conv
 	const mixed = findNativeImageLinks(app({ embeds: embeds('![[image.png|300 别名]]') }), 'png');
 	assert.equal(convertNativeImageLink(mixed[0]), null);
 	const numericAlias = findNativeImageLinks(app({ embeds: embeds('![[image.png|2024版]]') }), 'png');
-	assert.equal(convertNativeImageLink(numericAlias[0]), '![](<image.png>)');
+	assert.equal(convertNativeImageLink(numericAlias[0]), '![2024版](<image.png>)');
 });
 
 test('revalidates a target before conversion', () => {

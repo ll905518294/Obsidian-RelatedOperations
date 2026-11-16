@@ -50,7 +50,8 @@ export function convertNativeImageLink(link: NativeImageLink): string | null {
 	if (!link.file || link.reason) return null;
 	const parsed = parseNative(link.original);
 	if (!parsed) return null;
-	return `![](<${link.file.path}>)`;
+	const alt = parsed.alias ? escapeAltText(parsed.alias) : '';
+	return `![${alt}](<${link.file.path}>)`;
 }
 
 export function replaceNativeImageLinks(content: string, links: NativeImageLink[]) {
@@ -89,11 +90,25 @@ export function replaceNativeImageLinks(content: string, links: NativeImageLink[
 function parseNative(original: string): { target: string; alias: string; reason?: string } | null {
 	const match = /^!\[\[([^\]]+)\]\]$/.exec(original);
 	if (!match) return null;
-	const parts = match[1]!.split('|');
+	const parts = splitPipeParts(match[1]!);
 	const target = parts.shift()!.trim();
 	const extras = parts.map((part) => part.trim()).filter(Boolean);
 	if (extras.some((part) => /\d+x\d+/i.test(part) || /^\d+(?=\s|$)/.test(part))) return { target, alias: '', reason: '包含尺寸参数' };
-	return { target, alias: extras[0] ?? '' };
+	return { target, alias: extras.join('|') };
+}
+
+// Obsidian's table syntax escapes the alias separator as `\|`; the cache keeps
+// the raw `original`, so normalize it before splitting and unescape content.
+function splitPipeParts(value: string) {
+	return value.replaceAll('\\|', '|').split('|');
+}
+
+function escapeAltText(value: string) {
+	return value
+		.replaceAll('\\', '\\\\')
+		.replaceAll('[', '\\[')
+		.replaceAll(']', '\\]')
+		.replaceAll('|', '\\|');
 }
 
 function isIgnored(cache: CachedMetadata, position: Pos) {

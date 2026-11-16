@@ -1,5 +1,5 @@
 import { App, TFile, TFolder } from 'obsidian';
-import { hasHiddenPathSegment, isCaseSensitiveFileSystem, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens, pathTokenCandidates } from '../core-utils';
+import { hasHiddenPathSegment, isCaseSensitiveFileSystem, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens } from '../core-utils';
 import { findBrokenImageLinks } from '../broken-image-links';
 import { findBrokenNoteLinks } from '../broken-note-links';
 import { findNativeImageLinks } from '../native-image-links';
@@ -145,16 +145,31 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 		unresolved.delete(path);
 	};
 	const byBasename = new Map<string, string[]>();
-	const byPath = new Map<string, string>();
 	const exoticNames: string[] = [];
 	for (const image of remaining) {
 		const key = image.name.toLowerCase();
 		const paths = byBasename.get(key) ?? [];
 		paths.push(image.path);
 		byBasename.set(key, paths);
-		byPath.set(image.path.toLowerCase(), image.path);
 		if (needsRawTextSearch(image.name)) exoticNames.push(key);
 	}
+	// A token always ends with an extension, so only the part after the last
+	// slash and its space-separated suffixes can match a file name. Matching the
+	// tail keeps long prose lines from enumerating every word-prefix candidate.
+	const markToken = (token: string) => {
+		const cleaned = token.replace(/^[./\\]+/, '');
+		const slash = Math.max(cleaned.lastIndexOf('/'), cleaned.lastIndexOf('\\'));
+		let piece = slash >= 0 ? cleaned.slice(slash + 1) : cleaned;
+		while (piece) {
+			for (const path of byBasename.get(piece) ?? []) markReferenced(path);
+			if (piece.includes('%')) {
+				for (const path of byBasename.get(lastPathSegment(safeDecodePath(piece)).toLowerCase()) ?? []) markReferenced(path);
+			}
+			const space = piece.indexOf(' ');
+			if (space < 0) return;
+			piece = piece.slice(space + 1);
+		}
+	};
 	const markdownFiles = app.vault.getMarkdownFiles();
 	const BATCH = READ_CONCURRENCY * 4;
 	for (let start = 0; start < markdownFiles.length; start += BATCH) {
@@ -163,15 +178,7 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 		for (const [offset, content] of contents.entries()) {
 			const file = batch[offset]!;
 			onProgress?.(start + offset + 1, markdownFiles.length, file.path);
-			for (const token of pathLikeTokens(content)) {
-				for (const candidate of pathTokenCandidates(token.replace(/^[./\\]+/, ''))) {
-					for (const variant of [candidate, safeDecodePath(candidate)]) {
-						const direct = byPath.get(variant.toLowerCase());
-						if (direct) markReferenced(direct);
-						for (const path of byBasename.get(lastPathSegment(variant).toLowerCase()) ?? []) markReferenced(path);
-					}
-				}
-			}
+			for (const token of pathLikeTokens(content)) markToken(token);
 			if (exoticNames.length) {
 				// Lowercase once per note instead of once per exotic file name.
 				const lowered = content.toLowerCase();
@@ -201,9 +208,10 @@ export function collectConvertibleImages(app: App, config: ImageConversionConfig
 	return app.vault.getFiles()
 		.filter((file) => {
 			const extension = file.extension.toLowerCase();
+			const format = extension === 'jpeg' ? 'jpg' : extension;
 			// 目标格式本身不是候选：PNG→JPG 后新出现的 jpg 不应再次进入列表。
-			if ((extension === 'jpeg' ? 'jpg' : extension) === target) return false;
-			return sources.has(extension) && extensions.has(extension)
+			if (format === target) return false;
+			return sources.has(format) && extensions.has(extension)
 				&& !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders);
 		})
 		.sort(byPath);

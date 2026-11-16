@@ -1,4 +1,5 @@
 import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
+import { isExternalLink, isInsideIgnoredRange } from './core-utils.ts';
 
 export interface WikiNoteLink {
 	sourcePath: string;
@@ -60,7 +61,7 @@ export function convertWikiNoteLink(link: WikiNoteLink): string | null {
 	else if (parsed.heading) text = `${parsed.path} > ${parsed.heading}`;
 	else if (parsed.blockId) text = `${parsed.path} > ^${parsed.blockId}`;
 	else text = parsed.path;
-	return `[${text}](${url})`;
+	return `[${escapeLinkText(text)}](${url})`;
 }
 
 // Markdown link destinations are URI-decoded by Obsidian and by this repo's own
@@ -104,7 +105,7 @@ function parseWiki(original: string): { path: string; heading?: string; blockId?
 	const match = /^\[\[([^\]]+)\]\]$/.exec(original);
 	if (!match) return null;
 	const inner = match[1]!;
-	const parts = inner.split('|');
+	const parts = splitPipeParts(inner);
 	const target = (parts.shift() ?? '').trim();
 	if (!target) return null;
 	let rest = target;
@@ -122,15 +123,21 @@ function parseWiki(original: string): { path: string; heading?: string; blockId?
 		path = rest.slice(0, rest.indexOf('#')).trim();
 	}
 	if (!path) return null;
-	if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(path)) return null;
-	return { path, heading, blockId, alias: parts[0]?.trim() || undefined };
+	if (isExternalLink(path)) return null;
+	return { path, heading, blockId, alias: parts.join('|').trim() || undefined };
 }
 
-function isInsideIgnoredRange(cache: CachedMetadata, position: Pos) {
-	const frontmatter = cache.frontmatterPosition;
-	return (frontmatter && contains(frontmatter, position)) || (cache.sections ?? []).some((section) => section.type === 'code' && contains(section.position, position));
+// Inside tables Obsidian writes the alias separator as `\|`. Its own parser
+// treats it as the separator and drops the backslash from the target
+// (`[[Note\|Alias]]` → `Note`), so normalize before splitting.
+function splitPipeParts(value: string) {
+	return value.replaceAll('\\|', '|').split('|');
 }
 
-function contains(a: Pos, b: Pos) {
-	return b.start.offset >= a.start.offset && b.end.offset <= a.end.offset;
+function escapeLinkText(value: string) {
+	return value
+		.replaceAll('\\', '\\\\')
+		.replaceAll('[', '\\[')
+		.replaceAll(']', '\\]')
+		.replaceAll('|', '\\|');
 }

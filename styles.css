@@ -1622,6 +1622,13 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	text-align: center;
 }
 
+/* 切步后焦点落在标题上，保留可见焦点环，避免键盘用户失去位置。 */
+.onboarding-modal h2[tabindex='-1']:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-s);
+}
+
 /* 图片转换：配置、估算汇总与候选表。
    色彩全部取自主题语义变量，深色主题不依赖硬编码浅色底。 */
 .orphan-cleanup-convert-content {

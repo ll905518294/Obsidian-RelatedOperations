@@ -40,12 +40,16 @@ export function updateSelectionSummary(host: RelatedNotesListHost) {
 }
 
 export function updateSelectAllState(host: RelatedNotesListHost, selectAll: HTMLButtonElement, group: RelatedNote[]) {
-	const movable = group.filter((note) => !isAlreadyAtTarget(note.file, host.targetFolder()));
-	const selected = movable.filter((note) => host.selections().get(note.file.path) === true).length;
-	const allSelected = movable.length > 0 && selected === movable.length;
+	// A target can be listed once per source but shares one selection key;
+	// count unique paths so the button reflects what the user actually sees.
+	const movable = new Set(group
+		.filter((note) => !isAlreadyAtTarget(note.file, host.targetFolder()))
+		.map((note) => note.file.path));
+	const selected = [...movable].filter((path) => host.selections().get(path) === true).length;
+	const allSelected = movable.size > 0 && selected === movable.size;
 	selectAll.setText(allSelected ? '取消全选当前分组' : '全选当前分组');
 	selectAll.setAttribute('aria-pressed', String(allSelected));
-	selectAll.disabled = movable.length === 0;
+	selectAll.disabled = movable.size === 0;
 }
 
 export function updatePreviews(host: RelatedNotesListHost) {
@@ -157,6 +161,9 @@ export function renderList(host: RelatedNotesListHost) {
 		if (alreadyAtTarget) checkbox.title = '该笔记已经位于目标文件夹';
 		checkbox.addEventListener('change', () => {
 			host.selections().set(note.file.path, checkbox.checked);
+			// The same target may be rendered once per source. They share one
+			// selection key, so checking one row must update every row for it.
+			host.syncRowCheckboxes(host.relatedNotes());
 			host.refreshSelectAll();
 			host.updateSelectionSummary();
 		});

@@ -1,3 +1,5 @@
+import type { CachedMetadata, Pos } from 'obsidian';
+
 export function joinVaultPath(base: string, sub: string): string {
 	return [base.replace(/^\/+|\/+$/g, ''), sub.replace(/^\/+|\/+$/g, '')]
 		.filter(Boolean)
@@ -139,6 +141,30 @@ export function isPathInFolder(path: string, folderPath: string): boolean {
 
 export function isFrontmatterOnly(content: string): boolean {
 	return /^\uFEFF?\s*---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?[ \t]*---[ \t]*(?:\r?\n)?\s*$/.test(content);
+}
+
+const EXTERNAL_LINK_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+
+export function isExternalLink(path: string): boolean {
+	return EXTERNAL_LINK_PATTERN.test(path);
+}
+
+/**
+ * Links inside frontmatter or code sections are metadata, not live links.
+ * Shared by every cache-based link scan so they cannot drift apart.
+ */
+export function isInsideIgnoredRange(cache: CachedMetadata, position: Pos): boolean {
+	const frontmatter = cache.frontmatterPosition;
+	if (frontmatter && containsPosition(frontmatter, position)) return true;
+	return (cache.sections ?? []).some((section) => section.type === 'code' && containsPosition(section.position, position));
+}
+
+function containsPosition(range: Pos, position: Pos): boolean {
+	return position.start.offset >= range.start.offset && position.end.offset <= range.end.offset;
+}
+
+export function errorMessage(error: unknown, fallback = '未知错误'): string {
+	return error instanceof Error ? error.message : fallback;
 }
 
 export function normalizeSettings<T extends object>(

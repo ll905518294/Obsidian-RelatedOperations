@@ -323,6 +323,16 @@ test('目标为不同格式时同源文件仍在候选集', () => {
 	assert.deepEqual(result.map((item) => item.path), ['assets/a.png', 'assets/b.jpg']);
 });
 
+test('JPEG 扩展名与 JPG 源勾选等价，不会漏掉转换候选', () => {
+	const files = [file('assets/a.jpeg'), file('assets/b.JPEG'), file('assets/c.png')];
+	const app = fakeApp({ files });
+	const result = collectConvertibleImages(app, { ...config, sources: ['png', 'jpg'], target: 'webp' }, 'png, jpg, jpeg');
+	assert.deepEqual(
+		result.map((item) => item.path).sort(),
+		['assets/a.jpeg', 'assets/b.JPEG', 'assets/c.png'],
+	);
+});
+
 test('estimateConversions 不返回 same-format 噪声行', async () => {
 	const image = file('assets/a.png', 100);
 	const app = fakeApp({ files: [image] });

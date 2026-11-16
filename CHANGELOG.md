@@ -1,5 +1,11 @@
 # CHANGELOG
 
+### 未发布 — 安装包打包
+
+- **[新功能]** 新增 `npm run package`（`scripts/package-plugin.mjs`，零第三方依赖，用 `node:zlib` 与手工 ZIP 结构写出）产出 `dist/vault-doctor-<版本号>.zip`；ZIP 内只含根层的 `main.js`、`manifest.json` 与可选的 `styles.css`，写出后重新解压校验条目、大小、CRC-32 与包内版本号。`npm run package:check` 只校验不写文件；`main.js` 缺失时报错并提示先执行 `npm run build`，不自动构建。
+- **[优化]** release workflow 在构建、lint、测试后调用 `npm run package`，把 ZIP 与三件套一起附到 release，release notes 的 SHA-256 与资产校验同步包含 ZIP；`dist/` 加入 `.gitignore`。
+- **[文档]** README 安装章节补充「下载 ZIP 解压」与「下载三件套」两种方式，并说明 ZIP 只是便捷打包、不是 Windows 安装器；`docs/runbook.md` 补充打包命令、发布前 ZIP 检查，并把社区提交证据从过期的 `1.4.2` 更正为已核实的 `1.7.0`。
+
 ## [1.7.0] — 2026-11-17：图片格式转换
 
 - **[新功能]** 体检与清理面板新增「图片转换」标签页，位于标签条末尾：支持 PNG、JPG、WebP、BMP、AVIF 转 JPG、WebP 或 PNG，质量 50–95，透明图可选白底或跳过（JPG 固定白底）；单张超过 4000 万像素的图片跳过；不计入 9 类体检问题、首页总数、健康度与 6 阶段扫描。

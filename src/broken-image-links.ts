@@ -1,5 +1,5 @@
 import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
-import { removeCachedLinkRanges } from './core-utils.ts';
+import { errorMessage, isExternalLink, isInsideIgnoredRange, parseExtensions, removeCachedLinkRanges } from './core-utils.ts';
 
 export interface BrokenImageLink {
 	sourcePath: string;
@@ -14,14 +14,12 @@ interface RemoveBrokenLinksResult {
 	skipped: number;
 }
 
-const EXTERNAL_LINK_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
-
 export function brokenLinkKey(link: BrokenImageLink) {
 	return `${link.sourcePath}\u0000${link.position.start.offset}:${link.position.end.offset}`;
 }
 
 export function findBrokenImageLinks(app: App, imageExtensions: string, files: TFile[] = app.vault.getMarkdownFiles()): BrokenImageLink[] {
-	const extensions = parseImageExtensions(imageExtensions);
+	const extensions = parseExtensions(imageExtensions);
 	return files
 		.flatMap((file) => {
 			const cache = app.metadataCache.getFileCache(file);
@@ -112,7 +110,7 @@ export async function removeSelectedBrokenLinks(
 				return changed.content;
 			});
 		} catch (error) {
-			result.failed.push({ path: sourcePath, reason: `${grouped.length} 条链接：${reasonFor(error)}` });
+			result.failed.push({ path: sourcePath, reason: `${grouped.length} 条链接：${errorMessage(error)}` });
 		}
 	}
 	return result;
@@ -122,39 +120,12 @@ function matchesCachedReference(actual: string, original: string) {
 	return actual === original || actual === `!${original}` || `!${actual}` === original;
 }
 
-function isInsideIgnoredRange(cache: CachedMetadata, position: Pos) {
-	const frontmatter = cache.frontmatterPosition;
-	if (frontmatter && containsPosition(frontmatter, position)) return true;
-	return (cache.sections ?? []).some((section) => section.type === 'code' && containsPosition(section.position, position));
-}
-
-function containsPosition(range: Pos, position: Pos) {
-	return position.start.offset >= range.start.offset && position.end.offset <= range.end.offset;
-}
-
 function targetPath(link: string) {
 	return link.split('#', 1)[0] ?? '';
-}
-
-function isExternalLink(path: string) {
-	return EXTERNAL_LINK_PATTERN.test(path);
-}
-
-function parseImageExtensions(value: string) {
-	return new Set(
-		value
-			.split(/[,，\s]+/)
-			.map((extension) => extension.trim().replace(/^\./, '').toLowerCase())
-			.filter((extension) => /^[a-z0-9]+$/.test(extension)),
-	);
 }
 
 function fileExtension(path: string) {
 	const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
 	const dot = name.lastIndexOf('.');
 	return dot < 0 ? '' : name.slice(dot + 1).toLowerCase();
-}
-
-function reasonFor(error: unknown) {
-	return error instanceof Error ? error.message : '未知错误';
 }

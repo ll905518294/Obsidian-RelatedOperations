@@ -13,3 +13,16 @@ export function associateCheckbox(checkbox: HTMLElement, labels: HTMLElement[]):
 	});
 	checkbox.setAttribute('aria-labelledby', ids.join(' '));
 }
+
+export function makePreviewTrigger(image: HTMLElement, label: string, onActivate: () => void): void {
+	image.setAttribute('role', 'button');
+	image.setAttribute('tabindex', '0');
+	image.setAttribute('aria-haspopup', 'dialog');
+	image.setAttribute('aria-label', label);
+	image.addEventListener('click', onActivate);
+	image.addEventListener('keydown', (event: KeyboardEvent) => {
+		if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+		event.preventDefault();
+		onActivate();
+	});
+}
