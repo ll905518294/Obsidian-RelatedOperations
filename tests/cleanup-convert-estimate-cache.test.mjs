@@ -58,7 +58,7 @@ function makeFile(path, size = 100) {
 	};
 }
 
-function makeHost(files, codec) {
+function makeHost(files) {
 	const state = createConversionState(config);
 	state.abort = () => {};
 	return {
@@ -66,61 +66,52 @@ function makeHost(files, codec) {
 			vault: {
 				getFiles: () => files,
 				getAbstractFileByPath: (path) => files.find((file) => file.path === path) ?? null,
-				readBinary: async () => new ArrayBuffer(8),
-				cachedRead: async () => '',
-				read: async () => '',
+				readBinary: async () => {
+					throw new Error('快速预估不应读取文件内容');
+				},
+				cachedRead: async () => {
+					throw new Error('快速预估不应读取笔记正文');
+				},
+				read: async () => {
+					throw new Error('快速预估不应读取笔记正文');
+				},
 			},
 			metadataCache: { resolvedLinks: {}, getFileCache: () => null, getFirstLinkpathDest: () => null },
 		},
 		candidates: { convertibleImages: files },
 		conversion: state,
 		conversionConfig: () => ({ ...config }),
-		imageCodec: () => codec,
+		// 控制器在估算路径上不再使用 codec；保留方法以兼容 host 契约。
+		imageCodec: () => {
+			throw new Error('快速预估不应调用 codec');
+		},
 		activeTab: 'image-convert',
 		estimateController: undefined,
 		renderContents() {},
 	};
 }
 
-test('重复点击估算会复用上次结果，不再完整解码', async () => {
+test('重复点击估算结果一致且始终不读取/解码文件', async () => {
 	const files = [makeFile('a.png', 100), makeFile('b.png', 200)];
-	let decodes = 0;
-	const codec = {
-		decode: async () => {
-			decodes += 1;
-			return { ok: true, image: { width: 1200, height: 800, hasAlpha: false, source: {} } };
-		},
-		encode: async () => ({ ok: true, bytes: new ArrayBuffer(400) }),
-		release: () => {},
-	};
-	const host = makeHost(files, codec);
+	const host = makeHost(files);
 
 	await estimateConversions(host);
 	assert.equal(host.conversion.items.length, 2);
-	assert.equal(decodes, 2);
+	const first = structuredClone(host.conversion.items);
 
 	await estimateConversions(host);
-	assert.equal(decodes, 2, '第二次点击不应重复解码');
-	assert.equal(host.conversion.items.length, 2);
+	assert.deepEqual(host.conversion.items, first, '同样输入下预估结果应稳定');
 });
 
-test('源文件变化后再次估算只重算变化的文件', async () => {
+test('源文件体积变化后按新体积重新预估', async () => {
 	const files = [makeFile('a.png', 100), makeFile('b.png', 200)];
-	let decodes = 0;
-	const codec = {
-		decode: async () => {
-			decodes += 1;
-			return { ok: true, image: { width: 1200, height: 800, hasAlpha: false, source: {} } };
-		},
-		encode: async () => ({ ok: true, bytes: new ArrayBuffer(400) }),
-		release: () => {},
-	};
-	const host = makeHost(files, codec);
+	const host = makeHost(files);
 
 	await estimateConversions(host);
-	files[0].stat.mtime = 2;
+	const before = host.conversion.items.find((item) => item.path === 'a.png').newBytes;
+	files[0].stat.size = 1000;
 	await estimateConversions(host);
+	const after = host.conversion.items.find((item) => item.path === 'a.png').newBytes;
 
-	assert.equal(decodes, 3, '只应重新解码 a.png');
-	assert.equal(host.conversion.items.find((item) => item.path === 'a.png').sourceMtime, 2);
+	assert.ok(after > before, `体积变大后预估应变大：${before} -> ${after}`);
 });

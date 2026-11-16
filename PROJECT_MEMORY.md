@@ -25,7 +25,7 @@
 - 清理表格必须设整表 `min-width`（普通表 460px、重复文件表 660px）：窄视口下「勾选 44px + 操作 145px」这些固定列会把中间列压到 0，改由 `.orphan-cleanup-scroll` 横向滚动。
 - 体检缓存写入 `data.json` 前必须序列化成纯数据（`src/cleanup/cleanup-cache.ts`，`CLEANUP_CACHE_VERSION = 2`）：只保留路径与 `size`/`mtime`，读取时按路径重新解析成 `TFile`/`TFolder`；转换候选 `convertibleImages` 永远写空，估算结果不落盘。旧缓存或已删除文件由 `restoreCleanupCandidates` 逐项校验后丢弃，不能让面板崩溃。
 - 图片转换默认值来自 `DEFAULT_IMAGE_CONVERSION`（`src/cleanup/cleanup-types.ts`）：源格式只含 PNG、目标 JPG、质量 85、透明图白底；设置页只暴露目标格式/默认质量/透明图处理三项，源格式只在页面内勾选。改默认值时要同步 `tests/settings-defaults.test.mjs` 与 README。
-- 图片转换估算结果复用的键是 `target|quality|alpha` 加源文件 `size`/`mtime`：只改源格式不会重新编码；改目标格式、质量或透明图处理会让旧估算失效。全量扫描只枚举候选，估算只在图片转换页点「扫描并估算」时触发。
+- 图片转换估算改为经验系数快速预估：`newBytes ≈ oldBytes × 源格式→目标格式经验压缩比 ×(quality/85)`（PNG 为无损目标，不按质量缩放），不读文件、不解码、不重编码；引用处数只读 `metadataCache.resolvedLinks` 内存索引。估算阶段仅提前阻断「目标同名文件已存在」与「多张图转同一目标」；透明图、40MP、危险引用等在转换时由 runner 精确判定。全量扫描只枚举候选，估算只在图片转换页点「扫描并估算」时触发。
 - 截图流程：演示库 `vault-doctor-demo` 含合成数据，但图片转换会真实改写文件并清空原图，因此转换类截图必须在**临时复制件**里拍摄（复制目录可同名以保持界面左下角库名一致）；截图用窗口客户区抓屏，保持 1920×1032。切换 Vault 前先备份 `obsidian.json`（位于用户配置目录的 `obsidian` 文件夹），拍完恢复备份并重启回真实库。
 
 ## 已验证结论

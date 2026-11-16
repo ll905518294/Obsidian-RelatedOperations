@@ -3,20 +3,11 @@ import { forEachWithConcurrency, hasHiddenPathSegment, isCaseSensitiveFileSystem
 export { forEachWithConcurrency };
 import { findVaultLinkScans, type VaultLinkScans } from './link-scans';
 import { findDuplicateFiles, type DuplicateFileGroup } from '../duplicate-files';
-import { createSerialGate, isLargeImage, isWithinPixelLimit, LARGE_IMAGE_BYTES, type ImageCodec } from '../image-convert/image-codec';
-import { findImageReferences, findImageReferencesBatch, type ImageReferenceScanResult } from '../image-convert/image-convert-links';
-import { planImageConversions, type ImageConvertPlanItem } from '../image-convert/image-convert-plan';
+import { pathKey, planImageConversions } from '../image-convert/image-convert-plan';
 import { byPath } from './cleanup-actions';
 import { CleanupScanAbortedError, COMMON_IMAGE_EXTENSIONS, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
 
 const READ_CONCURRENCY = 8;
-// 解码一张 10MP 图约占 40MB（宽×高×4），4 路并发加上同尺寸输出画布
-// 约 320MB，桌面端可接受。编码结束后由 codec.release 立刻释放画布，
-// 高峰只取决于同时在处理的图，而不是已处理总数。
-const CONVERSION_CONCURRENCY = 4;
-// 解码前只能看到文件体积；超过阈值的文件先走单并发通道，避免多张大图
-// 在解码阶段同时占内存。解码后已知像素数的，再在编码阶段排队。
-const LARGE_IMAGE_CONCURRENCY = 1;
 
 export interface CleanupFileSets {
 	extensions: Set<string>;
@@ -337,22 +328,62 @@ export function collectConvertibleImages(app: App, config: ImageConversionConfig
 }
 
 /*
- * 每张图读一次二进制、解码一次、编码一次，用 2 个并发限制内存峰值。
- * 解码失败、超过 40MP、目标文件已存在的条目保留在结果里并带 blockedReason，
- * 让界面能说明“为什么不能转”。中止时返回已经完成的条目，不抛错。
+ * 快速预估：不读取、不解码、不重编码，只按源格式→目标格式的经验压缩比与
+ * 文件体积（stat.size）推算目标体积，把 5000+ 张的估算压到秒级。
+ * 引用处数直接取自 metadataCache.resolvedLinks 内存索引，不读笔记正文；
+ * 真正的可改写性、透明图跳过、40MP 上限等在转换时由 runner 精确校验。
+ * 目标冲突与同格式仍按 planImageConversions 判定。中止在文件之间生效，
+ * 返回已完成条目，不抛错。
  */
+const ESTIMATE_RATIO_BY_FORMAT: Record<string, number> = {
+	'png->jpg': 0.10,
+	'png->webp': 0.08,
+	'jpg->webp': 0.72,
+	'jpg->png': 3.0,
+	'webp->jpg': 1.6,
+	'webp->png': 3.0,
+	'bmp->jpg': 0.06,
+	'bmp->webp': 0.05,
+	'bmp->png': 0.8,
+	'avif->jpg': 0.9,
+	'avif->webp': 0.9,
+	'avif->png': 3.0,
+};
+const DEFAULT_ESTIMATE_RATIO = 0.5;
+
+/*
+ * 经验压缩比只是量级参考：目标为有损格式（JPG/WebP）时按质量线性缩放，
+ * 目标为 PNG（无损）时不缩放。最低保留 1 字节，保证界面按「已估算」展示。
+ */
+function estimateTargetBytes(oldBytes: number, source: string, target: string, quality: number): number {
+	const ratio = ESTIMATE_RATIO_BY_FORMAT[`${source}->${target}`] ?? DEFAULT_ESTIMATE_RATIO;
+	const qualityScale = target === 'png' ? 1 : Math.min(95, Math.max(50, quality)) / 85;
+	return Math.max(1, Math.round(oldBytes * ratio * qualityScale));
+}
+
+// 一次遍历引用索引，统计每张图片被引用到多少处；不读任何笔记正文。
+function countIndexedReferences(app: App, caseSensitive: boolean): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const destinations of Object.values(app.metadataCache.resolvedLinks ?? {})) {
+		if (!destinations) continue;
+		for (const [targetPath, count] of Object.entries(destinations)) {
+			if (typeof count !== 'number' || count <= 0) continue;
+			const key = pathKey(targetPath, caseSensitive);
+			counts.set(key, (counts.get(key) ?? 0) + count);
+		}
+	}
+	return counts;
+}
+
 export async function estimateConversions(
 	app: App,
 	files: TFile[],
 	config: ImageConversionConfig,
-	codec: ImageCodec,
 	onProgress?: (progress: ImageConversionProgress) => void,
 	signal?: AbortSignal,
-	previousItems?: ConvertibleImage[],
 ): Promise<ConvertibleImage[]> {
 	const normalized = normalizeImageConversionConfig(config);
-	const estimateKey = conversionEstimateKey(normalized);
-	const reusable = new Map((previousItems ?? []).map((item) => [item.path, item]));
+	const caseSensitive = isCaseSensitiveFileSystem();
 	const total = files.length;
 	// plan 统一处理目标冲突、大小写归一化与同格式；结果直接作为预标记。
 	const plan = planImageConversions(
@@ -360,150 +391,43 @@ export async function estimateConversions(
 		normalized.target,
 		{
 			existingPaths: app.vault.getFiles().map((file) => file.path),
-			caseSensitive: isCaseSensitiveFileSystem(),
+			caseSensitive,
 		},
 	);
-	const planned = new Map(plan.items.map((item) => [item.path, item]));
+	const planned = new Set(plan.items.map((item) => item.path));
 	const planSkipped = new Map(plan.skipped.map((item) => [item.path, item.reason]));
-	// 一次批量引用扫描替代每张图各扫全库；批量失败时回退到逐图扫描。
-	let referenceScans: Map<string, ImageReferenceScanResult>;
-	try {
-		referenceScans = await findImageReferencesBatch(app, files.map((file) => file.path));
-	} catch {
-		referenceScans = new Map();
-	}
+	const referenceCounts = countIndexedReferences(app, caseSensitive);
 	const items: ConvertibleImage[] = [];
 	let processed = 0;
-	let stopped = false;
-	const encodeLargeImage = createSerialGate();
 	onProgress?.({ processed, total });
-	// 大文件单独一条单并发通道，普通文件仍跑满 4 路；两条通道共用进度与
-	// 中止状态，结果最后统一按路径排序。
-	const normalFiles = files.filter((file) => (file.stat?.size ?? 0) < LARGE_IMAGE_BYTES);
-	const largeFiles = files.filter((file) => (file.stat?.size ?? 0) >= LARGE_IMAGE_BYTES);
-	const runLane = async (lane: TFile[], limit: number) => {
-		let next = 0;
-		const workers = Array.from({ length: Math.max(1, Math.min(limit, lane.length || 1)) }, async () => {
-			while (!stopped) {
-				if (signal?.aborted) return;
-				const file = lane[next++];
-				if (!file) return;
-				items.push(await estimateOneImage(app, file, normalized, codec, planned.get(file.path), planSkipped.get(file.path), referenceScans.get(file.path), encodeLargeImage, estimateKey, reusable.get(file.path)));
-				processed += 1;
-				onProgress?.({ processed, total, currentPath: file.path });
-				// 中止后不再领取新文件，但已开始的编码会自然结束并被计入结果。
-				if (signal?.aborted) stopped = true;
-			}
-		});
-		await Promise.all(workers);
-	};
-	await Promise.all([
-		runLane(normalFiles, CONVERSION_CONCURRENCY),
-		runLane(largeFiles, LARGE_IMAGE_CONCURRENCY),
-	]);
-	// 同格式是“永远不能转”的噪声：即使绕过候选集调用，也不出现在估算结果里。
-	return items.filter((item) => item.blockedReason !== 'same-format').sort((a, b) => a.path.localeCompare(b.path));
-}
-
-// 只包含影响编码结果的参数；源格式列表只决定候选范围，不改变同一文件的编码体积。
-function conversionEstimateKey(config: ImageConversionConfig): string {
-	return `${config.target}|${config.quality}|${config.alpha}`;
-}
-
-async function estimateOneImage(
-	app: App,
-	file: TFile,
-	config: ImageConversionConfig,
-	codec: ImageCodec,
-	planned: ImageConvertPlanItem | undefined,
-	planBlockedReason: string | undefined,
-	precomputed: ImageReferenceScanResult | undefined,
-	encodeLargeImage: <T>(task: () => Promise<T>) => Promise<T>,
-	estimateKey: string,
-	cached: ConvertibleImage | undefined,
-): Promise<ConvertibleImage> {
-	const extension = file.extension.toLowerCase();
-	const base: ConvertibleImage = {
-		path: file.path,
-		extension,
-		width: 0,
-		height: 0,
-		oldBytes: file.stat?.size ?? 0,
-		newBytes: 0,
-		hasAlpha: false,
-		referenceCount: 0,
-	};
-	if ((extension === 'jpeg' ? 'jpg' : extension) === config.target) return { ...base, blockedReason: 'same-format' };
-	// 轻量引用预检：数量即“引用处数”，任何无法安全改写的引用风险直接阻断该图。
-	try {
-		const references = precomputed ?? await findImageReferences(app, file.path);
-		if (!references.ok) return { ...base, blockedReason: references.reason };
-		base.referenceCount = references.totalLiveRefs;
-	} catch {
-		return { ...base, blockedReason: 'unsupported-source' };
-	}
-	if (planBlockedReason) return { ...base, blockedReason: planBlockedReason };
-	if (!planned) return { ...base, blockedReason: 'unsupported-source' };
-	// 估算结果复用：源文件未变（size+mtime）且编码参数未变时，跳过最贵的
-	// 读文件、解码与重编码；引用数量与计划阻断原因仍按本次扫描结果更新。
-	if (cached && cached.width > 0 && cached.estimateKey === estimateKey
-		&& cached.oldBytes === base.oldBytes && cached.sourceMtime !== undefined
-		&& cached.sourceMtime === file.stat?.mtime) {
-		const reused: ConvertibleImage = {
-			...base,
-			width: cached.width,
-			height: cached.height,
-			hasAlpha: cached.hasAlpha,
-			newBytes: cached.newBytes,
-			sourceMtime: cached.sourceMtime,
-			estimateKey,
+	for (const file of files) {
+		if (signal?.aborted) break;
+		const extension = file.extension.toLowerCase();
+		const source = extension === 'jpeg' ? 'jpg' : extension;
+		const base: ConvertibleImage = {
+			path: file.path,
+			extension,
+			width: 0,
+			height: 0,
+			oldBytes: file.stat?.size ?? 0,
+			newBytes: 0,
+			hasAlpha: false,
+			referenceCount: referenceCounts.get(pathKey(file.path, caseSensitive)) ?? 0,
 		};
-		if (cached.blockedReason !== undefined) reused.blockedReason = cached.blockedReason;
-		return reused;
-	}
-	let data: ArrayBuffer;
-	try {
-		data = await app.vault.readBinary(file);
-	} catch {
-		return { ...base, blockedReason: '读取文件失败' };
-	}
-	let decoded: Awaited<ReturnType<ImageCodec['decode']>>;
-	try {
-		decoded = await codec.decode(data);
-	} catch {
-		return { ...base, blockedReason: '图片解码失败' };
-	}
-	if (!decoded.ok) return { ...base, blockedReason: decoded.reason };
-	const image = decoded.image;
-	try {
-		const width = Math.max(0, Math.round(image.width));
-		const height = Math.max(0, Math.round(image.height));
-		const sized: ConvertibleImage = {
-			...base,
-			width,
-			height,
-			hasAlpha: Boolean(image.hasAlpha),
-			sourceMtime: file.stat?.mtime,
-			estimateKey,
-		};
-		if (!isWithinPixelLimit(width, height)) return { ...sized, blockedReason: '分辨率超过 40MP' };
-		// “跳过透明图”对所有目标格式一致；选白底时 JPG 恒白底，WebP/PNG 也按白底估算体积。
-		if (config.alpha === 'skip' && sized.hasAlpha) return { ...sized, blockedReason: 'alpha-skip' };
-		const flatten = config.target === 'jpg' || config.alpha === 'flatten';
-		let encoded: Awaited<ReturnType<ImageCodec['encode']>>;
-		try {
-			const encode = () => codec.encode(image, config.target, { quality: config.quality / 100, flatten });
-			// 大图解码后才知道像素数；编码输出画布与源画布同尺寸，让大图
-			// 排队编码，避免 4 路并发叠加 4 份输出缓冲。
-			encoded = isLargeImage(width, height) ? await encodeLargeImage(encode) : await encode();
-		} catch {
-			return { ...sized, blockedReason: '图片编码失败' };
+		const planBlockedReason = planSkipped.get(file.path);
+		if (source === normalized.target) {
+			// 同格式是“永远不能转”的噪声：不出现在估算结果里。
+		} else if (planBlockedReason) {
+			items.push({ ...base, blockedReason: planBlockedReason });
+		} else if (!planned.has(file.path)) {
+			items.push({ ...base, blockedReason: 'unsupported-source' });
+		} else {
+			items.push({ ...base, newBytes: estimateTargetBytes(base.oldBytes, source, normalized.target, normalized.quality) });
 		}
-		if (!encoded.ok) return { ...sized, blockedReason: encoded.reason };
-		return { ...sized, newBytes: encoded.bytes.byteLength };
-	} finally {
-		codec.release?.(image);
+		processed += 1;
+		onProgress?.({ processed, total, currentPath: file.path });
 	}
+	return items.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export async function referencedByCanvas(app: App, canvas: TFile): Promise<string[] | null> {

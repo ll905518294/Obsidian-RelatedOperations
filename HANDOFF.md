@@ -9,11 +9,18 @@
 ## 当前任务
 - 1.9.0 发布收口（未提交、未打 tag）：CHANGELOG 已把未发布的 1.8.0 与本轮 20+ 轮优化合并为 1.9.0 正式条目（按需估算与结果复用、4 路并发与大图防护、首页转换卡片、转换进度、设置默认配置、HTML 实体引用、重复文件字节复检、撤销记录累加、唯一命中兜底、扫描平方级退化、图片引用模块拆分、文档与 CI 加固）。
 - **发布前必须处理（不在本线程可改范围）**：`src/update-intro-content.ts` 尚无 `1.9.0` 条目，且 `tests/update-intro-content.test.mjs` 把最新版本写死为 `1.8.0`；若直接发 1.9.0，升级弹窗不会显示本轮更新说明。需在 `src/` 补 1.9.0 说明并同步该断言后再打 tag。
-- 文档与发布链路（R29–R32）：README 已同步「首页图片转换卡片」「按需估算与估算/转换进度」「设置页图片转换默认配置」，并更正「图片转换不计入首页总数」的旧说法与估算并发数（普通 4 路、单张 ≥8 MB 单通道）；`PROJECT_MEMORY.md` 同步图片转换的首页计数与默认值约定。release workflow 含 manifest id / minAppVersion 校验、ZIP 条目名复核，以及 tag/package/versions 一致性与 `--verify-tag`。
+- 文档与发布链路（R29–R32）：README 已同步「首页图片转换卡片」「按需估算与估算/转换进度」「设置页图片转换默认配置」，并更正「图片转换不计入首页总数」的旧说法与估算并发数（普通 4 路、单张 ≥8 MB 单通道；该估算并发描述已被 2026-11-17 的快速预估取代，见下节）；`PROJECT_MEMORY.md` 同步图片转换的首页计数与默认值约定。release workflow 含 manifest id / minAppVersion 校验、ZIP 条目名复核，以及 tag/package/versions 一致性与 `--verify-tag`。
 - 截图：`docs/images/09-image-convert.png`（候选列表 + 汇总条）与 `10-image-convert-result.png`（转换完成提示 + 最近一次转换）已于 2026-11-17 在演示库的临时复制件中实拍（1920×1032），正式演示库未被转换动作改动；已恢复 `obsidian.json` 并重启回真实库。
 - 版本来源：本次没有运行 `npm version`，改为手工把 `manifest.json`、`package.json`、`versions.json` 改为 `1.9.0`，避免改动 `package-lock.json`；未 git commit、未打 tag。
 - 安装包（2026-11-17 1.9.0 实测）：`npm run build` 后连跑两次 `npm run package`，`dist/vault-doctor-1.9.0.zip` 均为 380569 字节，SHA-256 `A5F77DD94D47193AFF67EC33F752DF051EF7721237079D813A0CD1D7DD082D84`；ZIP 根层条目为 `main.js` 663957、`manifest.json` 283、`styles.css` 53682。后续源码再改动需重打并更新该值。
-- 验证基线（2026-11-17 本机实测）：`npm test` **614 通过 / 0 失败**；`npm run build`、`npm run lint` 通过（lint 0 error、1 条既有 warning：`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）；`npm run package:check`、`npm run test:deploy` 通过；1.9.0 版本闸门本地复跑通过、`v1.9.0` 负例被拒绝。
+- 验证基线（2026-11-17 本机实测）：`npm test` **602 通过 / 0 失败**（图片转换估算测试由「逐张解码+重编码」语义改为快速预估语义，替换掉 12 条依赖解码次数的旧断言）；`npm run build`、`npm run lint` 通过（lint 0 error、1 条既有 warning：`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）；`npm run package:check`、`npm run test:deploy` 通过；1.9.0 版本闸门本地复跑通过、`v1.9.0` 负例被拒绝。
+
+## 2026-11-17 图片转换估算提速（已完成，未提交）
+- 背景：真实库 `X:\Obsidian\我的空间` 有 5615 张可转换 PNG，旧实现逐张解码+重编码，实测 5 分钟仅 1422/5615（约 0.21 秒/张，全量约 20 分钟）。
+- 改动：`src/cleanup/cleanup-scan.ts` 的 `estimateConversions` 完全移除 `readBinary`/`decode`/`encode`、双并发通道与 `previousItems` 复用；改为按源→目标经验压缩比乘文件体积、按质量线性缩放（PNG 目标不缩放）。引用处数改由 `metadataCache.resolvedLinks` 内存索引一次遍历统计，删除逐图全库扫描与批量扫描回退；仅保留 `target-exists`/`target-collision` 估算期阻断，透明图/40MP/危险引用交由转换阶段 runner 精确处理。
+- 界面与文档：`src/cleanup/cleanup-list-convert.ts` 预估体积标「约」、未知尺寸显示 `—`，并提示估算仅供参考；`src/cleanup/cleanup-types.ts` 移除 `sourceMtime`/`estimateKey`；README 与 `PROJECT_MEMORY.md` 同步新口径。
+- 实测：等价规模基准（5615 张 PNG + 1714 篇笔记的引用索引）平均 **12 ms**（预热后），远低于 5 秒验收线；本次未在真实 Obsidian 内核里重跑整页估算。
+- 注意：源码已变化，HANDOFF 上文 1.9.0 安装包 ZIP 与 SHA-256 已失效，如需发布须重新 `npm run build` + `npm run package`。
 
 ## 2026-11-15 第五轮：界面与可访问性审计（已完成）
 - 方法：解包官方 `obsidian-1.15.1.asar` 的 `app.css`（SHA-256 已核对一致），叠加用户实际生效的 Border 主题与插件 `styles.css`，在 ego lite/Chromium 中按 740/500/320 三档 × 浅深两主题复现 12 个场景；DOM 由 `gen-markup.mjs` 调用插件真实渲染函数生成，测量全部来自 `getBoundingClientRect` 与 `getComputedStyle`。

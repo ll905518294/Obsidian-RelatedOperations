@@ -132,7 +132,7 @@ test('估算的 referenceCount 与转换实际改写的引用数量一致', asyn
 	const app = createApp({ 'note.md': content }, { 'img.png': 100 });
 	app.metadataCache.resolvedLinks = { 'note.md': { 'img.png': 2 } };
 	const codec = createCodec();
-	const items = await estimateConversions(app, [app.files.get('img.png')], config, codec);
+	const items = await estimateConversions(app, [app.files.get('img.png')], config);
 	assert.equal(items.length, 1);
 	assert.equal(items[0].blockedReason, undefined);
 	assert.equal(items[0].referenceCount, 2);
@@ -146,7 +146,7 @@ test('估算之后新增的引用会在转换时全部改写，不会按旧计�
 	const app = createApp({ 'note.md': '![[img.png]]' }, { 'img.png': 100 });
 	app.metadataCache.resolvedLinks = { 'note.md': { 'img.png': 1 } };
 	const codec = createCodec();
-	const items = await estimateConversions(app, [app.files.get('img.png')], config, codec);
+	const items = await estimateConversions(app, [app.files.get('img.png')], config);
 	assert.equal(items[0].referenceCount, 1);
 
 	const note = app.files.get('note.md');

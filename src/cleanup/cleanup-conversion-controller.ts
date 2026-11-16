@@ -58,14 +58,14 @@ export async function estimateConversions(panel: CleanupConversionHost): Promise
 	panel.renderContents();
 	let lastPaint = 0;
 	try {
-		const items = await estimateConversionCosts(panel.app, files, panel.conversionConfig(), panel.imageCodec(), (progress) => {
+		const items = await estimateConversionCosts(panel.app, files, panel.conversionConfig(), (progress) => {
 			panel.conversion.estimateProgress = progress;
 			const now = performance.now();
 			// 大批量图片时避免每个进度都重建整页 DOM。
 			if (panel.activeTab !== 'image-convert' || (now - lastPaint < 150 && progress.processed < progress.total)) return;
 			lastPaint = now;
 			panel.renderContents();
-		}, controller.signal, panel.conversion.items);
+		}, controller.signal);
 		panel.conversion.items = items;
 	} catch (error) {
 		new Notice(`估算失败：${reasonFor(error)}`);

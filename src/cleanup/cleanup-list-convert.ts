@@ -272,6 +272,10 @@ function renderConfig(host: CleanupViewContext, container: HTMLElement, toolbar:
 		cls: 'orphan-cleanup-convert-warning',
 		text: '此页会修改文件：转换成功后原图移入回收站。',
 	});
+	container.createDiv({
+		cls: 'orphan-cleanup-convert-note',
+		text: '体积为按源格式与质量推算的预估值，仅供参考；实际大小与透明图处理在转换时精确判定。',
+	});
 
 	const config = container.createDiv({ cls: 'orphan-cleanup-convert-config' });
 	const noSources = config.createDiv({
@@ -383,15 +387,16 @@ function renderRow(host: CleanupViewContext, body: HTMLElement, item: Convertibl
 	formatBadge.createSpan({ text: '→', cls: 'orphan-cleanup-convert-format-arrow' });
 	formatBadge.createSpan({ text: String(host.conversion.target).toUpperCase(), cls: 'orphan-cleanup-convert-format-target' });
 
-	// 三态：已估算（显示体积变化）、blocked（跳过）、未估算（显示占位，等待估算）。
+	// 三态：已估算（显示预估体积变化）、blocked（跳过）、未估算（显示占位，等待估算）。
 	const blockedRow = isBlocked(item);
 	const pendingRow = !blockedRow && !isEstimated(item);
+	const hasDimensions = item.width > 0 && item.height > 0;
 	row.createEl('td', {
-		text: blockedRow || pendingRow ? '—' : `${item.width} × ${item.height}`,
+		text: blockedRow || pendingRow || !hasDimensions ? '—' : `${item.width} × ${item.height}`,
 		cls: 'orphan-cleanup-convert-dimensions',
 	});
 	row.createEl('td', {
-		text: blockedRow ? `${formatBytes(item.oldBytes)} → —` : pendingRow ? `${formatBytes(item.oldBytes)} → …` : `${formatBytes(item.oldBytes)} → ${formatBytes(item.newBytes)}`,
+		text: blockedRow ? `${formatBytes(item.oldBytes)} → —` : pendingRow ? `${formatBytes(item.oldBytes)} → …` : `${formatBytes(item.oldBytes)} → 约 ${formatBytes(item.newBytes)}`,
 		cls: 'orphan-cleanup-convert-size',
 	});
 	const delta = row.createEl('td', { cls: 'orphan-cleanup-convert-delta-cell' });
