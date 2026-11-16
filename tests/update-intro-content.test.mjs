@@ -77,11 +77,27 @@ test('1.7.0 内置说明存在且覆盖图片转换', () => {
 	assert.match(text, /Canvas/);
 });
 
-test('1.8.0 内置说明存在、位于最前，且覆盖性能与安装包', () => {
+test('1.9.0 内置说明存在、位于最前，且覆盖首页入口与转换提速', () => {
+	const intro = currentUpdateIntro('1.9.0');
+	assert.ok(intro, '1.9.0 必须有更新说明条目');
+	assert.equal(intro.theme, '首页入口与转换提速');
+	assert.equal(UPDATE_INTROS[0].version, '1.9.0', '最新版本必须排在最前');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /图片转换/);
+	assert.match(text, /按需/);
+	assert.match(text, /4 路/);
+	assert.match(text, /正在转换/);
+	assert.match(text, /默认配置/);
+	assert.match(text, /HTML 实体/);
+	assert.match(text, /撤销记录/);
+});
+
+test('1.8.0 内置说明保留（可历史查看），且覆盖性能与安装包', () => {
 	const intro = currentUpdateIntro('1.8.0');
 	assert.ok(intro, '1.8.0 必须有更新说明条目');
 	assert.equal(intro.theme, '全面提速与安装包');
-	assert.equal(UPDATE_INTROS[0].version, '1.8.0', '最新版本必须排在最前');
+	// 1.9.0 发布后 1.8.0 不再是最新，但仍应保留以便翻看历史。
+	assert.notEqual(UPDATE_INTROS[0].version, '1.8.0', '1.8.0 不应再排在最前');
 	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
 	assert.match(text, /49 倍/);
 	assert.match(text, /8 倍/);

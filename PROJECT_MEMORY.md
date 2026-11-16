@@ -16,7 +16,7 @@
 ## 稳定约定与限制
 - 构建产物 `main.js` 写入项目根目录并供 Obsidian 加载；源码依赖需由 esbuild 打包。
 - 发版：`npm version <x.y.z> --no-git-tag-version` 更新 `package.json`、`package-lock.json`，并由 `version-bump.mjs` 把 `manifest.json`、`versions.json` 同步到同一版本（`versions.json` 新版本映射到当前 `minAppVersion`）。发版前必须在 `src/update-intro-content.ts` 顶部加入同版本条目，否则升级弹窗没有内容；`tests/update-intro-content.test.mjs` 会校验结构与主题，并要求最新版本排在最前。
-- 发版顺序：升版本 → 写 CHANGELOG → 加内置更新说明 → `npm run build` → `npm run package` → 推送与 `manifest.version` 完全一致的 tag。`main.js` 由 CI 重新构建，本地 `dist/*.zip` 只用于校验。
+- 发版顺序：升版本 → 写 CHANGELOG → 加内置更新说明 → `npm run build` → `npm run package` → 推送与 `manifest.version` 完全一致的 tag。`main.js` 由 CI 重新构建，本地 `dist/*.zip` 只用于校验。本仓库 `1.8.0` 未创建 tag/release；`1.9.0` 汇总自 `1.7.0` 以来的变更，tag 必须等于 `manifest.version`（无 `v` 前缀）。
 - 发布资产为 Obsidian 标准三件套 `main.js`、`manifest.json` 与可选的 `styles.css`；ZIP 只是把三件套打在根层的便捷形式，不是 Windows 安装器，`dist/` 属于生成物并已被 `.gitignore` 忽略。
 - 关联笔记只处理已解析的 Markdown 文件；清理操作使用 Obsidian 原生文件管理器或本地回收站。
 - 部署前构建并校验 `main.js`、`manifest.json` 和可选的 `styles.css`；失败时保留或恢复备份。
@@ -25,6 +25,7 @@
 - 清理表格必须设整表 `min-width`（普通表 460px、重复文件表 660px）：窄视口下「勾选 44px + 操作 145px」这些固定列会把中间列压到 0，改由 `.orphan-cleanup-scroll` 横向滚动。
 - 体检缓存写入 `data.json` 前必须序列化成纯数据（`src/cleanup/cleanup-cache.ts`，`CLEANUP_CACHE_VERSION = 2`）：只保留路径与 `size`/`mtime`，读取时按路径重新解析成 `TFile`/`TFolder`；转换候选 `convertibleImages` 永远写空，估算结果不落盘。旧缓存或已删除文件由 `restoreCleanupCandidates` 逐项校验后丢弃，不能让面板崩溃。
 - 图片转换默认值来自 `DEFAULT_IMAGE_CONVERSION`（`src/cleanup/cleanup-types.ts`）：源格式只含 PNG、目标 JPG、质量 85、透明图白底；设置页只暴露目标格式/默认质量/透明图处理三项，源格式只在页面内勾选。改默认值时要同步 `tests/settings-defaults.test.mjs` 与 README。
+- 图片转换估算结果复用的键是 `target|quality|alpha` 加源文件 `size`/`mtime`：只改源格式不会重新编码；改目标格式、质量或透明图处理会让旧估算失效。全量扫描只枚举候选，估算只在图片转换页点「扫描并估算」时触发。
 - 截图流程：演示库 `vault-doctor-demo` 含合成数据，但图片转换会真实改写文件并清空原图，因此转换类截图必须在**临时复制件**里拍摄（复制目录可同名以保持界面左下角库名一致）；截图用窗口客户区抓屏，保持 1920×1032。切换 Vault 前先备份 `obsidian.json`（位于用户配置目录的 `obsidian` 文件夹），拍完恢复备份并重启回真实库。
 
 ## 已验证结论
@@ -32,6 +33,9 @@
 - 事实：`src/main.ts` 负责生命周期、命令、视图和菜单注册；关联笔记、清理、设置等逻辑分别位于独立模块。
 - 证据：当前 `src/main.ts` 的导入与注册调用，以及 `src/` 下对应模块文件。
 - 影响与注意事项：新增功能优先放入现有职责模块，避免继续膨胀入口文件。
+- 事实：`src/image-convert/image-convert-links.ts` 只是再导出入口，实际实现位于 `image-reference-types.ts`、`image-reference-path.ts`、`image-reference-parser.ts`、`image-reference-scan.ts`、`image-reference-rewrite.ts` 与 `image-reference-analysis.ts`。
+- 证据：`image-convert-links.ts` 的 `export ... from` 列表，以及 `src/image-convert/` 下对应文件。
+- 影响与注意事项：新增引用格式或改写规则时改对应职责模块，不要重新把逻辑堆回 `image-convert-links.ts`。
 
 ### 验证基线
 - 事实：项目定义了 `npm run build`、`npm run lint`、`npm test`、`npm run package`、`npm run package:check` 和部署校验命令。

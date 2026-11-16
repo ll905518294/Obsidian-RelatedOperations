@@ -4,15 +4,16 @@
 
 ## 状态
 - 更新时间：2026-11-17
-- 当前状态：**待发布 1.8.0**。`manifest.json`、`package.json`、`package-lock.json`、`versions.json` 已统一为 `1.8.0`（`versions.json` 映射 `"1.8.0": "1.13.0"`）；最新正式 release 仍是 **1.7.0**（2026-11-16T17:07Z，核实为非 draft/pre-release、资产含三件套），1.8.0 的 tag 与 release 尚未创建。仓库为公开的 `obsidian-vault-doctor`；README 含 11 张截图（新增 `09-image-convert.png`、`10-image-convert-result.png`），历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`。阶段二的文档与发布链路优化（R29–R32）已完成，未提交、未打 tag。
+- 当前状态：**待发布 1.9.0**。`manifest.json`、`package.json` 与 `versions.json` 已升到 `1.9.0`（映射 `"1.9.0": "1.13.0"`）；`package-lock.json` 仍为 `1.8.0`（本轮约束只允许改三份版本文件，如需四份一致可由主管补 `npm install --package-lock-only`）。最新正式 release 仍是 **1.7.0**（2026-11-16T17:07Z，核实为非 draft/pre-release、资产含三件套）；`1.8.0` 未创建 tag/release，`1.9.0` 的 tag 与 release 尚未创建。仓库为公开的 `obsidian-vault-doctor`；README 含 11 张截图，历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`。
 
 ## 当前任务
-- 1.8.0 发版准备（未提交、未打 tag）：CHANGELOG 已写 1.8.0 正式条目（性能/新功能/优化/修复/测试/文档），并补入并行线程落地的缓存序列化 v2、哈希/编解码内存上限、关联笔记键盘可达；`src/update-intro-content.ts` 已加 1.8.0 中文说明，弹窗标题为「Vault Doctor · 1.8.0 · 全面提速与安装包」；README 功能总览补充扫描中止、上次扫描时间戳、性能与键盘/读屏能力，图片转换章节已配图。
-- 阶段二（R29–R32）：README 已同步「首页图片转换卡片」「按需估算与估算/转换进度」「设置页图片转换默认配置」，并更正「图片转换不计入首页总数」的旧说法与估算并发数（普通 4 路、单张 ≥8 MB 单通道）；CHANGELOG 补并发提速、按需估算、首页卡片、设置默认值、HTML 实体引用修复，测试基线改为 609（本机实测）；`PROJECT_MEMORY.md` 同步图片转换的首页计数与默认值约定。release workflow 新增 manifest id / minAppVersion 校验与 ZIP 条目名复核（只允许 `main.js`、`manifest.json` 与可选 `styles.css`），原有 tag/package/versions 一致性与 `--verify-tag` 保留。
+- 1.9.0 发布收口（未提交、未打 tag）：CHANGELOG 已把未发布的 1.8.0 与本轮 20+ 轮优化合并为 1.9.0 正式条目（按需估算与结果复用、4 路并发与大图防护、首页转换卡片、转换进度、设置默认配置、HTML 实体引用、重复文件字节复检、撤销记录累加、唯一命中兜底、扫描平方级退化、图片引用模块拆分、文档与 CI 加固）。
+- **发布前必须处理（不在本线程可改范围）**：`src/update-intro-content.ts` 尚无 `1.9.0` 条目，且 `tests/update-intro-content.test.mjs` 把最新版本写死为 `1.8.0`；若直接发 1.9.0，升级弹窗不会显示本轮更新说明。需在 `src/` 补 1.9.0 说明并同步该断言后再打 tag。
+- 文档与发布链路（R29–R32）：README 已同步「首页图片转换卡片」「按需估算与估算/转换进度」「设置页图片转换默认配置」，并更正「图片转换不计入首页总数」的旧说法与估算并发数（普通 4 路、单张 ≥8 MB 单通道）；`PROJECT_MEMORY.md` 同步图片转换的首页计数与默认值约定。release workflow 含 manifest id / minAppVersion 校验、ZIP 条目名复核，以及 tag/package/versions 一致性与 `--verify-tag`。
 - 截图：`docs/images/09-image-convert.png`（候选列表 + 汇总条）与 `10-image-convert-result.png`（转换完成提示 + 最近一次转换）已于 2026-11-17 在演示库的临时复制件中实拍（1920×1032），正式演示库未被转换动作改动；已恢复 `obsidian.json` 并重启回真实库。
-- 版本来源：`npm version 1.8.0 --no-git-tag-version` 触发 `version-bump.mjs`，四份清单文件统一；未 git commit、未打 tag。
-- 安装包（2026-11-17 阶段二实测）：`npm run build` 后连跑两次 `npm run package`，`dist/vault-doctor-1.8.0.zip` 均为 380165 字节，SHA-256 `0FAC4DE5A4C5D5150A4445BB45C4ACDD2245F47A280FBEB85CC1AAB7775F30C2`；ZIP 根层条目为 `main.js` 662394、`manifest.json` 282、`styles.css` 53569。后续源码再改动需重打并更新该值。
-- 验证基线（2026-11-17 本机实测）：`npm test` **609 通过 / 0 失败**；`npm run build`、`npm run lint` 通过（lint 0 error、1 条既有 warning：`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）；`npm run package:check`、`npm run test:deploy` 通过；两份 workflow YAML 解析通过，1.8.0 版本闸门本地复跑通过、`v1.8.0` 负例被拒绝。
+- 版本来源：本次没有运行 `npm version`，改为手工把 `manifest.json`、`package.json`、`versions.json` 改为 `1.9.0`，避免改动 `package-lock.json`；未 git commit、未打 tag。
+- 安装包（2026-11-17 1.9.0 实测）：`npm run build` 后连跑两次 `npm run package`，`dist/vault-doctor-1.9.0.zip` 均为 380569 字节，SHA-256 `A5F77DD94D47193AFF67EC33F752DF051EF7721237079D813A0CD1D7DD082D84`；ZIP 根层条目为 `main.js` 663957、`manifest.json` 283、`styles.css` 53682。后续源码再改动需重打并更新该值。
+- 验证基线（2026-11-17 本机实测）：`npm test` **614 通过 / 0 失败**；`npm run build`、`npm run lint` 通过（lint 0 error、1 条既有 warning：`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）；`npm run package:check`、`npm run test:deploy` 通过；1.9.0 版本闸门本地复跑通过、`v1.9.0` 负例被拒绝。
 
 ## 2026-11-15 第五轮：界面与可访问性审计（已完成）
 - 方法：解包官方 `obsidian-1.15.1.asar` 的 `app.css`（SHA-256 已核对一致），叠加用户实际生效的 Border 主题与插件 `styles.css`，在 ego lite/Chromium 中按 740/500/320 三档 × 浅深两主题复现 12 个场景；DOM 由 `gen-markup.mjs` 调用插件真实渲染函数生成，测量全部来自 `getBoundingClientRect` 与 `getComputedStyle`。
