@@ -132,3 +132,25 @@ function contains(range: Pos, position: Pos) {
 function offsetOf(value: number | { line: number; ch: number }) {
 	return typeof value === 'number' ? value : -1;
 }
+
+/*
+ * 与 findNativeImageLinks 内部的扩展名解析保持一致：它比通用的
+ * parseExtensions 宽松，会保留 `x-raw` 这类含非字母数字字符的扩展名。
+ * 批量入口复用这一段，避免四个扫描器对同一份配置得出不同的扩展名集合。
+ */
+export function nativeImageExtensionSet(imageExtensions: string): Set<string> {
+	return new Set(imageExtensions.split(/[,，\s]+/).map((x) => x.replace(/^\./, '').toLowerCase()).filter(Boolean));
+}
+
+/*
+ * 批量入口专用：调用方已经取到 cache 时只解析这一个文件。返回顺序与
+ * findNativeImageLinks 的单文件结果一致，跨文件排序由批量入口统一完成。
+ */
+export function collectNativeImageLinks(
+	app: App,
+	sourcePath: string,
+	cache: CachedMetadata,
+	extensions: Set<string>,
+): NativeImageLink[] {
+	return findInCache(app, sourcePath, cache, extensions);
+}

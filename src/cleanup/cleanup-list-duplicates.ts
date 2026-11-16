@@ -4,7 +4,7 @@ import type { DuplicateFileGroup } from '../duplicate-files';
 import { formatBytes, isImageFile, openFolderInVault, openInSystemFolder, parentFolder } from './cleanup-actions';
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
-import { associateCheckbox, createColumnHeader, makePreviewTrigger } from './cleanup-a11y';
+import { applyRovingTabindex, associateCheckbox, createColumnHeader, makePreviewTrigger } from './cleanup-a11y';
 import { requireSecondClick } from './cleanup-confirm-button';
 
 export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLElement, groups: DuplicateFileGroup[]) {
@@ -95,6 +95,8 @@ export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLE
 			openFolder.addEventListener('click', () => { const target = host.app.vault.getAbstractFileByPath(file.path); if (target) openInSystemFolder(host.app, target); });
 		}
 	}
+	// 每个重复组只有一张预览图，整页预览图共用一个 Tab 停靠点。
+	applyRovingTabindex(container, '.orphan-cleanup-duplicate-preview');
 }
 
 async function locateDuplicateReference(owner: CleanupViewContext['app'], file: DuplicateFileGroup['files'][number]) {

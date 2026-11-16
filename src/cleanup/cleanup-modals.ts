@@ -1,15 +1,33 @@
 import { App, Modal, TFile, setIcon } from 'obsidian';
 import { openInSystemFolder } from './cleanup-actions';
 import { requireSecondClick } from './cleanup-confirm-button';
-import { markDialog } from './cleanup-a11y';
+import { markDialog, rememberFocusOrigin } from './cleanup-a11y';
 
-export class CreateNotesConfirmationModal extends Modal {
+/**
+ * 弹窗关闭后把焦点还给触发它的按钮。
+ * Obsidian 的 Modal 只负责摘掉容器，不会归还焦点。
+ */
+export abstract class FocusRestoringModal extends Modal {
+	private restoreFocus?: () => void;
+
+	protected captureFocusOrigin(): void {
+		this.restoreFocus = rememberFocusOrigin();
+	}
+
+	protected returnFocus(): void {
+		this.restoreFocus?.();
+		this.restoreFocus = undefined;
+	}
+}
+
+export class CreateNotesConfirmationModal extends FocusRestoringModal {
 	private resolver?: (confirmed: boolean) => void;
 	private settled = false;
 	constructor(app: App, private readonly count: number) { super(app); }
 	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
 	onOpen() {
 		markDialog(this.modalEl, this.titleEl);
+		this.captureFocusOrigin();
 		this.titleEl.setText('确认创建笔记');
 		this.contentEl.createEl('p', { text: `将创建 ${this.count} 个空白 Markdown 笔记，并自动创建缺失父目录。` });
 		this.contentEl.createEl('p', { text: '已有文件、非法路径和创建失败的目标会跳过或报告。', cls: 'orphan-cleanup-warning' });
@@ -17,11 +35,11 @@ export class CreateNotesConfirmationModal extends Modal {
 		actions.createEl('button', { text: '确认创建', cls: 'mod-cta' }).addEventListener('click', () => this.finish(true));
 		actions.createEl('button', { text: '取消' }).addEventListener('click', () => this.finish(false));
 	}
-	onClose() { this.contentEl.empty(); if (!this.settled) this.finish(false); }
+	onClose() { this.contentEl.empty(); this.returnFocus(); if (!this.settled) this.finish(false); }
 	private finish(value: boolean) { if (this.settled) return; this.settled = true; this.resolver?.(value); this.close(); }
 }
 
-export class RemoveBrokenLinksConfirmationModal extends Modal {
+export class RemoveBrokenLinksConfirmationModal extends FocusRestoringModal {
 	private resolver?: (confirmed: boolean) => void;
 	private settled = false;
 
@@ -38,6 +56,7 @@ export class RemoveBrokenLinksConfirmationModal extends Modal {
 
 	onOpen() {
 		markDialog(this.modalEl, this.titleEl);
+		this.captureFocusOrigin();
 		this.titleEl.setText('确认移除链接');
 		this.contentEl.createEl('p', { text: `即将修改 ${this.sourceCount} 篇笔记，移除 ${this.linkCount} 条失效图片链接。` });
 		this.contentEl.createEl('p', { text: '这会直接修改 Markdown 内容，不会移入回收站。', cls: 'orphan-cleanup-warning' });
@@ -50,6 +69,7 @@ export class RemoveBrokenLinksConfirmationModal extends Modal {
 
 	onClose() {
 		this.contentEl.empty();
+		this.returnFocus();
 		if (!this.settled) {
 			this.settled = true;
 			this.resolver?.(false);
@@ -64,13 +84,14 @@ export class RemoveBrokenLinksConfirmationModal extends Modal {
 	}
 }
 
-export class ConvertNativeLinksConfirmationModal extends Modal {
+export class ConvertNativeLinksConfirmationModal extends FocusRestoringModal {
 	private resolver?: (confirmed: boolean) => void;
 	private settled = false;
 	constructor(app: App, private readonly count: number) { super(app); }
 	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
 	onOpen() {
 		markDialog(this.modalEl, this.titleEl);
+		this.captureFocusOrigin();
 		this.titleEl.setText('确认转换图片链接');
 		this.contentEl.createEl('p', { text: `即将转换 ${this.count} 条原生图片链接。` });
 		this.contentEl.createEl('p', { text: '尺寸参数和无法解析的链接会跳过；已转换内容可用编辑历史撤销。', cls: 'orphan-cleanup-warning' });
@@ -78,17 +99,18 @@ export class ConvertNativeLinksConfirmationModal extends Modal {
 		actions.createEl('button', { text: '确认转换', cls: 'mod-cta' }).addEventListener('click', () => this.finish(true));
 		actions.createEl('button', { text: '取消' }).addEventListener('click', () => this.finish(false));
 	}
-	onClose() { this.contentEl.empty(); if (!this.settled) { this.settled = true; this.resolver?.(false); } }
+	onClose() { this.contentEl.empty(); this.returnFocus(); if (!this.settled) { this.settled = true; this.resolver?.(false); } }
 	private finish(value: boolean) { if (this.settled) return; this.settled = true; this.resolver?.(value); this.close(); }
 }
 
-export class ConvertWikiLinksConfirmationModal extends Modal {
+export class ConvertWikiLinksConfirmationModal extends FocusRestoringModal {
 	private resolver?: (confirmed: boolean) => void;
 	private settled = false;
 	constructor(app: App, private readonly count: number) { super(app); }
 	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
 	onOpen() {
 		markDialog(this.modalEl, this.titleEl);
+		this.captureFocusOrigin();
 		this.titleEl.setText('Wiki 链接转换确认');
 		this.contentEl.createEl('p', { text: `即将把 ${this.count} 条 Wiki 笔记链接转换为标准 Markdown 链接。` });
 		this.contentEl.createEl('p', { text: '无法解析或无变化的链接会跳过；已转换内容可用编辑历史撤销。', cls: 'orphan-cleanup-warning' });
@@ -96,11 +118,11 @@ export class ConvertWikiLinksConfirmationModal extends Modal {
 		actions.createEl('button', { text: '确认转换', cls: 'mod-cta' }).addEventListener('click', () => this.finish(true));
 		actions.createEl('button', { text: '取消' }).addEventListener('click', () => this.finish(false));
 	}
-	onClose() { this.contentEl.empty(); if (!this.settled) { this.settled = true; this.resolver?.(false); } }
+	onClose() { this.contentEl.empty(); this.returnFocus(); if (!this.settled) { this.settled = true; this.resolver?.(false); } }
 	private finish(value: boolean) { if (this.settled) return; this.settled = true; this.resolver?.(value); this.close(); }
 }
 
-export class ImagePreviewModal extends Modal {
+export class ImagePreviewModal extends FocusRestoringModal {
 	private index: number;
 	private imageEl!: HTMLImageElement;
 	private pathEl!: HTMLElement;
@@ -119,6 +141,7 @@ export class ImagePreviewModal extends Modal {
 
 	onOpen() {
 		markDialog(this.modalEl, this.titleEl);
+		this.captureFocusOrigin();
 		this.modalEl.addClass('orphan-cleanup-preview-dialog');
 		this.contentEl.addClass('orphan-cleanup-preview-modal');
 		const frame = this.contentEl.createDiv({ cls: 'orphan-cleanup-preview-frame' });
@@ -151,6 +174,7 @@ export class ImagePreviewModal extends Modal {
 
 	onClose() {
 		this.contentEl.empty();
+		this.returnFocus();
 	}
 
 	private navigate(offset: number) {

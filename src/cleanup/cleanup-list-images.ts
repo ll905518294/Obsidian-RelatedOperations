@@ -3,7 +3,7 @@ import type { CleanupViewContext, ImageGrouping } from './cleanup-types';
 import { byPath, formatBytes, openInSystemFolder, parentFolder } from './cleanup-actions';
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
-import { associateCheckbox, makePreviewTrigger } from './cleanup-a11y';
+import { applyRovingTabindex, associateCheckbox, makePreviewTrigger } from './cleanup-a11y';
 import { requireSecondClick } from './cleanup-confirm-button';
 
 export function renderImageGrid(host: CleanupViewContext, container: HTMLElement, items: TFile[], allItems: TFile[]) {
@@ -15,6 +15,8 @@ export function renderImageGrid(host: CleanupViewContext, container: HTMLElement
 			if (item instanceof TFile) renderImageCard(host, cards, item, allItems);
 		}
 	}
+	// 整块预览网格只占一个 Tab 停靠点，方向键在预览图之间移动。
+	applyRovingTabindex(grid, '.orphan-cleanup-image-preview');
 }
 
 export function renderImageCard(host: CleanupViewContext, container: HTMLElement, file: TFile, items: TFile[]) {
@@ -40,7 +42,7 @@ export function renderImageCard(host: CleanupViewContext, container: HTMLElement
 	openFolder.setAttribute('aria-label', '打开所在文件夹');
 	setIcon(openFolder, 'folder-open');
 	openFolder.addEventListener('click', () => openInSystemFolder(host.app, file));
-	const preview = card.createEl('img', { attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
+	const preview = card.createEl('img', { cls: 'orphan-cleanup-image-preview', attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
 	preview.src = host.app.vault.getResourcePath(file);
 	preview.title = '点击预览';
 	makePreviewTrigger(preview, `预览 ${file.path}`, () => new ImagePreviewModal(host.app, items, items.indexOf(file), (selectedFile) => host.trashPreviewImage(selectedFile)).open());

@@ -128,6 +128,7 @@ const { Panel, TFile, Notice } = await import(`data:text/javascript;base64,${Buf
 globalThis.window ??= globalThis;
 
 function makeApp(overrides = {}) {
+	const noopEvent = () => ({ dispose() {} });
 	const vault = {
 		getResourcePath: (file) => `app://${file.path}`,
 		getAbstractFileByPath: () => null,
@@ -136,11 +137,12 @@ function makeApp(overrides = {}) {
 		getRoot: () => ({ path: '', children: [] }),
 		cachedRead: async () => '',
 		read: async () => '',
+		on: noopEvent,
 	};
 	return {
 		vault: { ...vault, ...overrides.vault },
 		workspace: { openLinkText: async () => {}, getActiveViewOfType: () => null, getLeavesOfType: () => [] },
-		metadataCache: { resolvedLinks: {}, getFileCache: () => null, getFirstLinkpathDest: () => null },
+		metadataCache: { resolvedLinks: {}, getFileCache: () => null, getFirstLinkpathDest: () => null, on: noopEvent },
 		fileManager: { trashFile: async () => {} },
 	};
 }
@@ -299,4 +301,152 @@ test('重复文件与三类链接的复选框关联路径和链接原文', () =>
 	const noteText = labelledText(notePanel.contentEl, assertLabelsLinked(notePanel.contentEl)[0]);
 	assert.match(noteText, /other\.md/);
 	assert.match(noteText, /gone/);
+});
+
+test('中止全量扫描后保留已完成分类并把未完成分类标为待复核', async () => {
+	Notice.messages = [];
+	const attachment = makeFile('orphan.pdf', 'pdf', 20);
+	const panel = makePanel(makeApp({ vault: { getFiles: () => [attachment] } }));
+	const realRender = panel.renderContents.bind(panel);
+	let aborted = false;
+	panel.renderContents = () => {
+		realRender();
+		if (!aborted && panel.scanning && panel.scannedTabs.has('attachments')) {
+			aborted = true;
+			panel.abortScan();
+		}
+	};
+
+	await panel.scan();
+
+	assert.equal(panel.scanning, false);
+	assert.equal(panel.scanningTabs.size, 0);
+	assert.equal(panel.scanController, undefined);
+	assert.equal(panel.hasScanned, true);
+	assert.equal(panel.lastScanError, undefined);
+	assert.equal(panel.lastScanAborted, true);
+	assert.equal(panel.candidates.attachments.length, 1);
+	assert.deepEqual([...panel.scannedTabs].sort(), ['attachments', 'images']);
+	for (const tab of ['broken-links', 'native-links', 'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates']) {
+		assert.equal(panel.dirtyTabs.has(tab), true, `${tab} 必须进入待复核状态`);
+	}
+	assert.ok(Notice.messages.includes('已中止扫描：已完成的分类结果已保留。'));
+	const banner = byClass(panel.contentEl, 'orphan-cleanup-scan-error').find((el) => el.hasClass('is-aborted'));
+	assert.ok(banner, '概览区应渲染中止横幅');
+	assert.equal(banner.attrs.role, 'status');
+	assert.match(banner.textContent, /扫描已中止/);
+});
+
+test('中止按钮只在扫描期间出现并触发 abortScan', () => {
+	const panel = makePanel();
+	let aborts = 0;
+	panel.abortScan = () => { aborts += 1; };
+	panel.scanning = true;
+	panel.renderContents();
+	const button = byClass(panel.contentEl, 'orphan-cleanup-abort-scan')[0];
+	assert.ok(button, '扫描期间应显示中止按钮');
+	assert.equal(button.textContent, '中止扫描');
+	button.dispatch('click');
+	assert.equal(aborts, 1);
+
+	panel.scanning = false;
+	panel.renderContents();
+	assert.equal(byClass(panel.contentEl, 'orphan-cleanup-abort-scan').length, 0, '非扫描状态不应保留中止按钮');
+});
+
+test('首次扫描即中止时提示开始扫描而不是重新扫描', async () => {
+	Notice.messages = [];
+	const panel = makePanel(makeApp());
+	const realRender = panel.renderContents.bind(panel);
+	let aborted = false;
+	panel.renderContents = () => {
+		realRender();
+		if (!aborted && panel.scanning) {
+			aborted = true;
+			panel.abortScan();
+		}
+	};
+
+	await panel.scan();
+
+	assert.equal(panel.hasScanned, false);
+	assert.equal(panel.lastScanAborted, true);
+	assert.equal(panel.scannedTabs.size, 0);
+	const banner = byClass(panel.contentEl, 'orphan-cleanup-scan-error').find((el) => el.hasClass('is-aborted'));
+	assert.ok(banner);
+	assert.match(banner.textContent, /扫描已中止/);
+	assert.match(banner.textContent, /「开始扫描」/);
+	assert.doesNotMatch(banner.textContent, /重新扫描全部/);
+});
+
+test('恢复缓存时展示上次扫描时间与重新扫描入口且不会自动扫描', () => {
+	const cached = {
+		images: [],
+		attachments: [],
+		emptyFiles: [],
+		folders: [],
+		brokenLinks: [],
+		nativeLinks: [],
+		brokenNoteLinks: [],
+		wikiLinks: [],
+		duplicates: [],
+		duplicateWarnings: [],
+	};
+	const iso = '2026-11-16T03:04:05.000Z';
+	const expected = new Date(iso).toLocaleString('zh-CN');
+	const panel = makePanel(makeApp());
+	panel.options.cachedCandidates = cached;
+	panel.options.cachedAt = iso;
+	let scans = 0;
+	panel.scan = async () => { scans += 1; };
+
+	panel.render();
+
+	assert.equal(scans, 0, '恢复缓存不应自动触发全量扫描');
+	assert.equal(panel.scanning, false);
+	assert.equal(panel.scannedTabs.size, 9);
+	assert.match(panel.contentEl.textContent, /显示上次扫描结果/);
+	assert.ok(panel.contentEl.textContent.includes(expected), `首页应包含本地时间 ${expected}`);
+	assert.ok(byTag(panel.contentEl, 'button').some((button) => button.textContent === '重新扫描全部'));
+	const scanButton = byTag(panel.contentEl, 'button').find((button) => button.textContent === '重新扫描全部');
+	scanButton.dispatch('click');
+	assert.equal(scans, 1);
+});
+
+test('无效的缓存时间不会显示 Invalid Date', () => {
+	const cached = {
+		images: [],
+		attachments: [],
+		emptyFiles: [],
+		folders: [],
+		brokenLinks: [],
+		nativeLinks: [],
+		brokenNoteLinks: [],
+		wikiLinks: [],
+		duplicates: [],
+		duplicateWarnings: [],
+	};
+	const panel = makePanel(makeApp());
+	panel.options.cachedCandidates = cached;
+	panel.options.cachedAt = 'not-a-date';
+
+	panel.render();
+
+	assert.match(panel.contentEl.textContent, /显示上次扫描结果/);
+	assert.doesNotMatch(panel.contentEl.textContent, /Invalid Date/);
+	assert.doesNotMatch(panel.contentEl.textContent, /上次扫描：/);
+});
+
+test('全量扫描成功后写入缓存时间并在首页展示', async () => {
+	const attachment = makeFile('orphan.pdf', 'pdf', 20);
+	const panel = makePanel(makeApp({ vault: { getFiles: () => [attachment] } }));
+	let saved;
+	panel.options.saveCache = async (cache) => { saved = cache; };
+
+	await panel.scan();
+
+	assert.ok(saved, '全量扫描成功后应写入缓存');
+	assert.equal(panel.lastScannedAt, saved.scannedAt);
+	assert.match(panel.contentEl.textContent, /上次扫描：/);
+	assert.equal(panel.lastScanAborted, undefined);
 });

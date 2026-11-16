@@ -15,6 +15,8 @@
 
 ## 稳定约定与限制
 - 构建产物 `main.js` 写入项目根目录并供 Obsidian 加载；源码依赖需由 esbuild 打包。
+- 发版：`npm version <x.y.z> --no-git-tag-version` 更新 `package.json`、`package-lock.json`，并由 `version-bump.mjs` 把 `manifest.json`、`versions.json` 同步到同一版本（`versions.json` 新版本映射到当前 `minAppVersion`）。发版前必须在 `src/update-intro-content.ts` 顶部加入同版本条目，否则升级弹窗没有内容；`tests/update-intro-content.test.mjs` 会校验结构与主题，并要求最新版本排在最前。
+- 发版顺序：升版本 → 写 CHANGELOG → 加内置更新说明 → `npm run build` → `npm run package` → 推送与 `manifest.version` 完全一致的 tag。`main.js` 由 CI 重新构建，本地 `dist/*.zip` 只用于校验。
 - 发布资产为 Obsidian 标准三件套 `main.js`、`manifest.json` 与可选的 `styles.css`；ZIP 只是把三件套打在根层的便捷形式，不是 Windows 安装器，`dist/` 属于生成物并已被 `.gitignore` 忽略。
 - 关联笔记只处理已解析的 Markdown 文件；清理操作使用 Obsidian 原生文件管理器或本地回收站。
 - 部署前构建并校验 `main.js`、`manifest.json` 和可选的 `styles.css`；失败时保留或恢复备份。

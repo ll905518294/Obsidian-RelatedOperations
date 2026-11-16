@@ -77,6 +77,20 @@ test('1.7.0 内置说明存在且覆盖图片转换', () => {
 	assert.match(text, /Canvas/);
 });
 
+test('1.8.0 内置说明存在、位于最前，且覆盖性能与安装包', () => {
+	const intro = currentUpdateIntro('1.8.0');
+	assert.ok(intro, '1.8.0 必须有更新说明条目');
+	assert.equal(intro.theme, '全面提速与安装包');
+	assert.equal(UPDATE_INTROS[0].version, '1.8.0', '最新版本必须排在最前');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /49 倍/);
+	assert.match(text, /8 倍/);
+	assert.match(text, /\.zip/);
+	assert.match(text, /键盘/);
+	assert.match(text, /中止扫描/);
+	assert.match(text, /焦点/);
+});
+
 test('内置说明内容完整可渲染', () => {
 	assert.ok(UPDATE_INTROS.length > 0);
 	const versions = new Set();

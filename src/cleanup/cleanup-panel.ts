@@ -41,6 +41,10 @@ export class OrphanCleanupPanel extends Component {
 	pages = new Map<string, number>();
 	processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
 	lastScanError?: CleanupScanError;
+	lastScanAborted?: boolean;
+	lastScannedAt?: string;
+	showingCachedResult = false;
+	scanController?: AbortController;
 	private codecInstance?: ImageCodec;
 	estimateController?: AbortController;
 	convertController?: AbortController;
@@ -108,6 +112,10 @@ export class OrphanCleanupPanel extends Component {
 		return runFullScan(this, preserveProcessed);
 	}
 
+	abortScan() {
+		this.scanController?.abort();
+	}
+
 	async scanCategory(tab: ScanCategoryTab) {
 		return runScanCategory(this, tab);
 	}
@@ -130,6 +138,8 @@ export class OrphanCleanupPanel extends Component {
 		// 旧缓存没有 convertibleImages；转换结果本身也从不写入缓存。
 		this.candidates = { ...this.options.cachedCandidates!, convertibleImages: [] };
 		this.hasScanned = true;
+		this.showingCachedResult = true;
+		this.lastScannedAt = this.options.cachedAt;
 		for (const category of CLEANUP_CATEGORIES) this.scannedTabs.add(category.tab);
 		this.processed = undefined;
 		this.pages.clear();
@@ -150,6 +160,7 @@ export class OrphanCleanupPanel extends Component {
 				orphanIgnoredFolders: this.settings.orphanIgnoredFolders,
 			},
 		};
+		this.lastScannedAt = cache.scannedAt;
 		void this.options.saveCache?.(cache);
 	}
 
@@ -157,6 +168,8 @@ export class OrphanCleanupPanel extends Component {
 		this.unload();
 		this.scanGeneration++;
 		this.scanning = false;
+		this.scanController?.abort();
+		this.scanController = undefined;
 		this.estimateController?.abort();
 		this.convertController?.abort();
 		window.clearInterval(this.scanTimer);
@@ -380,6 +393,7 @@ export class OrphanCleanupModal extends Modal {
 		this.titleEl.setText('Vault 体检与清理');
 		const options: OrphanCleanupOptions = {
 			cachedCandidates: this.settings.orphanCleanupCache?.candidates,
+			cachedAt: this.settings.orphanCleanupCache?.scannedAt,
 			cachedSettings: this.settings.orphanCleanupCache?.settingsSnapshot,
 			saveCache: this.saveCache,
 			saveSettings: this.saveSettings,

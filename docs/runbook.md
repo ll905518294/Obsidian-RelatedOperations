@@ -90,7 +90,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - 部署脚本：`scripts/deploy-and-restart.ps1`
 - 构建配置：`esbuild.config.mjs`
 
-## 7. 社区目录提交（当前 1.7.0）
+## 7. 社区目录提交（当前 1.8.0）
 
 提交入口为 <https://community.obsidian.md/> 网页表单（`obsidianmd/obsidian-releases` 的 Issue/PR 通道已关闭）。本节事实均于 2026-11-15 用 `gh` 拉取官方文档与 `community-plugins.json` 核实。
 
@@ -122,7 +122,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 | 网络使用需在 README 披露（Developer policies） | 无网络请求，README 已声明 | 满足 |
 | 不访问 Vault 之外文件，除非披露（Developer policies） | 仅访问当前 Vault；「在资源管理器中显示」只定位文件，README 已说明 | 满足 |
 | 遵守 Obsidian 商标（Developer policies） | 名称与 README 未暗示官方第一方 | 满足 |
-| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | 2026-11-17 用 `gh release view 1.7.0` 核实：非 draft/pre-release、tag=1.7.0、资产含 `main.js`、`manifest.json`、`styles.css` | 满足 |
+| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | `manifest.json` 已升到 `1.8.0`，但最新正式 release 仍是 `1.7.0`（2026-11-17 用 `gh release view 1.7.0` 核实）；需发布 tag=1.8.0 的正式 release 后才满足 | 待发布 1.8.0 |
 
 ### 7.3 提交操作步骤（用户本人完成）
 
@@ -135,7 +135,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 
 ## 8. 截图与 README 一致性维护
 
-README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-settings.png`）。当前截图状态（对照 1.7.0）：
+README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-settings.png`）。当前截图状态（对照 1.8.0）：
 
 - **已用演示库实拍替换（6 张，无缺口）**：通过 Obsidian CDP 在纯合成演示库 `vault-doctor-demo` 实拍，1920×1032，深色 Border 主题，9 分类齐全（含「Wiki 笔记链接」页签），内容全为虚构示例数据，不含任何真实项目/客户/公司名。
   - `01-dashboard.png`：体检首页 · 扫描前 `0/9`
@@ -145,7 +145,7 @@ README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-setting
   - `05-empty-files.png`：空文件 2 个
   - `06-duplicate-files.png`：重复文件 1 组
 - **无需更新**：`07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致。
-- `00-installed.png`（已安装插件列表与 **⋯** 操作菜单）只用于安装说明，本轮未单独核对它与 1.7.0 界面的一致性。
+- `00-installed.png`（已安装插件列表与 **⋯** 操作菜单）只用于安装说明，本轮未单独核对它与 1.8.0 界面的一致性。
 
 更新截图时保持文件名不变，避免改动 README 引用；不要用真实 Vault 截图（会暴露私有内容），统一使用演示库实拍并保持 9 个分类页签齐全。
 
@@ -153,9 +153,9 @@ README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-setting
 
 补拍前置条件（2026-11-17 核实）：演示库 `X:\Obsidian\vault-doctor-demo` 当前没有在 Obsidian 中打开（`obsidian.json` 中 `open=true` 的是真实库 `X:\Obsidian\我的空间`），且演示库 `.obsidian/plugins/vault-doctor/` 里的 `main.js`、`styles.css` 仍是旧构建。补拍需要先打开演示库并把当前构建部署进去，等于切换 Vault 并重启 Obsidian，因此本轮未执行，截图保持「待补拍」。
 
-## 9. 1.7.0 图片转换验证
+## 9. 图片转换验证
 
-1.7.0 的 `manifest.json` 版本为 `1.7.0`，`versions.json` 映射为 `"1.7.0": "1.13.0"`。发布前用演示库 `X:\Obsidian\vault-doctor-demo` 验证图片转换：
+图片转换在 1.7.0 引入。当前 `manifest.json` 为 `1.8.0`，`versions.json` 映射为 `"1.8.0": "1.13.0"`。发布前用演示库 `X:\Obsidian\vault-doctor-demo` 验证图片转换：
 
 1. 准备同一张 PNG 的三处引用：Wiki 嵌入（含别名、不含尺寸参数）、标准 Markdown 图片链接、HTML `<img src>`；确认三篇笔记都指向该 PNG。
 2. 打开 **体检与清理 → 图片转换**，源格式只勾选 PNG，目标格式选 JPG，质量 85，透明图处理选白底。

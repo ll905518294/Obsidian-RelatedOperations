@@ -33,6 +33,7 @@ export class OrphanCleanupView extends ItemView {
 		this.contentEl.setAttribute('aria-label', 'Vault 体检与清理');
 		const options: OrphanCleanupOptions = {
 			cachedCandidates: this.settings.orphanCleanupCache?.candidates,
+			cachedAt: this.settings.orphanCleanupCache?.scannedAt,
 			cachedSettings: this.settings.orphanCleanupCache?.settingsSnapshot,
 			saveCache: async (cache: OrphanCleanupCache) => {
 				this.settings.orphanCleanupCache = cache;

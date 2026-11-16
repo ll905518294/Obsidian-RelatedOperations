@@ -1,7 +1,7 @@
 import { setIcon } from 'obsidian';
 import { CLEANUP_CATEGORIES, type CleanupViewContext, type ScanCategoryTab } from './cleanup-types';
 import { categoryCount, categoryStatus, categoryTotal, formatScanDuration, scanPercent, tabEntries } from './cleanup-selectors';
-import { nextListElementId } from './cleanup-a11y';
+import { announceStatus, ensureLiveRegion, nextListElementId, setTextIfChanged } from './cleanup-a11y';
 export { categoryStatus, tabEntries };
 
 /*
@@ -23,15 +23,15 @@ export function updateScanProgress(view: CleanupViewContext) {
 	const percent = scanPercent(view.scanning, view.scanStages.length, view.scanProgress);
 	const label = view.scanStages[stage]?.label ?? '扫描完成';
 	view.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-bar')?.style.setProperty('width', `${percent}%`);
-	view.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-meta')?.setText(view.scanning ? `${label} · ${percent}% · 用时 ${formatScanDuration(view.scanElapsedMs)}` : '扫描完成');
-	view.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-current-file')?.setText(currentFile ? `当前文件：${currentFile}` : (view.scanning ? '正在准备扫描…' : '扫描结果已更新'));
+	setTextIfChanged(view.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-meta'), view.scanning ? `${label} · ${percent}% · 用时 ${formatScanDuration(view.scanElapsedMs)}` : view.lastScanAborted ? '扫描已中止' : '扫描完成');
+	setTextIfChanged(view.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-current-file'), currentFile ? `当前文件：${currentFile}` : (view.scanning ? '正在准备扫描…' : view.lastScanAborted ? '已保留已完成的分类结果' : '扫描结果已更新'));
 	view.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-bar-wrap')?.setAttribute('aria-valuenow', String(percent));
 	for (const item of Array.from(view.contentEl.querySelectorAll<HTMLElement>('.orphan-cleanup-dashboard-item[data-tab]'))) {
 		const tab = item.dataset.tab as ScanCategoryTab;
 		const completed = view.scannedTabs.has(tab);
 		const current = view.scanning && !completed && categoryScanStage(tab) === stage;
 		item.toggleClass('is-scanning', current);
-		item.querySelector<HTMLElement>('.orphan-cleanup-dashboard-item-status')?.setText(view.scanning
+		setTextIfChanged(item.querySelector<HTMLElement>('.orphan-cleanup-dashboard-item-status'), view.scanning
 			? completed ? `已完成 · ${categoryCount(view.candidates, tab)} 项` : current ? '正在扫描…' : '等待扫描'
 			: categoryStatus(categoryCount(view.candidates, tab), completed, false, view.dirtyTabs.has(tab)));
 	}
@@ -40,6 +40,10 @@ export function updateScanProgress(view: CleanupViewContext) {
 		const scannedCategories = CLEANUP_CATEGORIES.filter((category) => view.scannedTabs.has(category.tab)).length;
 		ring.style.setProperty('--scan-progress', `${view.scanning ? percent : scannedCategories / CLEANUP_CATEGORIES.length * 100}%`);
 	}
+	// 进度百分比每个 tick 都变，逐条播报会刷屏；只播报阶段级里程碑。
+	if (view.scanning) announceStatus(view.contentEl, `正在扫描：${label}`);
+	else if (view.lastScanAborted) announceStatus(view.contentEl, '扫描已中止，已保留已完成的分类结果');
+	else if (view.hasScanned) announceStatus(view.contentEl, `扫描完成，共 ${categoryTotal(view.candidates)} 项待处理`);
 }
 
 function categoryScanStage(tab: ScanCategoryTab): number {
@@ -58,10 +62,16 @@ export function renderOverview(view: CleanupViewContext) {
 	const heading = header.createDiv({ cls: 'orphan-cleanup-home-heading' });
 	heading.createDiv({ text: 'Vault 健康概览', cls: 'orphan-cleanup-home-eyebrow' });
 	heading.createEl('h2', { text: view.scanning ? '正在检查资料库' : total ? '需要你的注意' : scanned < CLEANUP_CATEGORIES.length || categoryDirty ? '等待检查资料库' : '资料库状态良好' });
-	heading.createEl('p', { text: view.scanning ? '扫描会在当前页面持续进行，结果将直接显示在对应模块。' : '扫描仅在本地进行，不会修改任何文件。', cls: 'orphan-cleanup-home-subtitle' });
-	const scanAll = header.createEl('button', { text: view.scanning ? '扫描中…' : view.hasScanned ? '重新扫描全部' : '开始扫描', cls: 'mod-cta orphan-cleanup-scan-all' });
+	heading.createEl('p', { text: overviewSubtitle(view), cls: 'orphan-cleanup-home-subtitle' });
+	const actions = header.createDiv({ cls: 'orphan-cleanup-home-actions' });
+	const scanAll = actions.createEl('button', { text: view.scanning ? '扫描中…' : view.hasScanned ? '重新扫描全部' : '开始扫描', cls: 'mod-cta orphan-cleanup-scan-all' });
 	scanAll.disabled = view.scanning || view.scanningTabs.size > 0;
 	scanAll.addEventListener('click', () => void view.scan());
+	if (view.scanning) {
+		const abort = actions.createEl('button', { text: '中止扫描', cls: 'orphan-cleanup-abort-scan' });
+		abort.setAttribute('aria-label', '中止当前扫描并保留已完成的分类结果');
+		abort.addEventListener('click', () => view.abortScan());
+	}
 
 	const hero = header.createDiv({ cls: 'orphan-cleanup-dashboard-hero' });
 	const heroCopy = hero.createDiv({ cls: 'orphan-cleanup-dashboard-hero-copy' });
@@ -82,6 +92,7 @@ export function renderOverview(view: CleanupViewContext) {
 	progress.createDiv({ cls: 'orphan-cleanup-dashboard-progress-ring' }).createSpan({ text: `${scanned}/${CLEANUP_CATEGORIES.length}` });
 
 	renderScanError(view, home);
+	renderScanAborted(view, home);
 
 	const priority = CLEANUP_CATEGORIES
 		.filter((category) => view.scanning || categoryCount(view.candidates, category.tab) > 0)
@@ -116,6 +127,40 @@ export function renderOverview(view: CleanupViewContext) {
 		for (const category of pending) renderDashboardCategory(view, pendingList, category, false);
 	}
 	updateScanProgress(view);
+}
+
+function overviewSubtitle(view: CleanupViewContext): string {
+	if (view.scanning) return '扫描会在当前页面持续进行，结果将直接显示在对应模块。';
+	const scanTime = formatScanTime(view.lastScannedAt);
+	if (view.showingCachedResult) {
+		return scanTime
+			? `显示上次扫描结果（${scanTime}）。点击「重新扫描全部」更新。`
+			: '显示上次扫描结果。点击「重新扫描全部」更新。';
+	}
+	return scanTime
+		? `上次扫描：${scanTime}。扫描仅在本地进行，不会修改任何文件。`
+		: '扫描仅在本地进行，不会修改任何文件。';
+}
+
+function formatScanTime(value?: string): string | undefined {
+	if (!value) return undefined;
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? undefined : date.toLocaleString('zh-CN');
+}
+
+function renderScanAborted(view: CleanupViewContext, container: HTMLElement) {
+	if (!view.lastScanAborted || view.scanning) return;
+	const pending = CLEANUP_CATEGORIES.filter((category) => !view.scannedTabs.has(category.tab));
+	const completed = CLEANUP_CATEGORIES.length - pending.length;
+	const banner = container.createDiv({ cls: 'orphan-cleanup-scan-error is-aborted' });
+	banner.setAttribute('role', 'status');
+	banner.createEl('strong', { text: '扫描已中止' });
+	const retry = view.hasScanned ? '重新扫描全部' : '开始扫描';
+	banner.createSpan({
+		text: pending.length
+			? `已完成 ${completed} 个分类；其余 ${pending.length} 个分类待重新扫描。点击「${retry}」继续。`
+			: '全部结果已保留。',
+	});
 }
 
 function renderScanError(view: CleanupViewContext, container: HTMLElement) {
@@ -168,6 +213,8 @@ function renderDashboardCategory(view: CleanupViewContext, container: HTMLElemen
 }
 
 export function renderTabs(view: CleanupViewContext) {
+	// live 区域先于页面内容建立，状态变化时才能被屏幕阅读器捕捉到。
+	ensureLiveRegion(view.contentEl);
 	const tabs = view.contentEl.createDiv({ cls: 'orphan-cleanup-tabs' });
 	let activeTabButton: HTMLButtonElement | undefined;
 	for (const [tab, label, count] of tabEntries(view.candidates, view.scanning)) {
@@ -206,9 +253,13 @@ export function renderHelp(view: CleanupViewContext) {
 
 export function renderProcessedSummary(view: CleanupViewContext) {
 	const summary = view.contentEl.createDiv({ cls: 'orphan-cleanup-result-summary' });
-	summary.setAttribute('role', 'status');
 	const failed = view.processed?.failed ?? [];
+	const success = view.processed?.success ?? 0;
+	const skipped = view.processed?.skipped ?? 0;
 	summary.createEl('strong', { text: '最近一次处理：' });
-	summary.createSpan({ text: `成功 ${view.processed?.success ?? 0}，跳过 ${view.processed?.skipped ?? 0}，失败 ${failed.length}` });
+	summary.createSpan({ text: `成功 ${success}，跳过 ${skipped}，失败 ${failed.length}` });
 	if (failed.length) summary.createDiv({ text: failed.map((item) => `${item.path}（${item.reason}）`).join('、') });
+	// 结果摘要每次重绘都会重建，直接标 role=status 会把同一份结果反复朗读；
+	// 改由统一的 live 区域播报，重复内容会被去重。
+	announceStatus(view.contentEl, `最近一次处理：成功 ${success}，跳过 ${skipped}，失败 ${failed.length}`);
 }

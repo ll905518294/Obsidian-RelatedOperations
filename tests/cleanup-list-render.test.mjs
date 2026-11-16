@@ -205,7 +205,12 @@ test('图片网格保留预览资源路径与点击打开预览', () => {
 	assert.ok(previews.every((img) => img.title === '点击预览'));
 	assert.ok(previews.every((img) => img.attrs.alt.endsWith('预览')));
 	assert.ok(previews.every((img) => img.attrs.role === 'button'));
-	assert.ok(previews.every((img) => img.attrs.tabindex === '0'));
+	assert.ok(previews.every((img) => img.hasClass('orphan-cleanup-image-preview')));
+	assert.deepEqual(
+		previews.map((img) => img.attrs.tabindex),
+		['0', '-1'],
+		'预览图组使用 roving tabindex，整组只占一个 Tab 停靠点',
+	);
 	assert.ok(previews.every((img) => img.attrs['aria-haspopup'] === 'dialog'));
 	assert.equal(previews[0].attrs['aria-label'], '预览 pics/a.png');
 	assert.equal(previews[1].attrs['aria-label'], '预览 pics/b.png');

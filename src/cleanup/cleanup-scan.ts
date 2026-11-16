@@ -1,16 +1,13 @@
 import { App, TFile, TFolder } from 'obsidian';
 import { forEachWithConcurrency, hasHiddenPathSegment, isCaseSensitiveFileSystem, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens } from '../core-utils';
 export { forEachWithConcurrency };
-import { findBrokenImageLinks } from '../broken-image-links';
-import { findBrokenNoteLinks } from '../broken-note-links';
-import { findNativeImageLinks } from '../native-image-links';
-import { findWikiNoteLinks } from '../wiki-note-links';
+import { findVaultLinkScans, type VaultLinkScans } from './link-scans';
 import { findDuplicateFiles } from '../duplicate-files';
 import { isWithinPixelLimit, type ImageCodec } from '../image-convert/image-codec';
 import { findImageReferences, findImageReferencesBatch, type ImageReferenceScanResult } from '../image-convert/image-convert-links';
 import { planImageConversions, type ImageConvertPlanItem } from '../image-convert/image-convert-plan';
 import { byPath } from './cleanup-actions';
-import { COMMON_IMAGE_EXTENSIONS, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
+import { CleanupScanAbortedError, COMMON_IMAGE_EXTENSIONS, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
 
 const READ_CONCURRENCY = 8;
 const CONVERSION_CONCURRENCY = 2;
@@ -41,7 +38,8 @@ export function collectCleanupFileSets(app: App, imageExtensions: string, ignore
 	};
 }
 
-export async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true, onCategoryComplete?: (tabs: ScanCategoryTab[], results: Partial<CleanupCandidates>) => void): Promise<CleanupCandidates> {
+export async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true, onCategoryComplete?: (tabs: ScanCategoryTab[], results: Partial<CleanupCandidates>) => void, signal?: AbortSignal): Promise<CleanupCandidates> {
+	throwIfAborted(signal);
 	const { extensions, ignoredFolders, visibleFiles, images, attachments } = collectCleanupFileSets(app, imageExtensions, ignoredFoldersValue);
 	onProgress?.({ stage: 0, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	const referenced = new Set<string>();
@@ -52,6 +50,7 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	const canvases = app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
 	let canvasParseFailed = false;
 	for (const [index, canvas] of canvases.entries()) {
+		throwIfAborted(signal);
 		const paths = await referencedByCanvas(app, canvas);
 		if (paths === null) {
 			// Canvas 解析失败时无法确定它引用了哪些图片；保守地把全部
@@ -67,31 +66,38 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 		for (const file of attachments) referenced.add(file.path);
 	}
 	onProgress?.({ stage: 2, processed: 0, total: app.vault.getMarkdownFiles().length });
+	throwIfAborted(signal);
 	// Conservative textual pass: HTML image tags, frontmatter path values, and
 	// code-block text do not appear in resolvedLinks. Any textual mention of the
 	// file name or path counts as a reference so that such images are never
 	// flagged as orphans.
-	await markFilesReferencedByText(app, [...images, ...attachments], referenced, (processed, total, currentFile) => onProgress?.({ stage: 2, processed, total, currentFile }));
+	await markFilesReferencedByText(app, [...images, ...attachments], referenced, (processed, total, currentFile) => onProgress?.({ stage: 2, processed, total, currentFile }), signal);
+	throwIfAborted(signal);
 	const orphanImages = images.filter((file) => !referenced.has(file.path)).sort(byPath);
 	const orphanAttachments = attachments.filter((file) => !referenced.has(file.path)).sort(byPath);
 	onCategoryComplete?.(['images', 'attachments'], {
 		images: orphanImages,
 		attachments: orphanAttachments,
 	});
-	const emptyFiles = (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }))).filter((file) => !referenced.has(file.path));
+	throwIfAborted(signal);
+	const emptyFiles = (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }), signal)).filter((file) => !referenced.has(file.path));
 	const folders = findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
 	onProgress?.({ stage: 3, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	onCategoryComplete?.(['empty-files', 'folders'], { emptyFiles, folders });
+	throwIfAborted(signal);
 	onProgress?.({ stage: 4, processed: 0, total: 1 });
-	const brokenLinks = checkLinksAndDuplicates ? findBrokenImageLinks(app, imageExtensions) : [];
-	const nativeLinks = checkLinksAndDuplicates ? findNativeImageLinks(app, imageExtensions) : [];
-	const brokenNoteLinks = checkLinksAndDuplicates ? findBrokenNoteLinks(app, imageExtensions) : [];
-	const wikiLinks = checkLinksAndDuplicates ? findWikiNoteLinks(app) : [];
+	const linkScans: VaultLinkScans = checkLinksAndDuplicates
+		? findVaultLinkScans(app, imageExtensions)
+		: { brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], wikiLinks: [] };
+	const { brokenLinks, nativeLinks, brokenNoteLinks, wikiLinks } = linkScans;
 	onCategoryComplete?.(['broken-links', 'native-links', 'broken-note-links'], { brokenLinks, nativeLinks, brokenNoteLinks });
 	onCategoryComplete?.(['wiki-links'], { wikiLinks });
+	throwIfAborted(signal);
 	onProgress?.({ stage: 5, processed: 0, total: 1 });
-	const duplicateResult = checkLinksAndDuplicates ? await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress })) : { groups: [], warnings: [] };
+	throwIfAborted(signal);
+	const duplicateResult = checkLinksAndDuplicates ? await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress }), signal) : { groups: [], warnings: [] };
 	onCategoryComplete?.(['duplicates'], { duplicates: duplicateResult.groups, duplicateWarnings: duplicateResult.warnings });
+	throwIfAborted(signal);
 	return {
 		images: orphanImages,
 		attachments: orphanAttachments,
@@ -107,10 +113,11 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	};
 }
 
-export async function findEmptyFiles(files: TFile[], imageExtensions: Set<string>, app: App, onProgress?: (processed: number, total: number, currentFile: string) => void): Promise<TFile[]> {
+export async function findEmptyFiles(files: TFile[], imageExtensions: Set<string>, app: App, onProgress?: (processed: number, total: number, currentFile: string) => void, signal?: AbortSignal): Promise<TFile[]> {
 	const result: TFile[] = [];
 	let processed = 0;
 	await forEachWithConcurrency(files, READ_CONCURRENCY, async (file) => {
+		throwIfAborted(signal);
 		processed += 1;
 		onProgress?.(processed, files.length, file.path);
 		const extension = file.extension.toLowerCase();
@@ -123,7 +130,7 @@ export async function findEmptyFiles(files: TFile[], imageExtensions: Set<string
 	return result.sort(byPath);
 }
 
-export async function markFilesReferencedByText(app: App, images: TFile[], referenced: Set<string>, onProgress?: (processed: number, total: number, currentFile: string) => void): Promise<void> {
+export async function markFilesReferencedByText(app: App, images: TFile[], referenced: Set<string>, onProgress?: (processed: number, total: number, currentFile: string) => void, signal?: AbortSignal): Promise<void> {
 	const remaining = images.filter((image) => !referenced.has(image.path));
 	if (remaining.length === 0) return;
 	const unresolved = new Set(remaining.map((image) => image.path));
@@ -160,8 +167,10 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 	const markdownFiles = app.vault.getMarkdownFiles();
 	const BATCH = READ_CONCURRENCY * 4;
 	for (let start = 0; start < markdownFiles.length; start += BATCH) {
+		throwIfAborted(signal);
 		const batch = markdownFiles.slice(start, start + BATCH);
 		const contents = await Promise.all(batch.map((file) => app.vault.cachedRead(file)));
+		throwIfAborted(signal);
 		for (const [offset, content] of contents.entries()) {
 			const file = batch[offset]!;
 			onProgress?.(start + offset + 1, markdownFiles.length, file.path);
@@ -179,6 +188,10 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 			if (unresolved.size === 0) return;
 		}
 	}
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+	if (signal?.aborted) throw new CleanupScanAbortedError();
 }
 
 /*

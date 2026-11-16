@@ -7,6 +7,7 @@ import { findWikiNoteLinks } from '../wiki-note-links';
 import { findDuplicateFiles } from '../duplicate-files';
 import {
 	CLEANUP_CATEGORIES,
+	isCleanupScanAborted,
 	type CleanupCandidates,
 	type CleanupScanError,
 	type CleanupTab,
@@ -53,6 +54,10 @@ export interface CleanupScanHost {
 	duplicateSelections: Set<string>;
 	processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
 	lastScanError?: CleanupScanError;
+	lastScanAborted?: boolean;
+	lastScannedAt?: string;
+	showingCachedResult?: boolean;
+	scanController?: AbortController;
 	markTabDirty(tab: CleanupTab): void;
 	buildReferencedSet(): Promise<Set<string>>;
 	renderContents(): void;
@@ -65,7 +70,11 @@ export interface CleanupScanHost {
 export async function runFullScan(panel: CleanupScanHost, preserveProcessed = false): Promise<void> {
 	if (panel.scanning || panel.scanningTabs.size > 0) return;
 	panel.lastScanError = undefined;
+	panel.lastScanAborted = undefined;
+	panel.showingCachedResult = false;
 	const generation = ++panel.scanGeneration;
+	const controller = new AbortController();
+	panel.scanController = controller;
 	if (!preserveProcessed) panel.processed = undefined;
 	panel.scanning = true;
 	panel.activeTab = 'overview';
@@ -114,15 +123,25 @@ export async function runFullScan(panel: CleanupScanHost, preserveProcessed = fa
 			Object.assign(panel.candidates, results);
 			for (const tab of tabs) panel.scannedTabs.add(tab);
 			panel.renderContents();
-		});
+		}, controller.signal);
 		if (generation !== panel.scanGeneration) return;
 		panel.candidates = candidates;
 		panel.hasScanned = true;
 		for (const category of CLEANUP_CATEGORIES) panel.scannedTabs.add(category.tab);
 		panel.lastScanError = undefined;
+		panel.lastScanAborted = undefined;
+		panel.saveCacheToSettings();
 		panel.renderContents();
 	} catch (error) {
 		if (generation !== panel.scanGeneration) return;
+		if (isCleanupScanAborted(error)) {
+			panel.hasScanned = panel.scannedTabs.size > 0;
+			for (const category of CLEANUP_CATEGORIES) if (!panel.scannedTabs.has(category.tab)) panel.markTabDirty(category.tab);
+			panel.lastScanError = undefined;
+			panel.lastScanAborted = true;
+			new Notice('已中止扫描：已完成的分类结果已保留。');
+			return;
+		}
 		const reason = reasonFor(error);
 		new Notice(`扫描失败：${reason}`);
 		panel.hasScanned = panel.scannedTabs.size > 0;
@@ -134,13 +153,18 @@ export async function runFullScan(panel: CleanupScanHost, preserveProcessed = fa
 		panel.renderContents();
 	} finally {
 		if (generation === panel.scanGeneration) {
+			if (panel.scanController === controller) panel.scanController = undefined;
 			panel.scanning = false;
 			panel.scanElapsedMs = performance.now() - panel.scanStartedAt;
 			window.clearInterval(panel.scanTimer);
 			const now = performance.now();
 			const current = panel.scanStages[panel.scanProgress.stage];
 			if (current?.startedAt) current.elapsedMs = now - current.startedAt;
-			panel.scanStages.forEach((item) => { item.state = 'done'; });
+			if (panel.lastScanAborted) {
+				for (const item of panel.scanStages) if (item.state === 'scanning') item.state = 'pending';
+			} else {
+				panel.scanStages.forEach((item) => { item.state = 'done'; });
+			}
 			panel.renderContents();
 		}
 	}
@@ -240,7 +264,7 @@ export async function scanTab(panel: CleanupScanHost, tab: CleanupTab): Promise<
 	}
 }
 
-export function getTabLabel(tab: CleanupTab): string {
+function getTabLabel(tab: CleanupTab): string {
 	if (tab === 'overview') return '体检首页';
 	if (tab === 'image-convert') return '图片转换';
 	return CLEANUP_CATEGORIES.find((category) => category.tab === tab)?.label ?? tab;

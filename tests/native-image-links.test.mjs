@@ -31,6 +31,27 @@ test('skips dimensions and unresolved targets', () => {
 	assert.equal(convertNativeImageLink(link('![[missing.png]]', 'missing.png', 0, { file: undefined })), null);
 });
 
+// Idempotency: after conversion the embed is Markdown syntax, so a rescan must
+// not offer it as a native wiki embed again.
+test('markdown images produced by conversion are not native candidates again', () => {
+	const cache = {
+		embeds: [
+			{ original: '![[a.png]]', link: 'a.png', position: { start: { offset: 0 }, end: { offset: 10 } } },
+			{ original: '![](<a.png>)', link: 'a.png', position: { start: { offset: 20 }, end: { offset: 31 } } },
+		],
+	};
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+		metadataCache: {
+			getFileCache: () => cache,
+			getFirstLinkpathDest: () => ({ path: 'a.png' }),
+		},
+	};
+	const found = findNativeImageLinks(app, 'png');
+	assert.equal(found.length, 1);
+	assert.equal(found[0].original, '![[a.png]]');
+});
+
 test('marks a raw dimension mixed with an alias as a dimension like a pure dimension', () => {
 	const app = (cache) => ({
 		vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },

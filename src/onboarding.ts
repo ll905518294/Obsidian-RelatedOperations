@@ -1,5 +1,6 @@
 import { Modal, type App } from 'obsidian';
 import { ONBOARDING_STEPS } from './onboarding-content';
+import { markDialog, rememberFocusOrigin } from './cleanup/cleanup-a11y';
 import step1What from '../assets/onboarding/step1-what.png';
 import step2Safety from '../assets/onboarding/step2-safety.png';
 import step3Start from '../assets/onboarding/step3-start.png';
@@ -37,6 +38,7 @@ const ONBOARDING_FIGURES: OnboardingFigure[] = [
 
 export class OnboardingModal extends Modal {
 	private step = 0;
+	private restoreFocus?: () => void;
 
 	constructor(
 		app: App,
@@ -50,6 +52,9 @@ export class OnboardingModal extends Modal {
 		// Reuse the readable update-intro tokens; both modals share the same
 		// body/list styling without adding global rules.
 		this.modalEl.addClass('update-intro-modal', 'onboarding-modal');
+		markDialog(this.modalEl, this.titleEl);
+		// Obsidian 关闭弹窗不会归还焦点，这里记住引导的触发元素。
+		this.restoreFocus = rememberFocusOrigin();
 		this.titleEl.setAttribute('tabindex', '-1');
 		this.renderStep();
 	}
@@ -109,5 +114,7 @@ export class OnboardingModal extends Modal {
 
 	onClose() {
 		this.contentEl.empty();
+		this.restoreFocus?.();
+		this.restoreFocus = undefined;
 	}
 }

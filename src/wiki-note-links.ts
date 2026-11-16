@@ -145,3 +145,11 @@ function escapeLinkText(value: string) {
 		.replaceAll(']', '\\]')
 		.replaceAll('|', '\\|');
 }
+
+/*
+ * 批量入口专用：调用方已经取到 cache 时只解析这一个文件。返回顺序与
+ * findWikiNoteLinks 的单文件结果一致，跨文件排序由批量入口统一完成。
+ */
+export function collectWikiNoteLinks(app: App, sourcePath: string, cache: CachedMetadata): WikiNoteLink[] {
+	return findInCache(app, sourcePath, cache);
+}

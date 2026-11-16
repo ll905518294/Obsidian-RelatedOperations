@@ -192,3 +192,16 @@ const KNOWN_ATTACHMENT_EXTENSIONS = new Set([
 	'base',
 ]);
 
+/*
+ * 批量入口专用：调用方已经取到 cache 时只解析这一个文件。返回顺序与
+ * findBrokenNoteLinks 的单文件结果一致，跨文件排序由批量入口统一完成。
+ */
+export function collectBrokenNoteLinks(
+	app: App,
+	sourcePath: string,
+	cache: CachedMetadata,
+	images: Set<string>,
+): BrokenNoteLink[] {
+	return findBrokenNoteLinksInCache(sourcePath, cache, images, app);
+}
+

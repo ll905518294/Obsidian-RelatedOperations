@@ -145,6 +145,22 @@ export interface CleanupScanError {
 	failedTabs: CleanupTab[];
 }
 
+export class CleanupScanAbortedError extends Error {
+	constructor() {
+		super('扫描已中止');
+		this.name = 'CleanupScanAbortedError';
+	}
+}
+
+/*
+ * 面板与扫描模块可能被打包成不同模块实例；除 instanceof 外再按 name
+ * 兜底识别，避免中止被误判成普通扫描失败。
+ */
+export function isCleanupScanAborted(error: unknown): boolean {
+	return error instanceof CleanupScanAbortedError
+		|| (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'CleanupScanAbortedError');
+}
+
 export const CLEANUP_CATEGORIES: Array<{ tab: ScanCategoryTab; label: string; description: string; icon: string }> = [
 	{ tab: 'images', label: '未引用图片', description: '未被任何笔记引用的图片资源', icon: 'image' },
 	{ tab: 'attachments', label: '未引用附件', description: '未被引用的非图片附件', icon: 'paperclip' },
@@ -189,7 +205,11 @@ export interface CleanupViewContext {
 	pages: Map<string, number>;
 	processed?: { success: number; skipped: number; failed: Array<{ path: string; reason: string }> };
 	lastScanError?: CleanupScanError;
+	lastScanAborted?: boolean;
+	lastScannedAt?: string;
+	showingCachedResult?: boolean;
 	scan(): Promise<void>;
+	abortScan(): void;
 	scanCategory(tab: ScanCategoryTab): Promise<void>;
 	scanTab(tab: CleanupTab): Promise<void>;
 	activateTab(tab: CleanupTab): Promise<void>;
@@ -210,6 +230,7 @@ export interface CleanupViewContext {
 
 export interface OrphanCleanupOptions {
 	cachedCandidates?: CleanupCandidates;
+	cachedAt?: string;
 	cachedSettings?: {
 		orphanImageExtensions: string;
 		orphanIgnoredFolders: string;

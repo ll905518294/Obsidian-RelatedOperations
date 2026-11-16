@@ -154,6 +154,7 @@ const { RelatedNotesPanel, RelatedNotesView, TFile, TFolder, Notice } = await im
 
 function makeApp(files, resolvedLinks = {}) {
 	const renamed = [];
+	const opened = [];
 	return {
 		app: {
 			metadataCache: { resolvedLinks, getFileCache: () => ({}) },
@@ -163,14 +164,19 @@ function makeApp(files, resolvedLinks = {}) {
 				createFolder: async (p) => { files.push(new TFolder(p)); },
 			},
 			fileManager: { renameFile: async (file, dest) => { renamed.push([file.path, dest]); file.path = dest; } },
-			workspace: { openLinkText: async () => {} },
+			workspace: {
+				openLinkText: async (linkPath, sourcePath, mode) => {
+					opened.push([linkPath, sourcePath, mode]);
+				},
+			},
 		},
 		renamed,
+		opened,
 	};
 }
 
 function panelFor(relatedNotes, sourceFiles, options = {}) {
-	const { app, renamed } = makeApp(options.files ?? [], options.resolvedLinks ?? {});
+	const { app, renamed, opened } = makeApp(options.files ?? [], options.resolvedLinks ?? {});
 	const el = document.createElement('div');
 	const panel = new RelatedNotesPanel(
 		app, el, sourceFiles[0], sourceFiles, relatedNotes,
@@ -180,7 +186,7 @@ function panelFor(relatedNotes, sourceFiles, options = {}) {
 		options.initialMerging ?? false, options.onMergingChange,
 	);
 	panel.render();
-	return { panel, el, renamed };
+	return { panel, el, renamed, opened, app };
 }
 
 const file = (path) => new TFile(path);
@@ -937,4 +943,137 @@ test('moveFiles creates a missing nested target folder before renaming', async (
 	assert.deepEqual(folders.sort(), ['archive', 'archive/2026', 'archive/2026/q4']);
 	assert.deepEqual(renamed, [['dst/t.md', 'archive/2026/q4/t.md']]);
 	assert.equal(t.path, 'archive/2026/q4/t.md');
+});
+
+// Regression: clicking a related note name is the only "jump to file" affordance
+// in the list. It must open that exact file in a new tab, not just the source.
+test('clicking a related note name opens that file in a new tab', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { el, opened } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	const link = el.querySelector('tr[data-related-path] a');
+	assert.equal(link.textContent, 't');
+	link.fire('click');
+	assert.deepEqual(opened, [['dst/t.md', 'src/a.md', 'tab']]);
+});
+
+// Restart persistence: display preferences are stored in settings, so a newly
+// created view must render with the saved grouping and hide state instead of
+// falling back to defaults.
+test('grouping and hide preferences survive recreating the view from saved settings', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const settings = { groupingMode: 'none', hideCompliant: false };
+	let saves = 0;
+	const { app, el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t],
+		resolvedLinks: { 'src/a.md': { 'dst/t.md': 1 } },
+		settings,
+		saveSettings: async () => { saves++; },
+	});
+	const grouping = el.querySelector('.related-operations-grouping-select');
+	assert.equal(grouping.value, 'none');
+	grouping.value = 'path';
+	grouping.fire('change');
+	el.querySelector('.related-operations-hide-button').fire('click');
+	assert.equal(settings.groupingMode, 'path');
+	assert.equal(settings.hideCompliant, true);
+	assert.equal(saves, 2);
+
+	const reloaded = JSON.parse(JSON.stringify(settings));
+	const view = new RelatedNotesView({ app }, reloaded, async () => {});
+	await view.setState({ sourcePaths: ['src/a.md'], mergeTargetView: false }, { history: false });
+	assert.equal(view.contentEl.querySelector('.related-operations-grouping-select').value, 'path');
+	assert.equal(view.contentEl.querySelector('.related-operations-hide-button').getAttribute('aria-pressed'), 'true');
+	assert.equal(view.contentEl.querySelectorAll('tr[data-related-path]').length, 1, '源笔记状态也必须随视图状态恢复');
+});
+
+// Vault paths may contain Chinese characters and spaces; every segment must be
+// created verbatim before the rename so the note lands in the real folder.
+test('moveFiles creates Chinese and spaced folder segments before renaming', async () => {
+	const a = file('src/a.md');
+	const t = new TFile('dst/设计 说明.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, t] });
+	const result = await panel.moveFiles('归档/设计 文档', [t]);
+	assert.deepEqual(result.succeeded, ['归档/设计 文档/设计 说明.md']);
+	assert.deepEqual(result.failed, []);
+	const folders = panel.app.vault.getAllLoadedFiles().filter((item) => item instanceof TFolder).map((folder) => folder.path);
+	assert.deepEqual(folders.sort(), ['归档', '归档/设计 文档'].sort());
+	assert.deepEqual(renamed, [['dst/设计 说明.md', '归档/设计 文档/设计 说明.md']]);
+	assert.equal(t.path, '归档/设计 文档/设计 说明.md');
+});
+
+// A file in the middle of the target chain must abort the whole batch without
+// renaming anything; reporting the target folder as failed is what the user sees.
+test('moveFiles fails cleanly when a nested target segment is an existing file', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const blocker = file('archive/2026');
+	const { panel, renamed } = panelFor([], [a], { files: [a, t, blocker] });
+	const result = await panel.moveFiles('archive/2026/q4', [t]);
+	assert.deepEqual(result.succeeded, []);
+	assert.deepEqual(result.moved, []);
+	assert.deepEqual(result.failed, [{ path: 'archive/2026/q4', reason: '无法创建或访问目标文件夹' }]);
+	assert.deepEqual(renamed, []);
+	assert.equal(t.path, 'dst/t.md');
+});
+
+// If the note is renamed outside the plugin after a move, undo cannot find the
+// destination anymore. It must report the failure and keep the record retryable.
+test('undoLastMove reports a note renamed outside the plugin and keeps the record', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, t] });
+	await panel.moveFiles('archive', [t]);
+	t.path = 'archive/t-renamed.md';
+	Notice.messages = [];
+	await panel.undoLastMove();
+	const notice = Notice.messages.at(-1);
+	assert.match(notice, /已撤销：0/);
+	assert.match(notice, /失败：1/);
+	assert.match(notice, /文件已不存在或已被重命名/);
+	assert.deepEqual(panel.lastMove, [{ from: 'dst/t.md', to: 'archive/t.md' }]);
+	assert.equal(t.path, 'archive/t-renamed.md');
+	assert.deepEqual(renamed, [['dst/t.md', 'archive/t.md']]);
+});
+
+// Undo restores the path with a rename. Content edited at the destination while
+// the note was moved must survive that restore untouched.
+test('undoLastMove restores the path without discarding external edits', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	t.content = 'original';
+	const { panel } = panelFor([], [a], { files: [a, t] });
+	await panel.moveFiles('archive', [t]);
+	t.content = 'edited while moved';
+	await panel.undoLastMove();
+	assert.equal(t.path, 'dst/t.md');
+	assert.equal(t.content, 'edited while moved');
+	assert.deepEqual(panel.lastMove, []);
+});
+
+// One rename failing mid-batch must not stop the rest. The reported split and
+// the undo records must describe exactly the files that actually moved.
+test('a failed rename in a batch keeps results and undo records consistent', async () => {
+	const a = file('src/a.md');
+	const good = file('dst/good.md');
+	const bad = file('dst/bad.md');
+	const later = file('dst/later.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, good, bad, later] });
+	const rename = panel.app.fileManager.renameFile;
+	panel.app.fileManager.renameFile = async (file, dest) => {
+		if (file.path === 'dst/bad.md') throw new Error('磁盘已满');
+		await rename(file, dest);
+	};
+	const result = await panel.moveFiles('archive', [good, bad, later]);
+	assert.deepEqual(result.succeeded, ['archive/good.md', 'archive/later.md']);
+	assert.deepEqual(result.failed, [{ path: 'dst/bad.md', reason: '磁盘已满' }]);
+	assert.deepEqual(result.skipped, []);
+	assert.deepEqual(result.moved, [
+		{ from: 'dst/good.md', to: 'archive/good.md' },
+		{ from: 'dst/later.md', to: 'archive/later.md' },
+	]);
+	assert.equal(bad.path, 'dst/bad.md');
+	assert.deepEqual(panel.lastMove, result.moved);
+	assert.deepEqual(renamed, [['dst/good.md', 'archive/good.md'], ['dst/later.md', 'archive/later.md']]);
 });

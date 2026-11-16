@@ -430,6 +430,12 @@
 .orphan-cleanup-home-heading h2 { margin: 0 0 0.35rem; }
 .orphan-cleanup-home-subtitle { margin: 0; color: var(--text-muted); }
 .orphan-cleanup-scan-all { flex: 0 0 auto; }
+.orphan-cleanup-home-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 0.5rem;
+}
 
 .orphan-cleanup-help-button {
 	margin-left: auto;
@@ -814,6 +820,14 @@
 .orphan-cleanup-scan-error strong {
 	color: inherit;
 	font-weight: 600;
+}
+
+/* 中止不是失败：同一横幅改用警告色，避免用户误以为扫描出错。 */
+.orphan-cleanup-scan-error.is-aborted {
+	border-color: color-mix(in srgb, var(--text-warning) 55%, var(--background-modifier-border));
+	border-left-color: var(--text-warning);
+	color: color-mix(in srgb, var(--text-warning) 70%, var(--text-normal));
+	background: color-mix(in srgb, var(--text-warning) 12%, var(--background-primary));
 }
 
 .workspace-leaf-content[data-type='related-operations-orphan-cleanup-view'] {
@@ -1359,6 +1373,25 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	.orphan-cleanup-dashboard-item:hover {
 		transform: none;
 	}
+
+	/*
+	 * 弹窗与使用引导不在面板内部，单独补一份：
+	 * Obsidian 自身的弹窗淡入是 JS 动画（app.js 中 canAnimate() 只在手机端启用），
+	 * CSS 无法关闭，这里只能关掉本插件弹窗内容自身的过渡与动画。
+	 */
+	.modal.onboarding-modal,
+	.modal.onboarding-modal *,
+	.modal.update-intro-modal,
+	.modal.update-intro-modal *,
+	.modal.orphan-cleanup-dialog,
+	.modal.orphan-cleanup-dialog *,
+	.modal.orphan-cleanup-preview-dialog,
+	.modal.orphan-cleanup-preview-dialog * {
+		animation-duration: 0.001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.001ms !important;
+		scroll-behavior: auto !important;
+	}
 }
 
 /* 系统要求更高对比度时，语义色提高混合比例，徽标与进度条用正文色描边，保证可辨识。 */
@@ -1536,6 +1569,34 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	.related-operations-panel input[type="checkbox"]:focus-visible {
 		box-shadow: none;
 		outline-offset: -12px;
+	}
+}
+
+/* 状态播报区域：只给屏幕阅读器，视觉上不占位也不参与布局。 */
+.orphan-cleanup-live-status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* 320-400px 极窄屏：首页卡片、按钮组与说明行必须能换行，不允许横向溢出。 */
+@media (max-width: 400px) {
+	/* 小标题与副标题挤在同一行会溢出，改为可换行。 */
+	.orphan-cleanup-dashboard-section-heading {
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+
+	/* 操作按钮横跨整张卡片，不再被左侧图标挤成窄条（实测 320px 下 217px → 261px）。 */
+	.orphan-cleanup-dashboard-item .orphan-cleanup-dashboard-item-actions,
+	.orphan-cleanup-dashboard-item.is-priority .orphan-cleanup-dashboard-item-actions {
+		grid-column: 1 / -1;
 	}
 }
 

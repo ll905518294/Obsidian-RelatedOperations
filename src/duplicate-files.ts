@@ -1,5 +1,6 @@
 import type { App, TAbstractFile, TFile } from 'obsidian';
 import { errorMessage, forEachWithConcurrency, hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils.ts';
+import { CleanupScanAbortedError } from './cleanup/cleanup-types.ts';
 
 const HASH_CONCURRENCY = 8;
 
@@ -40,6 +41,7 @@ export async function findDuplicateFiles(
 	app: App,
 	ignoredFoldersValue = '',
 	onProgress?: (progress: DuplicateScanProgress) => void,
+	signal?: AbortSignal,
 ): Promise<DuplicateScanResult> {
 	const ignoredFolders = parseIgnoredFolders(ignoredFoldersValue);
 	const files = app.vault.getFiles().filter((file) =>
@@ -70,6 +72,8 @@ export async function findDuplicateFiles(
 	const hashes: Array<HashResult | undefined> = new Array<HashResult | undefined>(candidates.length);
 	let processed = 0;
 	await forEachWithConcurrency(candidates, HASH_CONCURRENCY, async (file, index) => {
+		// 校验和是重复文件阶段最重的工作；中止后不再领取新文件。
+		if (signal?.aborted) throw new CleanupScanAbortedError();
 		try {
 			hashes[index] = { ok: true, hash: await digestFile(app, file) };
 		} catch (error) {

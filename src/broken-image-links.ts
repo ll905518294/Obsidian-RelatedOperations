@@ -129,3 +129,17 @@ function fileExtension(path: string) {
 	const dot = name.lastIndexOf('.');
 	return dot < 0 ? '' : name.slice(dot + 1).toLowerCase();
 }
+
+/*
+ * 批量入口专用：调用方已经取到 cache 时只解析这一个文件，不再重复查询
+ * metadataCache。返回顺序与 findBrokenImageLinks 的单文件结果一致，
+ * 跨文件排序由批量入口统一完成。
+ */
+export function collectBrokenImageLinks(
+	app: App,
+	sourcePath: string,
+	cache: CachedMetadata,
+	extensions: Set<string>,
+): BrokenImageLink[] {
+	return findBrokenImageLinksInCache(sourcePath, cache, extensions, app);
+}

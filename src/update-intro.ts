@@ -1,12 +1,18 @@
 import { Modal, type App } from 'obsidian';
 import type { UpdateIntro } from './update-intro-content';
+import { markDialog, rememberFocusOrigin } from './cleanup/cleanup-a11y';
 
 export class UpdateIntroModal extends Modal {
+	private restoreFocus?: () => void;
+
 	constructor(app: App, private readonly name: string, private readonly intro: UpdateIntro) {
 		super(app);
 	}
 
 	onOpen() {
+		markDialog(this.modalEl, this.titleEl);
+		// Obsidian 关闭弹窗不会归还焦点，这里记住触发元素。
+		this.restoreFocus = rememberFocusOrigin();
 		this.titleEl.setText(`${this.name} · ${this.intro.version} · ${this.intro.theme}`);
 		this.modalEl.addClass('update-intro-modal');
 		this.contentEl.createEl('p', { text: this.intro.summary, cls: 'update-intro-summary' });
@@ -24,5 +30,7 @@ export class UpdateIntroModal extends Modal {
 
 	onClose() {
 		this.contentEl.empty();
+		this.restoreFocus?.();
+		this.restoreFocus = undefined;
 	}
 }
