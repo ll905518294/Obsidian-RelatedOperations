@@ -52,6 +52,23 @@ test('markdown images produced by conversion are not native candidates again', (
 	assert.equal(found[0].original, '![[a.png]]');
 });
 
+// The cache can lag behind the write. Replaying the pre-conversion embed
+// against the new content must not rewrite a different identical embed.
+test('replaying a stale cache after native conversion is a no-op', () => {
+	const content = '前 ![[a.png]] 后 ![[a.png]]';
+	const firstStart = content.indexOf('![[a.png]]');
+	const secondStart = content.indexOf('![[a.png]]', firstStart + 1);
+	const first = replaceNativeImageLinks(content, [link('![[a.png]]', 'a.png', firstStart)]);
+	assert.equal(first.converted, 1);
+	const replay = replaceNativeImageLinks(first.content, [link('![[a.png]]', 'a.png', firstStart)]);
+	assert.equal(replay.converted, 0);
+	assert.equal(replay.skipped, 1);
+	assert.equal(replay.content, first.content);
+	const shifted = replaceNativeImageLinks(first.content, [link('![[a.png]]', 'a.png', secondStart)]);
+	assert.equal(shifted.converted, 0, '旧偏移不能误改后面尚未转换的嵌入');
+	assert.equal(shifted.content, first.content);
+});
+
 test('marks a raw dimension mixed with an alias as a dimension like a pure dimension', () => {
 	const app = (cache) => ({
 		vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },

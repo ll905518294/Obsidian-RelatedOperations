@@ -21,6 +21,15 @@ export interface RelatedOperationsSettings {
 	imageConversion?: ImageConversionConfig;
 }
 
+type ImageConversionField = keyof ImageConversionConfig;
+
+const IMAGE_CONVERSION_MIN_QUALITY = 50;
+const IMAGE_CONVERSION_MAX_QUALITY = 95;
+
+function isImageConversionField(value: string): value is ImageConversionField {
+	return value === 'sources' || value === 'target' || value === 'quality' || value === 'alpha';
+}
+
 export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	groupingMode: 'source',
 	hideCompliant: true,
@@ -46,7 +55,10 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 	getControlValue(key: string): unknown {
 		if (key.startsWith('imageConversion.')) {
 			const field = key.slice('imageConversion.'.length);
-			return (this.plugin.settings.imageConversion as unknown as Record<string, unknown>)[field];
+			if (!isImageConversionField(field)) return undefined;
+			const conversion = this.plugin.settings.imageConversion
+				?? cloneImageConversionConfig(DEFAULT_IMAGE_CONVERSION);
+			return conversion[field];
 		}
 		return super.getControlValue(key);
 	}
@@ -54,11 +66,13 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 	async setControlValue(key: string, value: unknown): Promise<void> {
 		if (key.startsWith('imageConversion.')) {
 			const field = key.slice('imageConversion.'.length);
-			const current = (this.plugin.settings.imageConversion
-				?? cloneImageConversionConfig(DEFAULT_IMAGE_CONVERSION)) as unknown as Record<string, unknown>;
+			if (!isImageConversionField(field)) return;
+			const current: Record<string, unknown> = {
+				...(this.plugin.settings.imageConversion ?? cloneImageConversionConfig(DEFAULT_IMAGE_CONVERSION)),
+			};
 			current[field] = value;
 			this.plugin.settings.imageConversion = cloneImageConversionConfig(
-				normalizeImageConversionConfig({ ...(current as unknown as ImageConversionConfig) }),
+				normalizeImageConversionConfig(current),
 			);
 			await this.plugin.saveSettings();
 			return;
@@ -137,6 +151,10 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 				heading: '图片转换默认配置',
 				items: [
 					{
+						name: '这些是默认值',
+						desc: '源格式与临时调整在体检面板的「图片转换」页内设置；这里保存的是每次转换的默认目标格式、质量与透明图处理方式。',
+					},
+					{
 						name: '目标格式',
 						desc: '图片转换页的默认输出格式；进入页面后仍可在页面内临时调整。',
 						control: {
@@ -147,12 +165,12 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 					},
 					{
 						name: '默认质量',
-						desc: '转换质量，50–95；越高体积越大、画质越好。目标为 PNG 时质量不生效。',
+						desc: `转换质量，${IMAGE_CONVERSION_MIN_QUALITY}–${IMAGE_CONVERSION_MAX_QUALITY}；越高体积越大、画质越好。目标为 PNG 时质量不生效。`,
 						control: {
 							type: 'slider',
 							key: 'imageConversion.quality',
-							min: 50,
-							max: 95,
+							min: IMAGE_CONVERSION_MIN_QUALITY,
+							max: IMAGE_CONVERSION_MAX_QUALITY,
 							step: 1,
 						},
 					},

@@ -115,7 +115,7 @@ const bundle = await build({
 		},
 	}],
 });
-const { renderConversionList, renderConversionActions } = await import(
+const { renderConversionList, updateConversionSelectionSummary, renderConversionActions } = await import(
 	`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`
 );
 
@@ -389,4 +389,57 @@ test('行内徽标展示源格式到目标格式的转换方向', () => {
 	const badge = byClass(host.contentEl, 'orphan-cleanup-convert-format')[0];
 	assert.ok(badge, '应渲染格式徽标');
 	assert.match(badge.textContent, /PNG→JPG/);
+});
+
+test('未估算项显示待估算占位，不当作跳过或可节省', () => {
+	const host = makeHost([
+		makeItem({ path: 'pics/pending.png', newBytes: 0 }),
+		makeItem({ path: 'pics/save.png', oldBytes: 100, newBytes: 40 }),
+	]);
+	renderConversionList(host);
+
+	const rows = byClass(host.contentEl, 'orphan-cleanup-convert-row');
+	const pendingRow = rows.find((row) => row.textContent.includes('pics/pending.png'));
+	assert.ok(pendingRow);
+	// 未估算：体积列用 …，变化列显示「待估算」，状态列显示「待估算」。
+	assert.match(pendingRow.textContent, /100 B → …/);
+	assert.match(pendingRow.textContent, /待估算/);
+	// 不要误认为 0 字节就是跳过（-100%）或 0%。
+	assert.doesNotMatch(pendingRow.textContent, /−100%/);
+	assert.doesNotMatch(pendingRow.textContent, /跳过/);
+
+	// 未估算项不进入节省量，也不被「全选可节省项」选中。
+	assert.equal(byText(host.contentEl, 'button', '全选可节省项')[0].disabled, false);
+	byText(host.contentEl, 'button', '全选可节省项')[0].dispatch('click');
+	assert.deepEqual([...host.convertSelections], ['pics/save.png']);
+});
+
+test('汇总条把未估算项单列，不把它们算进当前/转换体积', () => {
+	const host = makeHost([
+		makeItem({ path: 'pics/pending.png', oldBytes: 100, newBytes: 0 }),
+		makeItem({ path: 'pics/save.png', oldBytes: 100, newBytes: 40 }),
+	]);
+	renderConversionList(host);
+
+	const summary = byClass(host.contentEl, 'orphan-cleanup-convert-summary')[0];
+	assert.match(summary.textContent, /候选 2 张/);
+	// 只有已估算项参与体积：当前 100 B、转换后 40 B、节省 60 B。
+	assert.match(summary.textContent, /当前 100 B · 转换后约 40 B · 预计节省 60 B/);
+	assert.match(summary.textContent, /1 张待估算/);
+	assert.match(summary.textContent, /尚未估算/);
+});
+
+test('选中含未估算项时汇总条标注待估算张数', () => {
+	const host = makeHost([
+		makeItem({ path: 'pics/pending.png', oldBytes: 100, newBytes: 0 }),
+		makeItem({ path: 'pics/save.png', oldBytes: 100, newBytes: 40 }),
+	]);
+	renderConversionList(host);
+	host.convertSelections.add('pics/pending.png');
+	host.convertSelections.add('pics/save.png');
+	renderConversionActions(host);
+
+	const summary = byClass(host.contentEl, 'orphan-cleanup-convert-selection-summary')[0];
+	assert.ok(summary);
+	assert.match(summary.textContent, /已选：2 张 · 预计节省 60 B（1 张待估算）/);
 });

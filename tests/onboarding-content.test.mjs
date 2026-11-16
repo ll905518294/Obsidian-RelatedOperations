@@ -33,6 +33,13 @@ test('第三步包含 + 图标提示与开始扫描入口', () => {
 	assert.match(text, /开始扫描/);
 });
 
+test('第三步补充图片转换页签与关联笔记整理的入口', () => {
+	const text = ONBOARDING_STEPS[2].items.map((item) => item.text).join('\n');
+	// 图片转换是体检面板内的页签，关联笔记整理是独立入口（命令/侧栏图标）。
+	assert.match(text, /图片转换/);
+	assert.match(text, /整理关联笔记/);
+});
+
 test('首次安装只弹引导，升级只弹更新说明', () => {
 	assert.equal(decideStartupIntro('1.6.0', '', false), 'onboarding', '首次安装应弹引导');
 	assert.equal(decideStartupIntro('', '', false), 'none', '缺少版本时不弹');

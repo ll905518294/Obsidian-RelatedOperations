@@ -65,7 +65,7 @@ export async function estimateConversions(panel: CleanupConversionHost): Promise
 			if (panel.activeTab !== 'image-convert' || (now - lastPaint < 150 && progress.processed < progress.total)) return;
 			lastPaint = now;
 			panel.renderContents();
-		}, controller.signal);
+		}, controller.signal, panel.conversion.items);
 		panel.conversion.items = items;
 	} catch (error) {
 		new Notice(`估算失败：${reasonFor(error)}`);

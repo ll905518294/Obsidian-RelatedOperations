@@ -43,7 +43,7 @@ const { collectConvertibleImages, estimateConversions, normalizeImageConversionC
 
 function file(path, size = 100) {
 	const name = path.slice(path.lastIndexOf('/') + 1);
-	return { path, name, extension: name.slice(name.lastIndexOf('.') + 1), stat: { size } };
+	return { path, name, extension: name.slice(name.lastIndexOf('.') + 1), stat: { size, mtime: 1 } };
 }
 
 function fakeApp({
@@ -103,6 +103,8 @@ test('estimateConversions 给出尺寸、透明度、引用次数与编码后体
 		newBytes: 400,
 		hasAlpha: true,
 		referenceCount: 0,
+		sourceMtime: 1,
+		estimateKey: 'jpg|85|flatten',
 	}]);
 	assert.equal(progress.at(-1).processed, 1);
 	assert.equal(progress.at(-1).total, 1);
@@ -401,6 +403,94 @@ test('每张解码成功的图片都在编码结束后释放一次', async () =>
 			`释放必须发生在编码结束之后：${id}`,
 		);
 	}
+});
+
+test('估算结果按源文件与编码参数复用，未变化时不重复解码', async () => {
+	const files = [file('a.png', 100), file('b.png', 200)];
+	const app = fakeApp({ files });
+	let decodes = 0;
+	let encodes = 0;
+	const codec = {
+		decode: async () => {
+			decodes += 1;
+			return okImage(1200, 800);
+		},
+		encode: async () => {
+			encodes += 1;
+			return { ok: true, bytes: new ArrayBuffer(400) };
+		},
+	};
+
+	const first = await estimateConversions(app, files, config, codec);
+	const second = await estimateConversions(app, files, config, codec, undefined, undefined, first);
+
+	assert.equal(decodes, 2, '第二次估算不应重复解码');
+	assert.equal(encodes, 2, '第二次估算不应重复编码');
+	assert.deepEqual(second, first);
+});
+
+test('只有源文件变化的条目会重新估算', async () => {
+	const files = [file('a.png', 100), file('b.png', 200), file('c.png', 300)];
+	const app = fakeApp({ files });
+	let decodes = 0;
+	const codec = {
+		decode: async () => {
+			decodes += 1;
+			return okImage(1200, 800);
+		},
+		encode: async () => ({ ok: true, bytes: new ArrayBuffer(400) }),
+	};
+
+	const first = await estimateConversions(app, files, config, codec);
+	assert.equal(decodes, 3);
+	files[1].stat.mtime = 2;
+	const second = await estimateConversions(app, files, config, codec, undefined, undefined, first);
+
+	assert.equal(decodes, 4, '只应重新解码变化的 b.png');
+	assert.equal(second.find((item) => item.path === 'b.png').sourceMtime, 2);
+	assert.equal(second.find((item) => item.path === 'a.png').sourceMtime, 1);
+});
+
+test('编码参数变化后不再复用旧估算', async () => {
+	const files = [file('a.png', 100)];
+	const app = fakeApp({ files });
+	let decodes = 0;
+	const codec = {
+		decode: async () => {
+			decodes += 1;
+			return okImage(1200, 800);
+		},
+		encode: async () => ({ ok: true, bytes: new ArrayBuffer(400) }),
+	};
+
+	const first = await estimateConversions(app, files, config, codec);
+	const second = await estimateConversions(app, files, { ...config, quality: 90 }, codec, undefined, undefined, first);
+
+	assert.equal(decodes, 2, 'quality 变化必须重新解码/编码');
+	assert.equal(second[0].estimateKey, 'jpg|90|flatten');
+});
+
+test('解码阶段被阻断的条目也按条件复用', async () => {
+	const files = [file('alpha.png', 100)];
+	const app = fakeApp({ files });
+	let decodes = 0;
+	const codec = {
+		decode: async () => {
+			decodes += 1;
+			return okImage(1200, 800, true);
+		},
+		encode: async () => {
+			throw new Error('alpha-skip 不应编码');
+		},
+	};
+	const alphaSkip = { ...config, alpha: 'skip' };
+
+	const first = await estimateConversions(app, files, alphaSkip, codec);
+	assert.equal(first[0].blockedReason, 'alpha-skip');
+	const second = await estimateConversions(app, files, alphaSkip, codec, undefined, undefined, first);
+
+	assert.equal(decodes, 1, '阻断原因未变时不应重复解码');
+	assert.equal(second[0].blockedReason, 'alpha-skip');
 });
 
 test('collectConvertibleImages 只保留允许的源格式与可见目录', () => {

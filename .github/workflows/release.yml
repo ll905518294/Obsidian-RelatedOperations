@@ -37,9 +37,16 @@ jobs:
                   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
                   const versions = JSON.parse(readFileSync("versions.json", "utf8"));
                   const tag = process.env.RELEASE_TAG;
+                  const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-                  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(manifest.version)) {
+                  if (!semver.test(manifest.version)) {
                       throw new Error(`manifest.json version must be a SemVer value without a v prefix: ${manifest.version}`);
+                  }
+                  if (typeof manifest.id !== "string" || !/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?$/.test(manifest.id)) {
+                      throw new Error(`manifest.json id must be a valid Obsidian plugin id: ${JSON.stringify(manifest.id)}`);
+                  }
+                  if (typeof manifest.minAppVersion !== "string" || !semver.test(manifest.minAppVersion)) {
+                      throw new Error(`manifest.json minAppVersion must be a SemVer value: ${JSON.stringify(manifest.minAppVersion)}`);
                   }
                   if (pkg.version !== manifest.version) {
                       throw new Error(`package.json version ${pkg.version} must match manifest.json version ${manifest.version}`);
@@ -73,6 +80,12 @@ jobs:
                   packaged_version="$(unzip -p "$zip" manifest.json | jq -r .version)"
                   [ "$packaged_version" = "$version" ] \
                     || { echo "::error::ZIP manifest version $packaged_version does not match $version"; exit 1; }
+                  expected_entries=$'main.js\nmanifest.json'
+                  if [ -f styles.css ]; then expected_entries+=$'\nstyles.css'; fi
+                  expected_entries="$(printf '%s\n' "$expected_entries" | sort)"
+                  actual_entries="$(unzip -Z1 "$zip" | sort)"
+                  [ "$actual_entries" = "$expected_entries" ] \
+                    || { echo "::error::ZIP entries must be exactly main.js, manifest.json and optional styles.css; got: $(echo "$actual_entries" | tr '\n' ' ')"; exit 1; }
                   echo "PACKAGE_ZIP=$zip" >> "$GITHUB_ENV"
 
             - name: Check for optional styles

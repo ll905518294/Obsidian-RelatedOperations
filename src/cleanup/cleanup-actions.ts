@@ -1,6 +1,10 @@
 import { App, FileSystemAdapter, Notice, Platform, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { COMMON_IMAGE_EXTENSIONS, type CleanupResult } from './cleanup-types';
 
+const BYTES_PER_KILOBYTE = 1024;
+const BYTES_PER_MEGABYTE = BYTES_PER_KILOBYTE * 1024;
+const OPEN_FOLDER_FAILED_NOTICE = '打开文件夹失败。';
+
 export async function trashSelected(app: App, images: TFile[], folders: TFolder[]): Promise<CleanupResult> {
 	const result: CleanupResult = { deleted: [], skipped: [], failed: [] };
 	const moveToLocalTrash = app.fileManager.trashFile.bind(app.fileManager);
@@ -38,9 +42,9 @@ export function openInSystemFolder(app: App, item: TAbstractFile): void {
 		return;
 	}
 	const path = `${app.vault.adapter.getBasePath()}/${item.path}`;
-	if (item instanceof TFolder && electron.shell.openPath) void electron.shell.openPath(path).then((error) => { if (error) new Notice('打开文件夹失败。'); }, () => new Notice('打开文件夹失败。'));
+	if (item instanceof TFolder && electron.shell.openPath) void electron.shell.openPath(path).then((error) => { if (error) new Notice(OPEN_FOLDER_FAILED_NOTICE); }, () => new Notice(OPEN_FOLDER_FAILED_NOTICE));
 	else {
-		try { electron.shell.showItemInFolder(path); } catch { new Notice('打开文件夹失败。'); }
+		try { electron.shell.showItemInFolder(path); } catch { new Notice(OPEN_FOLDER_FAILED_NOTICE); }
 	}
 }
 
@@ -51,9 +55,9 @@ export function openFolderInVault(app: App, folder: TFolder): void {
 }
 
 export function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	if (bytes < BYTES_PER_KILOBYTE) return `${bytes} B`;
+	if (bytes < BYTES_PER_MEGABYTE) return `${(bytes / BYTES_PER_KILOBYTE).toFixed(1)} KB`;
+	return `${(bytes / BYTES_PER_MEGABYTE).toFixed(1)} MB`;
 }
 
 export function isImageFile(extension: string): boolean {

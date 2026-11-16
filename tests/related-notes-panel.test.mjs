@@ -1574,3 +1574,143 @@ test('refresh keeps selections for notes that still exist', () => {
 	assert.equal(el.querySelector('.related-operations-selection-summary').textContent, '已选 1 篇（跨标签页）：keep');
 	assert.ok(el.querySelectorAll('tr[data-related-path]').some((row) => row.dataset.relatedPath === 'dst/added.md'));
 });
+
+// Moving a note up into its parent folder and then down into a child folder
+// must use the real current path each time instead of assuming a fixed depth.
+test('moveFiles moves a note to its parent folder and into a child folder', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/sub/t.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, t] });
+	let result = await panel.moveFiles('dst', [t]);
+	assert.deepEqual(result.succeeded, ['dst/t.md']);
+	assert.equal(t.path, 'dst/t.md');
+	result = await panel.moveFiles('dst/sub/deep', [t]);
+	assert.deepEqual(result.succeeded, ['dst/sub/deep/t.md']);
+	assert.equal(t.path, 'dst/sub/deep/t.md');
+	assert.deepEqual(renamed, [
+		['dst/sub/t.md', 'dst/t.md'],
+		['dst/t.md', 'dst/sub/deep/t.md'],
+	]);
+});
+
+// Absolute, Windows-drive and dot-segment targets are outside the vault even
+// when they point at a plausible folder name.
+test('panel rejects absolute and dot-segment target folders', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	for (const target of ['C:/outside', 'archive/../outside', './archive', '..']) {
+		Notice.messages = [];
+		const { panel, el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+		const input = el.querySelector('.related-operations-target-folder');
+		input.value = target;
+		input.fire('input');
+		await panel.moveSelected();
+		assert.match(Notice.messages.at(-1), /vault 内/, `${target} 应被拒绝`);
+		assert.equal(t.path, 'dst/t.md');
+	}
+});
+
+// A batch can fail halfway and be retried with only the remaining notes. The
+// earlier successes must stay in the undo record instead of being overwritten
+// by the retry, otherwise the user can no longer restore the first batch.
+test('retrying after a partial batch keeps earlier successes undoable', async () => {
+	const a = file('src/a.md');
+	const good = file('dst/good.md');
+	const bad = file('dst/bad.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, good, bad] });
+	const rename = panel.app.fileManager.renameFile;
+	let failOnce = true;
+	panel.app.fileManager.renameFile = async (item, destination) => {
+		if (item.path === 'dst/bad.md' && failOnce) {
+			failOnce = false;
+			throw new Error('locked');
+		}
+		await rename(item, destination);
+	};
+	const first = await panel.moveFiles('archive', [good, bad]);
+	assert.deepEqual(first.succeeded, ['archive/good.md']);
+	assert.deepEqual(first.failed.map((item) => item.path), ['dst/bad.md']);
+	const retry = await panel.moveFiles('archive', [bad]);
+	assert.deepEqual(retry.succeeded, ['archive/bad.md']);
+	assert.deepEqual(panel.lastMove, [
+		{ from: 'dst/good.md', to: 'archive/good.md' },
+		{ from: 'dst/bad.md', to: 'archive/bad.md' },
+	]);
+	await panel.undoLastMove();
+	assert.equal(good.path, 'dst/good.md');
+	assert.equal(bad.path, 'dst/bad.md');
+	assert.deepEqual(panel.lastMove, []);
+	assert.deepEqual(renamed, [
+		['dst/good.md', 'archive/good.md'],
+		['dst/bad.md', 'archive/bad.md'],
+		['archive/bad.md', 'dst/bad.md'],
+		['archive/good.md', 'dst/good.md'],
+	]);
+});
+
+// Undo is idempotent: once everything is restored, pressing it again must not
+// emit a misleading result notice or touch any file.
+test('undoLastMove is a safe no-op after a successful undo', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, t] });
+	await panel.moveFiles('archive', [t]);
+	await panel.undoLastMove();
+	const renamedAfterFirstUndo = renamed.length;
+	Notice.messages = [];
+	await panel.undoLastMove();
+	assert.deepEqual(Notice.messages, []);
+	assert.equal(renamed.length, renamedAfterFirstUndo);
+	assert.equal(t.path, 'dst/t.md');
+});
+
+// A restore skipped because the original path was occupied must remain
+// retryable after the occupant is removed.
+test('undoLastMove retries a skipped restore once the original path is free', async () => {
+	const a = file('src/a.md');
+	const t1 = file('dst/t1.md');
+	const t2 = file('dst/t2.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, t1, t2] });
+	await panel.moveFiles('archive', [t1, t2]);
+	const occupant = file('dst/t2.md');
+	const files = panel.app.vault.getAllLoadedFiles();
+	files.push(occupant);
+	Notice.messages = [];
+	await panel.undoLastMove();
+	assert.match(Notice.messages.at(-1), /已跳过：1/);
+	assert.equal(t1.path, 'dst/t1.md');
+	assert.equal(t2.path, 'archive/t2.md');
+	assert.deepEqual(panel.lastMove, [{ from: 'dst/t2.md', to: 'archive/t2.md' }]);
+	files.splice(files.indexOf(occupant), 1);
+	await panel.undoLastMove();
+	assert.equal(t2.path, 'dst/t2.md');
+	assert.deepEqual(panel.lastMove, []);
+	assert.deepEqual(renamed.at(-1), ['archive/t2.md', 'dst/t2.md']);
+});
+
+// Group select-all is a toggle, and the explicit clear button must reset both
+// the checkboxes and the cross-tab summary without a re-render.
+test('select-all toggles off and clear selection resets counters', () => {
+	const a = file('src/a.md');
+	const t1 = file('dst/t1.md');
+	const t2 = file('dst/t2.md');
+	const { el } = panelFor([
+		{ file: t1, relation: 'outgoing', sourceFile: a },
+		{ file: t2, relation: 'outgoing', sourceFile: a },
+	], [a], { files: [a, t1, t2], settings: { groupingMode: 'none', hideCompliant: false } });
+	const summary = () => el.querySelector('.related-operations-selection-summary').textContent;
+	const boxes = () => el.querySelectorAll('tr[data-related-path] input[type="checkbox"]');
+	const selectAll = () => el.querySelector('.related-operations-select-all');
+	selectAll().fire('click');
+	assert.deepEqual(boxes().map((box) => box.checked), [true, true]);
+	assert.equal(summary(), '已选 2 篇（跨标签页）');
+	selectAll().fire('click');
+	assert.deepEqual(boxes().map((box) => box.checked), [false, false]);
+	assert.equal(summary(), '已选 0 篇（跨标签页）');
+	boxes()[0].checked = true;
+	boxes()[0].fire('change');
+	assert.equal(summary(), '已选 1 篇（跨标签页）：t1');
+	el.querySelectorAll('.related-operations-list-toolbar button').find((button) => button.textContent === '清空选择').fire('click');
+	assert.deepEqual(boxes().map((box) => box.checked), [false, false]);
+	assert.equal(summary(), '已选 0 篇（跨标签页）');
+});

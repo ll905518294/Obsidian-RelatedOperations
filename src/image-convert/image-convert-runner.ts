@@ -14,7 +14,7 @@ import {
 	type ImageReferenceSourceKind,
 } from './image-convert-links.ts';
 
-export interface ConversionFile {
+interface ConversionFile {
 	path: string;
 	extension: string;
 	stat: { size: number; mtime: number };
@@ -41,14 +41,14 @@ export interface ConversionApp {
 	};
 }
 
-export interface ConversionItem {
+interface ConversionItem {
 	path: string;
 	size: number;
 	mtime?: number;
 	targetPath?: string;
 }
 
-export interface ConversionOptions {
+interface ConversionOptions {
 	target: ImageConvertTarget;
 	quality?: number;
 	signal?: AbortSignal;
@@ -56,20 +56,20 @@ export interface ConversionOptions {
 	alpha?: 'flatten' | 'skip';
 }
 
-export interface ConvertedImage {
+interface ConvertedImage {
 	path: string;
 	newPath: string;
 	oldBytes: number;
 	newBytes: number;
 }
 
-export interface ConversionSkip {
+interface ConversionSkip {
 	path: string;
 	reason: string;
 	reasonText: string;
 }
 
-export interface ConversionFailure extends ConversionSkip {
+interface ConversionFailure extends ConversionSkip {
 	canRetryTrash?: boolean;
 	newPath?: string;
 }
@@ -135,8 +135,6 @@ export async function runImageConversion(
 		activeRun = false;
 	}
 }
-
-export const runImageConversions = runImageConversion;
 
 async function execute(
 	app: ConversionApp,

@@ -29,6 +29,7 @@ import {
 	stripExtension,
 } from './image-reference-path.ts';
 
+// 分析层复用解析结果与路径判定；同一篇内容可对多个目标复用，避免重复解析。
 export function analyzeReferenceContent(
 	content: string,
 	oldPath: string,
@@ -309,7 +310,7 @@ function countParsedMentions(
 	return count;
 }
 
-export function emptyImageContentAnalysis(error?: string): ImageContentAnalysis {
+function emptyImageContentAnalysis(error?: string): ImageContentAnalysis {
 	return {
 		liveRefs: 0,
 		textMentions: 0,

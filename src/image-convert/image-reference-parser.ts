@@ -22,6 +22,7 @@ import {
 	wikiTarget,
 } from './image-reference-path.ts';
 
+// 解析层只依赖类型层与路径工具；输出内容局部事实，不读取 vault。
 const WIKI_PATTERN = /(!?)\[\[([^\]\n]+)\]\]/g;
 const MARKDOWN_LINK_PATTERN = /!?\[[^\x5D\n]*\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\n]*\))+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
 const HTML_IMG_PATTERN = /<img\b[^>]*>/gi;

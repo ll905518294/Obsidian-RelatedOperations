@@ -1,5 +1,6 @@
 import type { CachedMetadata } from 'obsidian';
 
+// 无依赖的共享类型层；运行时代码不得从这里之外反向导入。
 export type ImageReferenceSourceKind = 'markdown' | 'canvas';
 
 export type ImageReferenceBlockReason =
@@ -95,7 +96,7 @@ export interface Range {
 export type PathStyle = 'absolute' | 'basename' | 'relative' | 'vault';
 export type RewriteKind = 'canvas' | 'markdown';
 
-export interface WikiSpanInfo {
+interface WikiSpanInfo {
 	alias: string;
 	bang: boolean;
 	originalTarget: string;

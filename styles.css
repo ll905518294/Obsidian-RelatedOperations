@@ -1176,10 +1176,6 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	border-left: 3px solid var(--interactive-accent);
 }
 
-.orphan-cleanup-dashboard-item.is-scanning {
-	border-left-color: var(--interactive-accent);
-}
-
 .orphan-cleanup-dashboard-icon {
 	display: grid;
 	place-items: center;
@@ -1880,6 +1876,11 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	font-weight: 500;
 }
 
+.orphan-cleanup-convert-pending-summary {
+	margin-top: 0.4rem;
+	color: var(--text-muted);
+}
+
 .orphan-cleanup-convert-toolbar-count {
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
@@ -1996,6 +1997,11 @@ button.is-armed-confirm.mod-warning:focus-visible {
 .orphan-cleanup-convert-delta.is-skipped {
 	color: var(--ro-warning-text);
 	background: color-mix(in srgb, var(--text-warning) 10%, var(--background-primary));
+}
+
+.orphan-cleanup-convert-delta.is-pending {
+	color: var(--text-muted);
+	background: var(--background-secondary);
 }
 
 .orphan-cleanup-convert-status {

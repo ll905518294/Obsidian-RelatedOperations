@@ -11,6 +11,7 @@ import {
 } from './image-reference-analysis.ts';
 import { createMatcher, wikiBodyReplacement } from './image-reference-path.ts';
 
+// 改写编排层：先复用分析判定，再一次性重写；不反向依赖扫描模块。
 export function rewriteImageReferences(
 	content: string,
 	oldPath: string,

@@ -107,3 +107,12 @@ test('图片转换设置组定义目标格式、质量与透明图处理三项',
 		.map((item) => item.control.key);
 	assert.deepEqual(keys.sort(), ['imageConversion.alpha', 'imageConversion.quality', 'imageConversion.target']);
 });
+
+test('图片转换设置组用说明条目交代源格式在页面内设置', () => {
+	const { tab } = makeTab();
+	const groups = tab.getSettingDefinitions().filter((item) => item.type === 'group');
+	const conversion = groups.find((item) => item.heading === '图片转换默认配置');
+	const note = conversion.items.find((item) => !item.control && /源格式/.test(item.desc ?? ''));
+	assert.ok(note, '应有说明源格式在页面内设置的条目');
+	assert.ok(note.name, '说明条目应有标题');
+});

@@ -24,6 +24,7 @@
 - 列表勾选框不套 `label`：窄屏 44×44 命中区来自 `input[type="checkbox"]` 自己的边框盒（`box-sizing: content-box`，content 30px + 7px 透明边框），可见文本由 `aria-labelledby` 关联。`associateCheckbox()` 只负责给可见文本设 id 并回填 `aria-labelledby`，不改动勾选框的父节点。
 - 清理表格必须设整表 `min-width`（普通表 460px、重复文件表 660px）：窄视口下「勾选 44px + 操作 145px」这些固定列会把中间列压到 0，改由 `.orphan-cleanup-scroll` 横向滚动。
 - 体检缓存写入 `data.json` 前必须序列化成纯数据（`src/cleanup/cleanup-cache.ts`，`CLEANUP_CACHE_VERSION = 2`）：只保留路径与 `size`/`mtime`，读取时按路径重新解析成 `TFile`/`TFolder`；转换候选 `convertibleImages` 永远写空，估算结果不落盘。旧缓存或已删除文件由 `restoreCleanupCandidates` 逐项校验后丢弃，不能让面板崩溃。
+- 图片转换默认值来自 `DEFAULT_IMAGE_CONVERSION`（`src/cleanup/cleanup-types.ts`）：源格式只含 PNG、目标 JPG、质量 85、透明图白底；设置页只暴露目标格式/默认质量/透明图处理三项，源格式只在页面内勾选。改默认值时要同步 `tests/settings-defaults.test.mjs` 与 README。
 - 截图流程：演示库 `vault-doctor-demo` 含合成数据，但图片转换会真实改写文件并清空原图，因此转换类截图必须在**临时复制件**里拍摄（复制目录可同名以保持界面左下角库名一致）；截图用窗口客户区抓屏，保持 1920×1032。切换 Vault 前先备份 `obsidian.json`（位于用户配置目录的 `obsidian` 文件夹），拍完恢复备份并重启回真实库。
 
 ## 已验证结论
@@ -38,7 +39,7 @@
 - 影响与注意事项：代码改动至少运行相关测试；发布前运行构建、打包与部署预检。测试条数随并行开发变化，不应把某个具体数字当作长期事实。
 
 ### 体检清理面板架构（OrphanCleanupPanel）
-- 事实：`OrphanCleanupPanel` 与 `OrphanCleanupModal` 位于 `src/cleanup/cleanup-panel.ts`；`src/orphan-cleanup.ts` 是再导出入口，`src/orphan-cleanup-view.ts` 提供工作区 `ItemView` 宿主。面板使用多 Tab 结构（overview/images/attachments/broken-links/native-links/broken-note-links/wiki-links/empty-files/folders/duplicates）；`image-convert`（图片转换）由 `tabEntries()` 追加在标签条末尾，不属于 `CLEANUP_CATEGORIES`，因此不计入 9 类体检问题与首页总数。
+- 事实：`OrphanCleanupPanel` 与 `OrphanCleanupModal` 位于 `src/cleanup/cleanup-panel.ts`；`src/orphan-cleanup.ts` 是再导出入口，`src/orphan-cleanup-view.ts` 提供工作区 `ItemView` 宿主。面板使用多 Tab 结构（overview/images/attachments/broken-links/native-links/broken-note-links/wiki-links/empty-files/folders/duplicates）；`image-convert`（图片转换）由 `tabEntries()` 追加在标签条末尾，不属于 `CLEANUP_CATEGORIES`，因此不计入 9 类体检问题与 6 阶段扫描；首页用独立卡片展示，有可转换候选时计入「当前待处理」总数，全量扫描不包含图片转换，进入页签只枚举候选、不解码。
 - 每个 Tab 有独立的 selection Set：`selections`（文件类）、`linkSelections`（失效图片链接）、`nativeSelections`（原生链接）、`noteLinkSelections`（失效笔记链接）、`duplicateSelections`（重复文件）。
 - 多选模式统一模式：声明 Set → scan() 中 clear → renderList() 中添加 addSelectionControls → 每行 checkbox → renderActions() 和 updateSelectionSummary() 处理该 Tab。
 - 注意事项：nested 对象（如 DuplicateFileGroup.files）需显式 `.map(f => f.path)` 转成 string 再 add 到 Set，否则 TypeScript 类型报错。

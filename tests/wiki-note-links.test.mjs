@@ -257,3 +257,21 @@ test('converted markdown link is reported as broken once the target is removed',
 	assert.equal(broken[0].linkPath, 'a.md');
 	assert.equal(broken[0].syntax, 'markdown');
 });
+
+// Conversion writes the note before the metadata cache catches up. Replaying
+// the old cached link against the converted content must be a no-op rather
+// than matching a second copy of the same text elsewhere in the note.
+test('replaying a stale cache after conversion leaves converted markdown untouched', () => {
+	const content = '前 [[a]] 后 [[a]]';
+	const firstStart = content.indexOf('[[a]]');
+	const secondStart = content.indexOf('[[a]]', firstStart + 1);
+	const first = replaceWikiNoteLinks(content, [link('[[a]]', 'a.md', firstStart)]);
+	assert.equal(first.converted, 1);
+	const second = replaceWikiNoteLinks(first.content, [link('[[a]]', 'a.md', firstStart)]);
+	assert.equal(second.converted, 0);
+	assert.equal(second.skipped, 1);
+	assert.equal(second.content, first.content);
+	const stillWiki = replaceWikiNoteLinks(first.content, [link('[[a]]', 'a.md', secondStart)]);
+	assert.equal(stillWiki.converted, 0, '偏移已随第一次替换移动，旧缓存不能误改后面的链接');
+	assert.equal(stillWiki.content, first.content);
+});

@@ -4,14 +4,15 @@
 
 ## 状态
 - 更新时间：2026-11-17
-- 当前状态：**待发布 1.8.0**。`manifest.json`、`package.json`、`package-lock.json`、`versions.json` 已统一为 `1.8.0`（`versions.json` 映射 `"1.8.0": "1.13.0"`）；最新正式 release 仍是 **1.7.0**（2026-11-16T17:07Z，核实为非 draft/pre-release、资产含三件套），1.8.0 的 tag 与 release 尚未创建。仓库为公开的 `obsidian-vault-doctor`；README 含 11 张截图（新增 `09-image-convert.png`、`10-image-convert-result.png`），历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`。
+- 当前状态：**待发布 1.8.0**。`manifest.json`、`package.json`、`package-lock.json`、`versions.json` 已统一为 `1.8.0`（`versions.json` 映射 `"1.8.0": "1.13.0"`）；最新正式 release 仍是 **1.7.0**（2026-11-16T17:07Z，核实为非 draft/pre-release、资产含三件套），1.8.0 的 tag 与 release 尚未创建。仓库为公开的 `obsidian-vault-doctor`；README 含 11 张截图（新增 `09-image-convert.png`、`10-image-convert-result.png`），历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`。阶段二的文档与发布链路优化（R29–R32）已完成，未提交、未打 tag。
 
 ## 当前任务
 - 1.8.0 发版准备（未提交、未打 tag）：CHANGELOG 已写 1.8.0 正式条目（性能/新功能/优化/修复/测试/文档），并补入并行线程落地的缓存序列化 v2、哈希/编解码内存上限、关联笔记键盘可达；`src/update-intro-content.ts` 已加 1.8.0 中文说明，弹窗标题为「Vault Doctor · 1.8.0 · 全面提速与安装包」；README 功能总览补充扫描中止、上次扫描时间戳、性能与键盘/读屏能力，图片转换章节已配图。
+- 阶段二（R29–R32）：README 已同步「首页图片转换卡片」「按需估算与估算/转换进度」「设置页图片转换默认配置」，并更正「图片转换不计入首页总数」的旧说法与估算并发数（普通 4 路、单张 ≥8 MB 单通道）；CHANGELOG 补并发提速、按需估算、首页卡片、设置默认值、HTML 实体引用修复，测试基线改为 609（本机实测）；`PROJECT_MEMORY.md` 同步图片转换的首页计数与默认值约定。release workflow 新增 manifest id / minAppVersion 校验与 ZIP 条目名复核（只允许 `main.js`、`manifest.json` 与可选 `styles.css`），原有 tag/package/versions 一致性与 `--verify-tag` 保留。
 - 截图：`docs/images/09-image-convert.png`（候选列表 + 汇总条）与 `10-image-convert-result.png`（转换完成提示 + 最近一次转换）已于 2026-11-17 在演示库的临时复制件中实拍（1920×1032），正式演示库未被转换动作改动；已恢复 `obsidian.json` 并重启回真实库。
 - 版本来源：`npm version 1.8.0 --no-git-tag-version` 触发 `version-bump.mjs`，四份清单文件统一；未 git commit、未打 tag。
-- 安装包：上一轮（缓存修复后）`dist/vault-doctor-1.8.0.zip` 为 376049 字节、SHA-256 `481D4F2D5B7BD23DD228F27EEA0D6B5BFE086F692202B6F8A3EFBF257B5323E7`，该结果已被并行线程改动取代；发版前需在所有线程收口后重新 `npm run build` 并连跑两次 `npm run package` 记录新的大小与 SHA-256。当前 `npm run package:check` 通过，ZIP 名为 `vault-doctor-1.8.0.zip`。
-- 验证基线（2026-11-17 本机实测）：`npm test` **571 通过 / 0 失败**；`npm run package:check`、`npm run test:deploy` 通过。`npm run lint` 当前 1 error（`src/duplicate-files.ts:288`，`@typescript-eslint/no-unsafe-assignment`，属并行线程未收口改动）与 1 条既有 warning（`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）。
+- 安装包（2026-11-17 阶段二实测）：`npm run build` 后连跑两次 `npm run package`，`dist/vault-doctor-1.8.0.zip` 均为 380165 字节，SHA-256 `0FAC4DE5A4C5D5150A4445BB45C4ACDD2245F47A280FBEB85CC1AAB7775F30C2`；ZIP 根层条目为 `main.js` 662394、`manifest.json` 282、`styles.css` 53569。后续源码再改动需重打并更新该值。
+- 验证基线（2026-11-17 本机实测）：`npm test` **609 通过 / 0 失败**；`npm run build`、`npm run lint` 通过（lint 0 error、1 条既有 warning：`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）；`npm run package:check`、`npm run test:deploy` 通过；两份 workflow YAML 解析通过，1.8.0 版本闸门本地复跑通过、`v1.8.0` 负例被拒绝。
 
 ## 2026-11-15 第五轮：界面与可访问性审计（已完成）
 - 方法：解包官方 `obsidian-1.15.1.asar` 的 `app.css`（SHA-256 已核对一致），叠加用户实际生效的 Border 主题与插件 `styles.css`，在 ego lite/Chromium 中按 740/500/320 三档 × 浅深两主题复现 12 个场景；DOM 由 `gen-markup.mjs` 调用插件真实渲染函数生成，测量全部来自 `getBoundingClientRect` 与 `getComputedStyle`。
@@ -25,7 +26,7 @@
 - 社区市场尚未提交：`community-plugins.json` 中 `vault-doctor` / `Vault Doctor` 未被占用，manifest 与 release 均合规。提交入口已从 PR 改为网页表单：用 Obsidian 账号登录 <https://community.obsidian.md/> → 在 Profile → GitHub 选择 **Connect** 绑定 GitHub → **Plugins → New plugin** 填仓库 URL。目录读取默认分支 HEAD 的 `manifest.json`，并要求存在 tag 与 `version` 一致的正式 release（manifest 已升到 `1.8.0`，需先发布 tag=1.8.0 的正式 release 才满足）。此前为走 PR 旧流程准备的 fork 分支 `add-vault-doctor` 已无用途（它仍留在 fork `ll905518294/obsidian-releases` 上，核实于 2026-11-15；可忽略，需要时可删除该 fork）。
 - 第五轮的对比度与布局测量是在 ego lite/Chromium 仿真里完成的（官方 `app.css` + Border 主题 + 插件 `styles.css`），尚未在真实 Obsidian 内核里复现；截图存于本机 visualizations 归档目录，命名 `vault-doctor-r5-*`。
 - `01-dashboard.png`、`02-scan-result.png` 仍是含 9 分类的旧取景，未把标签条滚到末尾的「图片转换」；该页签已由 `09`/`10` 单独覆盖，不视为缺口。
-- release workflow 的 ZIP 步骤只在本地用 YAML 解析与 `npm run package` 验证过，尚未在 GitHub Actions 实跑（本机无 bash/jq）；首次推送 tag 后需确认 release 资产含 `vault-doctor-<版本号>.zip`。
+- release workflow 的 ZIP 与新增条目复核只在本地用 YAML 解析、版本闸门复跑与 `npm run package` 验证过，尚未在 GitHub Actions 实跑（本机无 bash/jq）；首次推送 tag 后需确认 release 资产含 `vault-doctor-<版本号>.zip`，且 workflow 在 `unzip -Z1` 条目比较处通过。
 
 ## 关键上下文
 - 相关文件：`AGENTS.md`、`PROJECT_MEMORY.md`、`CHANGELOG.md`、`docs/`

@@ -29,6 +29,9 @@ import {
 	stripExtension,
 } from './image-reference-path.ts';
 
+// 扫描编排层：唯一负责读取 vault；解析与分析保持纯函数，便于批量复用。
+const IMAGE_MISSING_REASON_TEXT = '图片文件不存在';
+
 export async function findImageReferences(
 	app: ImageReferenceApp,
 	sourcePath: string,
@@ -36,7 +39,7 @@ export async function findImageReferences(
 ): Promise<ImageReferenceScanResult> {
 	const files = app.vault.getFiles();
 	if (!files.some((file) => file.path === sourcePath)) {
-		return { ok: false, reason: 'unsupported-source', reasonText: '图片文件不存在' };
+		return { ok: false, reason: 'unsupported-source', reasonText: IMAGE_MISSING_REASON_TEXT };
 	}
 	const allPaths = files.map((file) => file.path);
 	const sites: ImageReferenceSite[] = [];
@@ -80,7 +83,7 @@ export async function findImageReferencesBatch(
 	const totals = new Map<string, { liveRefs: number; textMentions: number }>();
 	for (const target of targets) {
 		if (!files.some((file) => file.path === target)) {
-			results.set(target, { ok: false, reason: 'unsupported-source', reasonText: '图片文件不存在' });
+			results.set(target, { ok: false, reason: 'unsupported-source', reasonText: IMAGE_MISSING_REASON_TEXT });
 			continue;
 		}
 		results.set(target, { ok: true, sites: [], totalLiveRefs: 0, totalTextMentions: 0 });

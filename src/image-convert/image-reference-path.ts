@@ -1,7 +1,10 @@
 import { isCaseSensitiveFileSystem } from '../core-utils.ts';
 import type { PathStyle, ReferenceSpan, RewriteKind } from './image-reference-types.ts';
 
+// 路径层只依赖类型层：负责链接文本归一化、目标识别与安全渲染。
 const EXTERNAL_LINK_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+const ENCODED_SPACE_HEX = '20';
+const ENCODED_SPACE = '%20';
 
 export function createMatcher(
 	oldPath: string,
@@ -23,9 +26,9 @@ export function createMatcher(
 				: relativePath(dirname(sourcePath), newPath);
 			if (/%[0-9a-f]{2}/i.test(parsed.path)) {
 				const escapes = [...parsed.path.matchAll(/%([0-9a-f]{2})/gi)].map((match) => match[1]!.toLowerCase());
-				rendered = escapes.some((escape) => escape !== '20')
+				rendered = escapes.some((escape) => escape !== ENCODED_SPACE_HEX)
 					? encodeURI(rendered)
-					: rendered.replace(/ /g, '%20');
+					: rendered.replace(/ /g, ENCODED_SPACE);
 			}
 			rendered += parsed.suffix;
 			return parsed.bracketed ? `<${rendered}>` : rendered;
@@ -94,7 +97,7 @@ export function wikiBodyReplacement(span: ReferenceSpan, newPath: string, source
 	return `${wiki.bang ? '!' : ''}[${text}](${destination})`;
 }
 
-export function parseRawTarget(rawTarget: string): { bracketed: boolean; path: string; suffix: string } | null {
+function parseRawTarget(rawTarget: string): { bracketed: boolean; path: string; suffix: string } | null {
 	let value = rawTarget.trim();
 	if (!value) return null;
 	let bracketed = false;
@@ -107,7 +110,7 @@ export function parseRawTarget(rawTarget: string): { bracketed: boolean; path: s
 	return { bracketed, path, suffix };
 }
 
-export function splitSubpath(value: string): { path: string; suffix: string } {
+function splitSubpath(value: string): { path: string; suffix: string } {
 	const hash = value.indexOf('#');
 	const query = value.indexOf('?');
 	const indexes = [hash, query].filter((index) => index >= 0).sort((left, right) => left - right);
@@ -161,7 +164,7 @@ function resolveRelative(sourcePath: string, target: string): string {
 	return resolved.join('/');
 }
 
-export function relativePath(fromDirectory: string, target: string): string {
+function relativePath(fromDirectory: string, target: string): string {
 	const from = fromDirectory ? fromDirectory.split('/').filter(Boolean) : [];
 	const to = target.split('/').filter(Boolean);
 	let common = 0;
@@ -170,7 +173,7 @@ export function relativePath(fromDirectory: string, target: string): string {
 	return up.concat(to.slice(common)).join('/') || basename(target);
 }
 
-export function dirname(path: string): string {
+function dirname(path: string): string {
 	const index = path.lastIndexOf('/');
 	return index >= 0 ? path.slice(0, index) : '';
 }
@@ -204,7 +207,7 @@ export function safeDecode(value: string): string {
 	}
 }
 
-export function rawReferenceVariants(oldPath: string, caseSensitive: boolean): string[] {
+function rawReferenceVariants(oldPath: string, caseSensitive: boolean): string[] {
 	const variants = new Set<string>();
 	const add = (value: string) => {
 		const trimmed = value.trim();

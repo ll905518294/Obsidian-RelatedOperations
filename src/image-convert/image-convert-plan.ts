@@ -1,12 +1,9 @@
 export type ImageConvertTarget = 'jpg' | 'webp' | 'png';
-export type ImageSourceFormat = 'png' | 'jpg' | 'webp' | 'bmp' | 'avif';
-
-export const SOURCE_IMAGE_FORMATS: readonly ImageSourceFormat[] = ['png', 'jpg', 'webp', 'bmp', 'avif'];
-export const TARGET_IMAGE_FORMATS: readonly ImageConvertTarget[] = ['jpg', 'webp', 'png'];
+type ImageSourceFormat = 'png' | 'jpg' | 'webp' | 'bmp' | 'avif';
 
 const SOURCE_EXTENSIONS = new Set<string>(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'avif']);
 
-export interface ImageConvertCandidate {
+interface ImageConvertCandidate {
 	path: string;
 	size: number;
 	projectedBytes?: number;
@@ -19,7 +16,7 @@ export interface ImageConvertPlanItem {
 	targetPath: string;
 }
 
-export interface ImageConvertSummary {
+interface ImageConvertSummary {
 	count: number;
 	totalBytes: number;
 	projectedBytes: number;
@@ -27,21 +24,21 @@ export interface ImageConvertSummary {
 	savingPercent: number;
 }
 
-export interface ImageConvertPlanOptions {
+interface ImageConvertPlanOptions {
 	targetExists?: (path: string) => boolean;
 	existingPaths?: Iterable<string>;
 	caseSensitive?: boolean;
 	projectBytes?: (file: ImageConvertCandidate) => number | undefined;
 }
 
-export interface ImageConvertPlan {
+interface ImageConvertPlan {
 	target: ImageConvertTarget;
 	items: ImageConvertPlanItem[];
 	skipped: Array<{ path: string; reason: string; reasonText: string }>;
 	summary: ImageConvertSummary;
 }
 
-export function normalizeImageExtension(extension: string): string {
+function normalizeImageExtension(extension: string): string {
 	const value = extension.trim().replace(/^\./, '').toLowerCase();
 	return value === 'jpeg' ? 'jpg' : value;
 }

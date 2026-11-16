@@ -1,4 +1,4 @@
-export const CONFIRM_ARM_TIMEOUT_MS = 3000;
+const CONFIRM_ARM_TIMEOUT_MS = 3000;
 
 const ARMED_CLASS = 'is-armed-confirm';
 const CONFIRM_LABEL = '确认删除';

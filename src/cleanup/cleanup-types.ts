@@ -85,6 +85,10 @@ export interface ConvertibleImage {
 	hasAlpha: boolean;
 	referenceCount: number;
 	blockedReason?: string;
+	// 估算时的源文件 mtime 与编码参数签名：再次估算时据此复用结果，
+	// 源文件或 target/quality/alpha 任一变化都必须重算。
+	sourceMtime?: number;
+	estimateKey?: string;
 }
 
 export type ImageConversionProgress = { processed: number; total: number; currentPath?: string };

@@ -85,7 +85,20 @@ function isBusy(state: ImageConversionState): boolean {
 	return state.estimating || state.converting;
 }
 
+/**
+ * 该项是否已完成体积估算。
+ * blocked 项要么被跳过、要么因无法安全改写而不会转换，不算「待估算」；
+ * 非 blocked 且 newBytes 缺失/为 0/非数字 的都视为还没算出来（界面显示等待估算占位）。
+ * newBytes 在类型上仍是必填，但按需估算的改造里渲染层必须容忍缺失，避免把
+ * 「未估算」误当成「转换后 0 字节」而误算节省量或误标跳过。
+ */
+function isEstimated(item: ConvertibleImage): boolean {
+	if (isBlocked(item)) return false;
+	return typeof item.newBytes === 'number' && Number.isFinite(item.newBytes) && item.newBytes > 0;
+}
+
 function savings(item: ConvertibleImage): number {
+	if (!isEstimated(item)) return 0;
 	return item.oldBytes - item.newBytes;
 }
 
@@ -95,6 +108,7 @@ function formatPercent(ratio: number): string {
 }
 
 function changePercent(item: ConvertibleImage): number {
+	if (!isEstimated(item)) return 0;
 	return item.oldBytes > 0 ? Math.abs(savings(item)) / item.oldBytes * 100 : 0;
 }
 
@@ -222,8 +236,11 @@ export function renderProgress(host: CleanupViewContext, container: HTMLElement)
 }
 
 function renderSummary(state: ImageConversionState, container: HTMLElement) {
-	const convertable = state.items.filter((item) => !isBlocked(item));
+	// 只有「已估算且未 blocked」的项才有真实的体积变化；未估算项不参与节省量统计，
+	// 避免把「还没算」显示成「转换后 0 B」或虚高/虚低的节省。
+	const convertable = state.items.filter((item) => !isBlocked(item) && isEstimated(item));
 	const blocked = state.items.filter(isBlocked);
+	const pending = state.items.filter((item) => !isBlocked(item) && !isEstimated(item)).length;
 	const oldBytes = convertable.reduce((total, item) => total + item.oldBytes, 0);
 	const newBytes = convertable.reduce((total, item) => total + item.newBytes, 0);
 	const saved = oldBytes - newBytes;
@@ -232,12 +249,19 @@ function renderSummary(state: ImageConversionState, container: HTMLElement) {
 	const summary = container.createDiv({ cls: 'orphan-cleanup-convert-summary' });
 	summary.setAttribute('role', 'status');
 	summary.setAttribute('aria-live', 'polite');
-	summary.createDiv({ text: `候选 ${state.items.length} 张 · 当前 ${formatBytes(oldBytes)} · 转换后约 ${formatBytes(newBytes)} · ${verb} ${formatBytes(Math.abs(saved))}（${formatPercent(percent)}%）` });
+	const pendingNote = pending > 0 ? ` · ${pending} 张待估算` : '';
+	summary.createDiv({ text: `候选 ${state.items.length} 张 · 当前 ${formatBytes(oldBytes)} · 转换后约 ${formatBytes(newBytes)} · ${verb} ${formatBytes(Math.abs(saved))}（${formatPercent(percent)}%）${pendingNote}` });
 	if (blocked.length) {
 		const reasons = [...new Set(blocked.map((item) => describeBlockedReason(item.blockedReason)))];
 		summary.createDiv({
 			cls: 'orphan-cleanup-convert-skipped-summary',
 			text: `另有 ${blocked.length} 张将跳过${reasons.length ? `（${reasons.join('、')}）` : ''}`,
+		});
+	}
+	if (pending > 0) {
+		summary.createDiv({
+			cls: 'orphan-cleanup-convert-pending-summary',
+			text: `${pending} 张图片尚未估算，点击「扫描并估算」估算这些图片的体积后再选择。`,
 		});
 	}
 }
@@ -283,6 +307,7 @@ function renderConfig(host: CleanupViewContext, container: HTMLElement, toolbar:
 function renderSelectionToolbar(host: CleanupViewContext, toolbar: HTMLElement) {
 	const state = host.conversion;
 	const selection = conversionSelections(host);
+	// 未估算项没有真实体积，不能计入「可节省」；只有已估算且确实省体积的才算。
 	const savingsCount = state.items.filter((item) => savings(item) > 0 && !isBlocked(item)).length;
 	const selectSavings = toolbar.createEl('button', { text: '全选可节省项', cls: 'orphan-cleanup-convert-select-savings' });
 	selectSavings.disabled = isBusy(state) || savingsCount === 0;
@@ -358,15 +383,22 @@ function renderRow(host: CleanupViewContext, body: HTMLElement, item: Convertibl
 	formatBadge.createSpan({ text: '→', cls: 'orphan-cleanup-convert-format-arrow' });
 	formatBadge.createSpan({ text: String(host.conversion.target).toUpperCase(), cls: 'orphan-cleanup-convert-format-target' });
 
-	const skippedRow = isBlocked(item) || item.newBytes === 0;
-	row.createEl('td', { text: skippedRow ? '—' : `${item.width} × ${item.height}`, cls: 'orphan-cleanup-convert-dimensions' });
+	// 三态：已估算（显示体积变化）、blocked（跳过）、未估算（显示占位，等待估算）。
+	const blockedRow = isBlocked(item);
+	const pendingRow = !blockedRow && !isEstimated(item);
 	row.createEl('td', {
-		text: skippedRow ? `${formatBytes(item.oldBytes)} → —` : `${formatBytes(item.oldBytes)} → ${formatBytes(item.newBytes)}`,
+		text: blockedRow || pendingRow ? '—' : `${item.width} × ${item.height}`,
+		cls: 'orphan-cleanup-convert-dimensions',
+	});
+	row.createEl('td', {
+		text: blockedRow ? `${formatBytes(item.oldBytes)} → —` : pendingRow ? `${formatBytes(item.oldBytes)} → …` : `${formatBytes(item.oldBytes)} → ${formatBytes(item.newBytes)}`,
 		cls: 'orphan-cleanup-convert-size',
 	});
 	const delta = row.createEl('td', { cls: 'orphan-cleanup-convert-delta-cell' });
-	if (skippedRow) {
+	if (blockedRow) {
 		delta.createSpan({ text: '跳过', cls: 'orphan-cleanup-convert-delta is-skipped' });
+	} else if (pendingRow) {
+		delta.createSpan({ text: '待估算', cls: 'orphan-cleanup-convert-delta is-pending' });
 	} else {
 		const saved = savings(item);
 		const change = item.oldBytes === 0
@@ -382,6 +414,7 @@ function renderRow(host: CleanupViewContext, body: HTMLElement, item: Convertibl
 	const status = row.createEl('td', { cls: 'orphan-cleanup-convert-status' });
 	if (item.hasAlpha) status.createSpan({ text: '透明', cls: 'orphan-cleanup-convert-badge is-alpha' });
 	if (item.blockedReason) status.createSpan({ text: `跳过：${describeBlockedReason(item.blockedReason)}`, cls: 'orphan-cleanup-convert-blocked-reason' });
+	else if (pendingRow) status.createSpan({ text: '待估算', cls: 'orphan-cleanup-convert-ready' });
 	else if (!item.hasAlpha) status.createSpan({ text: '可转换', cls: 'orphan-cleanup-convert-ready' });
 }
 
@@ -392,12 +425,14 @@ export function updateConversionSelectionSummary(host: CleanupViewContext, targe
 	const selection = conversionSelections(host);
 	const selected = host.conversion.items.filter((item) => selection.has(item.path) && !isBlocked(item));
 	const saved = selected.reduce((total, item) => total + savings(item), 0);
+	const pending = selected.filter((item) => !isEstimated(item)).length;
 	if (selected.length === 0) {
 		summary.setText('已选：0 张');
 	} else if (saved < 0) {
 		summary.setText(`已选：${selected.length} 张 · 预计增加 ${formatBytes(Math.abs(saved))}`);
 	} else {
-		summary.setText(`已选：${selected.length} 张 · 预计节省 ${formatBytes(saved)}`);
+		const pendingNote = pending > 0 ? `（${pending} 张待估算）` : '';
+		summary.setText(`已选：${selected.length} 张 · 预计节省 ${formatBytes(saved)}${pendingNote}`);
 	}
 	const start = host.contentEl.querySelector<HTMLButtonElement>('.orphan-cleanup-convert-start');
 	if (start) {

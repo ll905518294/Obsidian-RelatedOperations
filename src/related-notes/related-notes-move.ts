@@ -150,7 +150,10 @@ export async function moveFiles(
 		}
 	}
 	if (result.moved.length > 0) {
-		host.setLastMove(result.moved);
+		// A partial batch is commonly retried with only the failed notes. Keep
+		// the earlier successes in the undo record so a retry cannot silently
+		// orphan them; undoing restores every batch in reverse order.
+		host.setLastMove([...host.lastMove(), ...result.moved]);
 		host.updateUndoButton();
 	}
 	return result;

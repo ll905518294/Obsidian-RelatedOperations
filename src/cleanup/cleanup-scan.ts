@@ -348,8 +348,11 @@ export async function estimateConversions(
 	codec: ImageCodec,
 	onProgress?: (progress: ImageConversionProgress) => void,
 	signal?: AbortSignal,
+	previousItems?: ConvertibleImage[],
 ): Promise<ConvertibleImage[]> {
 	const normalized = normalizeImageConversionConfig(config);
+	const estimateKey = conversionEstimateKey(normalized);
+	const reusable = new Map((previousItems ?? []).map((item) => [item.path, item]));
 	const total = files.length;
 	// plan 统一处理目标冲突、大小写归一化与同格式；结果直接作为预标记。
 	const plan = planImageConversions(
@@ -385,7 +388,7 @@ export async function estimateConversions(
 				if (signal?.aborted) return;
 				const file = lane[next++];
 				if (!file) return;
-				items.push(await estimateOneImage(app, file, normalized, codec, planned.get(file.path), planSkipped.get(file.path), referenceScans.get(file.path), encodeLargeImage));
+				items.push(await estimateOneImage(app, file, normalized, codec, planned.get(file.path), planSkipped.get(file.path), referenceScans.get(file.path), encodeLargeImage, estimateKey, reusable.get(file.path)));
 				processed += 1;
 				onProgress?.({ processed, total, currentPath: file.path });
 				// 中止后不再领取新文件，但已开始的编码会自然结束并被计入结果。
@@ -402,6 +405,11 @@ export async function estimateConversions(
 	return items.filter((item) => item.blockedReason !== 'same-format').sort((a, b) => a.path.localeCompare(b.path));
 }
 
+// 只包含影响编码结果的参数；源格式列表只决定候选范围，不改变同一文件的编码体积。
+function conversionEstimateKey(config: ImageConversionConfig): string {
+	return `${config.target}|${config.quality}|${config.alpha}`;
+}
+
 async function estimateOneImage(
 	app: App,
 	file: TFile,
@@ -411,6 +419,8 @@ async function estimateOneImage(
 	planBlockedReason: string | undefined,
 	precomputed: ImageReferenceScanResult | undefined,
 	encodeLargeImage: <T>(task: () => Promise<T>) => Promise<T>,
+	estimateKey: string,
+	cached: ConvertibleImage | undefined,
 ): Promise<ConvertibleImage> {
 	const extension = file.extension.toLowerCase();
 	const base: ConvertibleImage = {
@@ -434,6 +444,23 @@ async function estimateOneImage(
 	}
 	if (planBlockedReason) return { ...base, blockedReason: planBlockedReason };
 	if (!planned) return { ...base, blockedReason: 'unsupported-source' };
+	// 估算结果复用：源文件未变（size+mtime）且编码参数未变时，跳过最贵的
+	// 读文件、解码与重编码；引用数量与计划阻断原因仍按本次扫描结果更新。
+	if (cached && cached.width > 0 && cached.estimateKey === estimateKey
+		&& cached.oldBytes === base.oldBytes && cached.sourceMtime !== undefined
+		&& cached.sourceMtime === file.stat?.mtime) {
+		const reused: ConvertibleImage = {
+			...base,
+			width: cached.width,
+			height: cached.height,
+			hasAlpha: cached.hasAlpha,
+			newBytes: cached.newBytes,
+			sourceMtime: cached.sourceMtime,
+			estimateKey,
+		};
+		if (cached.blockedReason !== undefined) reused.blockedReason = cached.blockedReason;
+		return reused;
+	}
 	let data: ArrayBuffer;
 	try {
 		data = await app.vault.readBinary(file);
@@ -451,7 +478,14 @@ async function estimateOneImage(
 	try {
 		const width = Math.max(0, Math.round(image.width));
 		const height = Math.max(0, Math.round(image.height));
-		const sized: ConvertibleImage = { ...base, width, height, hasAlpha: Boolean(image.hasAlpha) };
+		const sized: ConvertibleImage = {
+			...base,
+			width,
+			height,
+			hasAlpha: Boolean(image.hasAlpha),
+			sourceMtime: file.stat?.mtime,
+			estimateKey,
+		};
 		if (!isWithinPixelLimit(width, height)) return { ...sized, blockedReason: '分辨率超过 40MP' };
 		// “跳过透明图”对所有目标格式一致；选白底时 JPG 恒白底，WebP/PNG 也按白底估算体积。
 		if (config.alpha === 'skip' && sized.hasAlpha) return { ...sized, blockedReason: 'alpha-skip' };
