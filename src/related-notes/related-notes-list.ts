@@ -8,6 +8,7 @@ import {
 	parentFolder,
 	relatedKey,
 	relationExplanation,
+	relationExplanationText,
 	sortForDisplay,
 	uniqueCount,
 } from './related-notes-model';
@@ -225,7 +226,7 @@ export function renderList(host: RelatedNotesListHost) {
 		if (host.merging()) {
 			const relationCell = row.createEl('td', { cls: 'related-operations-relation' });
 			relationCell.createSpan({
-				text: host.showSourceColumn ? mergedRelationLabel(notes) : relationExplanation(note),
+				text: host.showSourceColumn ? mergedRelationLabel(notes) : relationExplanationText(note),
 				cls: 'related-operations-relation-main',
 			});
 			relationCell.title = notes.map((item) => `${item.sourceFile.path}：${relationExplanation(item)}`).join('\n');
@@ -237,7 +238,7 @@ export function renderList(host: RelatedNotesListHost) {
 			}
 		} else {
 			const relationCell = row.createEl('td', {
-				text: host.showSourceColumn ? relationLabel(note.relation) : relationExplanation(note),
+				text: host.showSourceColumn ? relationLabel(note.relation) : relationExplanationText(note),
 				cls: 'related-operations-relation',
 			});
 			relationCell.title = relationExplanation(note);

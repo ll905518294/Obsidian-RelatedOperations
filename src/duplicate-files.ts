@@ -63,7 +63,9 @@ export async function findDuplicateFiles(
 		}
 	}
 	const bySize = new Map<number, TFile[]>();
+	const snapshot = new Map<TFile, { size: number; mtime: number }>();
 	for (const file of files) {
+		snapshot.set(file, { size: file.stat.size, mtime: file.stat.mtime });
 		const group = bySize.get(file.stat.size) ?? [];
 		group.push(file);
 		bySize.set(file.stat.size, group);
@@ -88,6 +90,14 @@ export async function findDuplicateFiles(
 	for (const [index, file] of candidates.entries()) {
 		const result = hashes[index];
 		if (!result) continue;
+		// 文件在扫描期间被删除或改名后，旧路径不再是候选；改名会更新同一个
+		// TFile 的 path，因此仍然按当前路径收录。
+		if (!stillPresent(app, file)) continue;
+		const before = snapshot.get(file)!;
+		if (file.stat.size !== before.size || file.stat.mtime !== before.mtime) {
+			warnings.push({ path: file.path, reason: '文件内容已变化，请重新扫描' });
+			continue;
+		}
 		if (!result.ok) {
 			warnings.push({ path: file.path, reason: errorMessage(result.error, '无法读取文件内容') });
 			continue;
@@ -113,11 +123,22 @@ function hashConcurrency(candidates: TFile[]): number {
 	return Math.max(1, Math.min(HASH_CONCURRENCY, Math.floor(HASH_BYTE_BUDGET / largest)));
 }
 
+function stillPresent(app: App, file: TFile): boolean {
+	if (typeof app.vault.getAbstractFileByPath !== 'function') return true;
+	const current = app.vault.getAbstractFileByPath(file.path);
+	if (current === file) return true;
+	// 宿主索引与 getFiles 短暂不一致时，只要文件仍在列表里就保留。
+	return !current && app.vault.getFiles().some((candidate) => candidate === file);
+}
+
 export async function removeFileReferencesForFiles(app: App, filePaths: Iterable<string>): Promise<{ removed: number; failed: string[] }> {
 	const targets = new Set(filePaths);
 	let removed = 0;
 	const failed: string[] = [];
 	for (const source of app.vault.getMarkdownFiles()) {
+		// 源笔记本身就在删除列表里时，清理它的引用没有意义；更关键的是，
+		// 改写会让它不再等于扫描时的重复内容，破坏“按旧哈希删除”的前提。
+		if (targets.has(source.path)) continue;
 		const cache = app.metadataCache.getFileCache(source);
 		const references: Array<{ original: string; link: string; position: { start: { offset: number }; end: { offset: number } } }> = [];
 		const matched = new Map<string, number>();

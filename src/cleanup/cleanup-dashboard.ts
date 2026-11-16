@@ -43,7 +43,10 @@ export function updateScanProgress(view: CleanupViewContext) {
 	// 进度百分比每个 tick 都变，逐条播报会刷屏；只播报阶段级里程碑。
 	if (view.scanning) announceStatus(view.contentEl, `正在扫描：${label}`);
 	else if (view.lastScanAborted) announceStatus(view.contentEl, '扫描已中止，已保留已完成的分类结果');
-	else if (view.hasScanned) announceStatus(view.contentEl, `扫描完成，共 ${categoryTotal(view.candidates)} 项待处理`);
+	else if (view.lastScanError) {
+		// 部分分类失败时不能播报「扫描完成」，否则屏幕阅读器会误导。
+		announceStatus(view.contentEl, '扫描未完成，部分分类结果已保留');
+	} else if (view.hasScanned) announceStatus(view.contentEl, `扫描完成，共 ${categoryTotal(view.candidates)} 项待处理`);
 }
 
 function categoryScanStage(tab: ScanCategoryTab): number {

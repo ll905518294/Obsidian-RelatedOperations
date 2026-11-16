@@ -1,8 +1,8 @@
-import { App, TFile, TFolder } from 'obsidian';
+import { App, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { forEachWithConcurrency, hasHiddenPathSegment, isCaseSensitiveFileSystem, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens } from '../core-utils';
 export { forEachWithConcurrency };
 import { findVaultLinkScans, type VaultLinkScans } from './link-scans';
-import { findDuplicateFiles } from '../duplicate-files';
+import { findDuplicateFiles, type DuplicateFileGroup } from '../duplicate-files';
 import { isWithinPixelLimit, type ImageCodec } from '../image-convert/image-codec';
 import { findImageReferences, findImageReferencesBatch, type ImageReferenceScanResult } from '../image-convert/image-convert-links';
 import { planImageConversions, type ImageConvertPlanItem } from '../image-convert/image-convert-plan';
@@ -43,6 +43,7 @@ export function collectCleanupFileSets(app: App, imageExtensions: string, ignore
 
 export async function findCleanupCandidates(app: App, imageExtensions: string, ignoredFoldersValue = '', onProgress?: (progress: ScanProgress) => void, checkLinksAndDuplicates = true, onCategoryComplete?: (tabs: ScanCategoryTab[], results: Partial<CleanupCandidates>) => void, signal?: AbortSignal): Promise<CleanupCandidates> {
 	throwIfAborted(signal);
+	const presence = createPresence(app);
 	const { extensions, ignoredFolders, visibleFiles, images, attachments } = collectCleanupFileSets(app, imageExtensions, ignoredFoldersValue);
 	onProgress?.({ stage: 0, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	const referenced = new Set<string>();
@@ -76,22 +77,25 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	// flagged as orphans.
 	await markFilesReferencedByText(app, [...images, ...attachments], referenced, (processed, total, currentFile) => onProgress?.({ stage: 2, processed, total, currentFile }), signal);
 	throwIfAborted(signal);
-	const orphanImages = images.filter((file) => !referenced.has(file.path)).sort(byPath);
-	const orphanAttachments = attachments.filter((file) => !referenced.has(file.path)).sort(byPath);
+	// 扫描期间用户可能删除或改名文件；发布前按当前库状态剔除，避免面板
+	// 展示已经不存在的路径，或在稍后清理时对旧路径报错。
+	const orphanImages = pruneStillPresent(presence, images.filter((file) => !referenced.has(file.path))).sort(byPath);
+	const orphanAttachments = pruneStillPresent(presence, attachments.filter((file) => !referenced.has(file.path))).sort(byPath);
 	onCategoryComplete?.(['images', 'attachments'], {
 		images: orphanImages,
 		attachments: orphanAttachments,
 	});
 	throwIfAborted(signal);
-	const emptyFiles = (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }), signal)).filter((file) => !referenced.has(file.path));
-	const folders = findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
+	const emptyFiles = pruneStillPresent(presence, (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }), signal)).filter((file) => !referenced.has(file.path)));
+	const folders = pruneStillPresent(presence, findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders)).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
 	onProgress?.({ stage: 3, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	onCategoryComplete?.(['empty-files', 'folders'], { emptyFiles, folders });
 	throwIfAborted(signal);
 	onProgress?.({ stage: 4, processed: 0, total: 1 });
-	const linkScans: VaultLinkScans = checkLinksAndDuplicates
+	const scannedLinks: VaultLinkScans = checkLinksAndDuplicates
 		? findVaultLinkScans(app, imageExtensions)
 		: { brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], wikiLinks: [] };
+	const linkScans = pruneLinkScans(app, presence, scannedLinks);
 	const { brokenLinks, nativeLinks, brokenNoteLinks, wikiLinks } = linkScans;
 	onCategoryComplete?.(['broken-links', 'native-links', 'broken-note-links'], { brokenLinks, nativeLinks, brokenNoteLinks });
 	onCategoryComplete?.(['wiki-links'], { wikiLinks });
@@ -99,19 +103,32 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	onProgress?.({ stage: 5, processed: 0, total: 1 });
 	throwIfAborted(signal);
 	const duplicateResult = checkLinksAndDuplicates ? await findDuplicateFiles(app, ignoredFoldersValue, (progress) => onProgress?.({ stage: 5, ...progress }), signal) : { groups: [], warnings: [] };
-	onCategoryComplete?.(['duplicates'], { duplicates: duplicateResult.groups, duplicateWarnings: duplicateResult.warnings });
+	const duplicates = pruneDuplicateGroups(app, presence, duplicateResult.groups);
+	const duplicateWarnings = duplicateResult.warnings.filter((warning) => stillExists(presence, warning.path));
+	onCategoryComplete?.(['duplicates'], { duplicates, duplicateWarnings });
 	throwIfAborted(signal);
+	// 分类是边扫边发布的；返回前再校验一次，覆盖发布之后到收尾之间发生
+	// 的删除/新建，保证面板最终落盘的结果与当前库一致。
+	const finalImages = pruneStillPresent(presence, orphanImages);
+	const finalAttachments = pruneStillPresent(presence, orphanAttachments);
+	const finalEmptyFiles = pruneStillPresent(presence, emptyFiles);
+	const finalLinks = pruneLinkScans(app, presence, linkScans);
+	const finalDuplicates = pruneDuplicateGroups(app, presence, duplicates);
+	const finalWarnings = duplicateWarnings.filter((warning) => stillExists(presence, warning.path));
+	// 空文件夹是纯内存推导，收尾时重算一次，覆盖扫描期间新建/删除文件
+	// 导致目录从“空”变成“非空”的窗口。
+	const finalFolders = pruneStillPresent(presence, findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders)).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
 	return {
-		images: orphanImages,
-		attachments: orphanAttachments,
-		emptyFiles,
-		folders,
-		brokenLinks,
-		nativeLinks,
-		brokenNoteLinks,
-		wikiLinks,
-		duplicates: duplicateResult.groups,
-		duplicateWarnings: duplicateResult.warnings,
+		images: finalImages,
+		attachments: finalAttachments,
+		emptyFiles: finalEmptyFiles,
+		folders: finalFolders,
+		brokenLinks: finalLinks.brokenLinks,
+		nativeLinks: finalLinks.nativeLinks,
+		brokenNoteLinks: finalLinks.brokenNoteLinks,
+		wikiLinks: finalLinks.wikiLinks,
+		duplicates: finalDuplicates,
+		duplicateWarnings: finalWarnings,
 		convertibleImages: [],
 	};
 }
@@ -127,7 +144,13 @@ export async function findEmptyFiles(files: TFile[], imageExtensions: Set<string
 		if (extension === 'canvas') return;
 		if (file.stat.size === 0 && !imageExtensions.has(extension) && !COMMON_IMAGE_EXTENSIONS.has(extension)) { result.push(file); return; }
 		if (extension !== 'md') return;
-		const content = await app.vault.cachedRead(file);
+		let content: string;
+		try {
+			content = await app.vault.cachedRead(file);
+		} catch {
+			// 文件在扫描期间被删除或暂时不可读；不能据此判断它是空文件。
+			return;
+		}
 		if (isFrontmatterOnly(content)) result.push(file);
 	});
 	return result.sort(byPath);
@@ -172,11 +195,24 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 	for (let start = 0; start < markdownFiles.length; start += BATCH) {
 		throwIfAborted(signal);
 		const batch = markdownFiles.slice(start, start + BATCH);
-		const contents = await Promise.all(batch.map((file) => app.vault.cachedRead(file)));
+		// 单篇笔记读取失败（扫描期间被删除、被外部程序占用）不应中断整次扫描。
+		const contents = await Promise.all(batch.map(async (file) => {
+			try {
+				return await app.vault.cachedRead(file);
+			} catch {
+				return null;
+			}
+		}));
 		throwIfAborted(signal);
 		for (const [offset, content] of contents.entries()) {
 			const file = batch[offset]!;
 			onProgress?.(start + offset + 1, markdownFiles.length, file.path);
+			if (content === null) {
+				// 读不到内容的笔记可能引用任意图片；保守地把尚未确认的条目
+				// 全部视为被引用，宁可漏报也不产生可删除的误报。
+				for (const path of [...unresolved]) markReferenced(path);
+				return;
+			}
 			for (const token of pathLikeTokens(content)) markToken(token);
 			if (exoticNames.length) {
 				// Lowercase once per note instead of once per exotic file name.
@@ -195,6 +231,70 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 
 function throwIfAborted(signal?: AbortSignal): void {
 	if (signal?.aborted) throw new CleanupScanAbortedError();
+}
+
+/*
+ * 扫描是多阶段、可中止的；用户可能在任意阶段删除、改名或新建文件。
+ * 结果发布前统一按当前库状态校验。宿主没有提供查询 API 时（测试桩）
+ * 不做剔除；索引与 getFiles 短暂不一致时，只要文件仍在列表里就保留。
+ */
+function createPresence(app: App) {
+	const supported = typeof app.vault.getAbstractFileByPath === 'function';
+	const at = (path: string): TAbstractFile | null | undefined => (supported ? app.vault.getAbstractFileByPath(path) : undefined);
+	return {
+		file(item: TAbstractFile): boolean {
+			const current = at(item.path);
+			if (current === undefined || current === item) return true;
+			if (current) return false;
+			return app.vault.getFiles().some((file) => file === item);
+		},
+		path(path: string): boolean {
+			const current = at(path);
+			if (current === undefined) return true;
+			if (current) return true;
+			return app.vault.getFiles().some((file) => file.path === path);
+		},
+		at,
+	};
+}
+
+type Presence = ReturnType<typeof createPresence>;
+
+function pruneStillPresent<T extends TAbstractFile>(presence: Presence, items: T[]): T[] {
+	return items.filter((item) => presence.file(item));
+}
+
+function stillExists(presence: Presence, path: string): boolean {
+	return presence.path(path);
+}
+
+function pruneLinkScans(app: App, presence: Presence, scans: VaultLinkScans): VaultLinkScans {
+	const brokenNow = (link: { sourcePath: string; linkPath: string }) => stillExists(presence, link.sourcePath)
+		&& !app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath);
+	return {
+		brokenLinks: scans.brokenLinks.filter(brokenNow),
+		brokenNoteLinks: scans.brokenNoteLinks.filter(brokenNow),
+		// 未解析的原生嵌入本来就带 reason 展示；只剔除“扫描时还能解析、
+		// 收尾时目标已被删除”的条目。
+		nativeLinks: scans.nativeLinks.filter((link) => stillExists(presence, link.sourcePath)
+			&& (!link.file || !!app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath))),
+		wikiLinks: scans.wikiLinks.filter((link) => stillExists(presence, link.sourcePath)
+			&& !!app.metadataCache.getFirstLinkpathDest(link.linkPath, link.sourcePath)),
+	};
+}
+
+function pruneDuplicateGroups(app: App, presence: Presence, groups: DuplicateFileGroup[]): DuplicateFileGroup[] {
+	const stillMatches = (file: DuplicateFileGroup['files'][number]) => {
+		const current = presence.at(file.path);
+		if (current === undefined) return true;
+		if (!current) return presence.path(file.path);
+		if ('children' in current) return false;
+		const stat = (current as { stat?: { size: number; mtime: number } }).stat;
+		return !!stat && stat.size === file.size && stat.mtime === file.mtime;
+	};
+	return groups
+		.map((group) => ({ ...group, files: group.files.filter(stillMatches) }))
+		.filter((group) => group.files.length > 1);
 }
 
 /*

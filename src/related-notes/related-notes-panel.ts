@@ -121,6 +121,18 @@ export class RelatedNotesPanel {
 		this.renderActions();
 	}
 
+	/** 重新读取当前元数据缓存，保留目标文件夹与仍有效的勾选。 */
+	refreshRelations() {
+		const scrollTop = this.containerEl.querySelector<HTMLElement>('.related-operations-table-scroll')?.scrollTop ?? 0;
+		this.recomputeRelatedNotes();
+		const nextScroll = this.containerEl.querySelector<HTMLElement>('.related-operations-table-scroll');
+		if (nextScroll) nextScroll.scrollTop = scrollTop;
+	}
+
+	hasRelatedPath(path: string) {
+		return this.relatedNotes.some((note) => note.file.path === path);
+	}
+
 	private renderSelectedSourceSummary(container: HTMLElement) {
 		if (this.sourceCount === 1) {
 			const selectedSource = container.createDiv({ cls: 'related-operations-selected-sources is-single' });

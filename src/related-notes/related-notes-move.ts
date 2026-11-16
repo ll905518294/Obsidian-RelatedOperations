@@ -6,6 +6,8 @@ import {
 	formatMoveResult,
 	isAlreadyAtTarget,
 	parentFolder,
+	targetFolderStatus,
+	type MoveFailure,
 	type MoveRecord,
 	type MoveResult,
 } from './related-notes-model';
@@ -27,6 +29,11 @@ export async function moveSelected(host: RelatedNotesMoveHost) {
 	const targetFolder = finalTarget(host.targetFolder());
 	if (!targetFolder || !isVaultRelativePath(targetFolder)) {
 		new Notice('请输入 vault 内的目标文件夹。');
+		return;
+	}
+	const targetCheck = targetFolderStatus(host.app, targetFolder);
+	if (targetCheck.state === 'blocked') {
+		new Notice(`目标路径中的「${targetCheck.blocker}」是文件，无法创建文件夹；请改用其他文件夹名，或先把该文件移走。`);
 		return;
 	}
 	const selected = [...host.selections().entries()]
@@ -111,10 +118,18 @@ export async function moveFiles(
 	// list is O(files × selected) and stalls large batches. Our own renames keep
 	// the index in sync, so two selected files never overwrite each other.
 	const paths = createPathIndex(host.app);
+	const targetCheck = targetFolderStatus(host.app, targetFolder);
+	if (targetCheck.state === 'blocked') {
+		result.failed.push(targetIsFileFailure(targetFolder, targetCheck.blocker ?? targetFolder));
+		return result;
+	}
 	try {
 		await ensureFolder(host.app, targetFolder, (created) => paths.add(created));
 	} catch {
-		result.failed.push({ path: targetFolder, reason: '无法创建或访问目标文件夹' });
+		const recheck = targetFolderStatus(host.app, targetFolder);
+		result.failed.push(recheck.state === 'blocked'
+			? targetIsFileFailure(targetFolder, recheck.blocker ?? targetFolder)
+			: otherFolderFailure(targetFolder));
 		return result;
 	}
 	for (const file of selected) {
@@ -131,8 +146,7 @@ export async function moveFiles(
 			result.succeeded.push(file.path);
 			result.moved.push({ from: previousPath, to: destination });
 		} catch (error) {
-			const reason = error instanceof Error ? error.message : '未知错误';
-			result.failed.push({ path: file.path, reason });
+			result.failed.push(renameFailure(file.path, error, paths.has(destination)));
 		}
 	}
 	if (result.moved.length > 0) {
@@ -140,6 +154,50 @@ export async function moveFiles(
 		host.updateUndoButton();
 	}
 	return result;
+}
+
+function targetIsFileFailure(path: string, blocker: string): MoveFailure {
+	return {
+		path,
+		reason: `目标路径中的「${blocker}」是文件`,
+		kind: 'target-is-file',
+		nextStep: '请改用其他文件夹名，或先把该文件移走。',
+	};
+}
+
+function otherFolderFailure(path: string): MoveFailure {
+	return {
+		path,
+		reason: '无法创建或访问目标文件夹',
+		kind: 'other',
+		nextStep: '请检查文件夹名称和写入权限后重试。',
+	};
+}
+
+function renameFailure(path: string, error: unknown, destinationExists: boolean): MoveFailure {
+	const message = error instanceof Error ? error.message : '未知错误';
+	if (destinationExists || /eexist|already exists|已存在/i.test(message)) {
+		return {
+			path,
+			reason: '目标位置已有同名笔记',
+			kind: 'exists',
+			nextStep: '请改用其他目标文件夹，或先重命名冲突笔记。',
+		};
+	}
+	if (/eacces|eperm|permission|access (is )?denied|denied|权限|只读|拒绝/i.test(message)) {
+		return {
+			path,
+			reason: '没有目标文件夹的写入权限',
+			kind: 'permission',
+			nextStep: '请检查文件夹权限后重试，或改用其他文件夹。',
+		};
+	}
+	return {
+		path,
+		reason: message,
+		kind: 'other',
+		nextStep: '请稍后重试；若持续失败，请检查目标文件夹是否可写。',
+	};
 }
 
 function createPathIndex(app: App) {

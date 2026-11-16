@@ -9,6 +9,7 @@ export class RelatedNotesView extends ItemView {
 	private sourcePaths: string[] = [];
 	private mergeTargetView = false;
 	private panel?: RelatedNotesPanel;
+	private refreshTimer?: number;
 
 	constructor(
 		leaf: import('obsidian').WorkspaceLeaf,
@@ -48,6 +49,9 @@ export class RelatedNotesView extends ItemView {
 	}
 
 	async onOpen() {
+		this.registerEvent(this.app.metadataCache.on('changed', (file) => {
+			if (this.isRelevantChange(file.path)) this.scheduleRefresh();
+		}));
 		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
 			let changed = false;
 			this.sourcePaths = this.sourcePaths.map((path) => {
@@ -58,21 +62,46 @@ export class RelatedNotesView extends ItemView {
 				}
 				return path;
 			});
-			if (!changed) return;
+			if (!changed) {
+				if (this.panel?.hasRelatedPath(oldPath)) this.scheduleRefresh();
+				return;
+			}
 			this.renderPanel();
 		}));
 		this.registerEvent(this.app.vault.on('delete', (file) => {
 			const previousLength = this.sourcePaths.length;
 			this.sourcePaths = this.sourcePaths.filter((path) => path !== file.path && !(file instanceof TFolder && path.startsWith(`${file.path}/`)));
-			if (this.sourcePaths.length === previousLength) return;
+			if (this.sourcePaths.length === previousLength) {
+				if (this.panel?.hasRelatedPath(file.path)) this.scheduleRefresh();
+				return;
+			}
 			this.renderPanel();
 		}));
 		this.renderPanel();
 	}
 
 	async onClose() {
+		if (this.refreshTimer !== undefined) {
+			window.clearTimeout(this.refreshTimer);
+			this.refreshTimer = undefined;
+		}
 		this.panel = undefined;
 		this.contentEl.empty();
+	}
+
+	private scheduleRefresh() {
+		if (this.refreshTimer !== undefined) window.clearTimeout(this.refreshTimer);
+		this.refreshTimer = window.setTimeout(() => {
+			this.refreshTimer = undefined;
+			this.panel?.refreshRelations();
+		}, 400);
+	}
+
+	private isRelevantChange(path: string) {
+		if (this.sourcePaths.includes(path)) return true;
+		if (this.panel?.hasRelatedPath(path)) return true;
+		const destinations = this.app.metadataCache.resolvedLinks[path];
+		return destinations ? Object.keys(destinations).some((target) => this.sourcePaths.includes(target)) : false;
 	}
 
 	private renderPanel() {

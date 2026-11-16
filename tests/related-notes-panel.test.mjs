@@ -203,6 +203,20 @@ async function moveSelectedConfirmed(panel) {
 	await moving;
 }
 
+async function openMoveConfirmation(panel) {
+	globalThis.__openModals = [];
+	const moving = panel.moveSelected();
+	const modal = globalThis.__openModals.at(-1);
+	assert.ok(modal, '确认弹窗应打开');
+	return {
+		modal,
+		close: async () => {
+			modal.contentEl.querySelectorAll('button').find((button) => button.textContent === '取消').fire('click');
+			await moving;
+		},
+	};
+}
+
 test('tab counts dedupe a note that appears from multiple sources', () => {
 	const a = file('src/a.md');
 	const b = file('src/b.md');
@@ -906,7 +920,12 @@ test('moveFiles fails cleanly when the target path is an existing file', async (
 	const { panel, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
 	const result = await panel.moveFiles('dst/t.md', [t]);
 	assert.deepEqual(result.succeeded, []);
-	assert.deepEqual(result.failed, [{ path: 'dst/t.md', reason: '无法创建或访问目标文件夹' }]);
+	assert.deepEqual(result.failed, [{
+		path: 'dst/t.md',
+		reason: '目标路径中的「dst/t.md」是文件',
+		kind: 'target-is-file',
+		nextStep: '请改用其他文件夹名，或先把该文件移走。',
+	}]);
 	assert.deepEqual(renamed, []);
 	assert.equal(t.path, 'dst/t.md');
 });
@@ -988,6 +1007,79 @@ test('grouping and hide preferences survive recreating the view from saved setti
 	assert.equal(view.contentEl.querySelectorAll('tr[data-related-path]').length, 1, '源笔记状态也必须随视图状态恢复');
 });
 
+// Reopening the same view or switching its source must recompute relations from
+// the current metadata cache; an already-open leaf must never show stale rows.
+test('reopening or switching sources rescans instead of reusing stale relations', async () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const old = file('dst/old.md');
+	const fresh = file('dst/new.md');
+	const fromB = file('src/from-b.md');
+	const { app } = makeApp([a, b, old, fresh, fromB], {
+		'src/a.md': { 'dst/old.md': 1 },
+		'src/b.md': { 'src/from-b.md': 1 },
+	});
+	const view = new RelatedNotesView({ app }, { groupingMode: 'none', hideCompliant: false }, async () => {});
+	const paths = () => view.contentEl.querySelectorAll('tr[data-related-path]').map((row) => row.dataset.relatedPath);
+	await view.setState({ sourcePaths: ['src/a.md'], mergeTargetView: false }, { history: false });
+	assert.deepEqual(paths(), ['dst/old.md']);
+	app.metadataCache.resolvedLinks['src/a.md'] = { 'dst/new.md': 1 };
+	await view.setState({ sourcePaths: ['src/a.md'], mergeTargetView: false }, { history: false });
+	assert.deepEqual(paths(), ['dst/new.md'], '同一来源重新打开时必须重新扫描');
+	await view.setState({ sourcePaths: ['src/b.md'], mergeTargetView: false }, { history: false });
+	assert.deepEqual(paths(), ['src/from-b.md'], '切换源笔记时必须换成新来源的关联结果');
+});
+
+// A view that stays open must also track metadata changes, otherwise edits in a
+// split pane leave the relation list stale until the command is run again.
+test('metadata changes refresh an open view without resetting the target folder', async () => {
+	const a = file('src/a.md');
+	const old = file('dst/old.md');
+	const fresh = file('dst/new.md');
+	const changes = [];
+	const vaultHandlers = {};
+	const files = [a, old, fresh];
+	const app = {
+		metadataCache: {
+			resolvedLinks: { 'src/a.md': { 'dst/old.md': 1 } },
+			getFileCache: () => ({}),
+			on: (event, callback) => { changes.push(callback); return callback; },
+		},
+		vault: {
+			getAbstractFileByPath: (path) => files.find((item) => item.path === path) ?? null,
+			getAllLoadedFiles: () => files,
+			createFolder: async () => {},
+			on: (event, callback) => { vaultHandlers[event] = callback; return callback; },
+		},
+		fileManager: { renameFile: async () => {} },
+		workspace: { openLinkText: async () => {}, requestSaveLayout: async () => {} },
+	};
+	const view = new RelatedNotesView({ app }, { groupingMode: 'none', hideCompliant: false }, async () => {});
+	await view.onOpen();
+	await view.setState({ sourcePaths: ['src/a.md'], mergeTargetView: false }, { history: false });
+	const rows = () => view.contentEl.querySelectorAll('tr[data-related-path]').map((row) => row.dataset.relatedPath);
+	assert.deepEqual(rows(), ['dst/old.md']);
+	const input = view.contentEl.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	view.contentEl.querySelector('.related-operations-table-scroll').scrollTop = 120;
+	app.metadataCache.resolvedLinks['src/a.md'] = { 'dst/new.md': 1 };
+	changes[0](a);
+	await new Promise((resolve) => setTimeout(resolve, 450));
+	assert.deepEqual(rows(), ['dst/new.md']);
+	assert.equal(view.contentEl.querySelector('.related-operations-target-folder').value, 'archive', '自动刷新不得重置目标文件夹');
+	assert.equal(view.contentEl.querySelector('.related-operations-table-scroll').scrollTop, 120, '自动刷新应保留滚动位置');
+	changes[0](file('other/unrelated.md'));
+	await new Promise((resolve) => setTimeout(resolve, 450));
+	assert.deepEqual(rows(), ['dst/new.md'], '无关笔记变化不应触发重新扫描');
+	files.splice(files.indexOf(fresh), 1);
+	delete app.metadataCache.resolvedLinks['src/a.md'];
+	vaultHandlers.delete(fresh);
+	await new Promise((resolve) => setTimeout(resolve, 450));
+	assert.deepEqual(rows(), [], '删除关联笔记后打开中的视图应自动刷新');
+	await view.onClose();
+});
+
 // Vault paths may contain Chinese characters and spaces; every segment must be
 // created verbatim before the rename so the note lands in the real folder.
 test('moveFiles creates Chinese and spaced folder segments before renaming', async () => {
@@ -1013,7 +1105,12 @@ test('moveFiles fails cleanly when a nested target segment is an existing file',
 	const result = await panel.moveFiles('archive/2026/q4', [t]);
 	assert.deepEqual(result.succeeded, []);
 	assert.deepEqual(result.moved, []);
-	assert.deepEqual(result.failed, [{ path: 'archive/2026/q4', reason: '无法创建或访问目标文件夹' }]);
+	assert.deepEqual(result.failed, [{
+		path: 'archive/2026/q4',
+		reason: '目标路径中的「archive/2026」是文件',
+		kind: 'target-is-file',
+		nextStep: '请改用其他文件夹名，或先把该文件移走。',
+	}]);
 	assert.deepEqual(renamed, []);
 	assert.equal(t.path, 'dst/t.md');
 });
@@ -1067,7 +1164,12 @@ test('a failed rename in a batch keeps results and undo records consistent', asy
 	};
 	const result = await panel.moveFiles('archive', [good, bad, later]);
 	assert.deepEqual(result.succeeded, ['archive/good.md', 'archive/later.md']);
-	assert.deepEqual(result.failed, [{ path: 'dst/bad.md', reason: '磁盘已满' }]);
+	assert.deepEqual(result.failed, [{
+		path: 'dst/bad.md',
+		reason: '磁盘已满',
+		kind: 'other',
+		nextStep: '请稍后重试；若持续失败，请检查目标文件夹是否可写。',
+	}]);
 	assert.deepEqual(result.skipped, []);
 	assert.deepEqual(result.moved, [
 		{ from: 'dst/good.md', to: 'archive/good.md' },
@@ -1076,6 +1178,114 @@ test('a failed rename in a batch keeps results and undo records consistent', asy
 	assert.equal(bad.path, 'dst/bad.md');
 	assert.deepEqual(panel.lastMove, result.moved);
 	assert.deepEqual(renamed, [['dst/good.md', 'archive/good.md'], ['dst/later.md', 'archive/later.md']]);
+});
+
+// The confirmation must say what will happen: how many notes, the exact target,
+// whether the folder exists or will be created, and that the move is undoable.
+test('move confirmation names the count, target and folder creation state', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const existing = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t, new TFolder('archive')],
+	});
+	existing.panel.selections.set('dst/t.md', true);
+	const existingInput = existing.el.querySelector('.related-operations-target-folder');
+	existingInput.value = 'archive';
+	existingInput.fire('input');
+	const opened = await openMoveConfirmation(existing.panel);
+	const existingText = opened.modal.contentEl.textContent;
+	assert.match(existingText, /即将把 1 篇笔记移动到/);
+	assert.match(existingText, /archive/);
+	assert.match(existingText, /目标文件夹已存在/);
+	assert.match(existingText, /撤销本次移动/);
+	await opened.close();
+
+	const t2 = file('dst/t2.md');
+	const missing = panelFor([{ file: t2, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t2] });
+	missing.panel.selections.set('dst/t2.md', true);
+	const missingInput = missing.el.querySelector('.related-operations-target-folder');
+	missingInput.value = 'archive/2026';
+	missingInput.fire('input');
+	const created = await openMoveConfirmation(missing.panel);
+	assert.match(created.modal.contentEl.textContent, /尚不存在.*自动创建/);
+	await created.close();
+});
+
+// Conflicts are skipped before the modal, so the modal must explain why and what
+// the user can do about the notes that will not move.
+test('move confirmation explains same-name conflicts and the next step', async () => {
+	const a = file('src/a.md');
+	const movable = file('dst/keep.md');
+	const conflicted = file('dst/hold.md');
+	const occupant = file('archive/hold.md');
+	const { panel, el } = panelFor([
+		{ file: movable, relation: 'outgoing', sourceFile: a },
+		{ file: conflicted, relation: 'outgoing', sourceFile: a },
+	], [a], { files: [a, movable, conflicted, occupant] });
+	panel.selections.set('dst/keep.md', true);
+	panel.selections.set('dst/hold.md', true);
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	const opened = await openMoveConfirmation(panel);
+	const text = opened.modal.contentEl.textContent;
+	assert.match(text, /1 篇笔记因目标位置已有同名笔记/);
+	assert.match(text, /改用其他目标文件夹|先重命名/);
+	await opened.close();
+});
+
+// A target chain blocked by a file must be rejected before the confirmation
+// dialog, with a concrete next step instead of a generic move failure.
+test('moveSelected rejects a target chain blocked by a file before confirming', async () => {
+	Notice.messages = [];
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const blocker = file('archive/2026');
+	const { panel, el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t, new TFolder('archive'), blocker],
+	});
+	panel.selections.set('dst/t.md', true);
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'archive/2026/q4';
+	input.fire('input');
+	globalThis.__openModals = [];
+	await panel.moveSelected();
+	assert.equal(globalThis.__openModals.length, 0, '目标被文件阻断时不应弹出确认框');
+	assert.match(Notice.messages.at(-1), /是文件/);
+	assert.match(Notice.messages.at(-1), /其他文件夹名|先把该文件移走/);
+	assert.equal(t.path, 'dst/t.md');
+});
+
+// Rename failures are categorized so the user can act: permission errors point
+// at folder permissions, a race with an existing file points at the conflict.
+test('rename failures distinguish permission errors from existing destinations', async () => {
+	const a = file('src/a.md');
+	const denied = file('dst/denied.md');
+	const race = file('dst/race.md');
+	const { panel } = panelFor([], [a], { files: [a, denied, race] });
+	const rename = panel.app.fileManager.renameFile;
+	panel.app.fileManager.renameFile = async (file, dest) => {
+		if (file.path === 'dst/denied.md') throw new Error('EPERM: operation not permitted');
+		if (file.path === 'dst/race.md') throw new Error('EEXIST: file already exists');
+		await rename(file, dest);
+	};
+	const result = await panel.moveFiles('archive', [denied, race]);
+	assert.deepEqual(result.failed, [
+		{
+			path: 'dst/denied.md',
+			reason: '没有目标文件夹的写入权限',
+			kind: 'permission',
+			nextStep: '请检查文件夹权限后重试，或改用其他文件夹。',
+		},
+		{
+			path: 'dst/race.md',
+			reason: '目标位置已有同名笔记',
+			kind: 'exists',
+			nextStep: '请改用其他目标文件夹，或先重命名冲突笔记。',
+		},
+	]);
+	assert.equal(denied.path, 'dst/denied.md');
+	assert.equal(race.path, 'dst/race.md');
 });
 
 // Keyboard users cannot reach a bare <a> without href. The note-name links must
@@ -1118,6 +1328,21 @@ test('single-source relation cells explain which note the relation points at', (
 	assert.equal(relationText('outgoing'), '出链自 a');
 	assert.equal(relationText('incoming', '入链'), 'a 的入链');
 	assert.equal(relationText('both'), '与 a 双向链接');
+});
+
+// The relation column is narrow. Long source names must be cut with an ellipsis
+// in the visible text while the title keeps the complete explanation.
+test('long relation explanations are truncated with the full text in the title', () => {
+	const a = new TFile('src/这是一个特别长的源笔记名称用于验证关系文案截断效果.md');
+	const t = file('dst/t.md');
+	const { el } = panelFor([{ file: t, relation: 'incoming', sourceFile: a }], [a]);
+	const tab = el.querySelectorAll('.related-operations-tab').find((item) => item.textContent.startsWith('入链'));
+	tab.fire('click');
+	const cell = el.querySelector('tr[data-related-path]').children[3];
+	const full = `${a.basename} 的入链`;
+	assert.ok([...cell.textContent].length <= 24, '可见关系文案不得超过 24 个字符');
+	assert.ok(cell.textContent.endsWith('…'), '截断后应带省略号');
+	assert.equal(cell.title, full, '完整说明应放在 title 中');
 });
 
 // With no relations at all the panel must explain what was checked, not just

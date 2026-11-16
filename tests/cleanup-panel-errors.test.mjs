@@ -354,6 +354,76 @@ test('中止按钮只在扫描期间出现并触发 abortScan', () => {
 	assert.equal(byClass(panel.contentEl, 'orphan-cleanup-abort-scan').length, 0, '非扫描状态不应保留中止按钮');
 });
 
+test('中止全量扫描后可以立即重新扫描并得到完整结果', async () => {
+	Notice.messages = [];
+	const attachment = makeFile('orphan.pdf', 'pdf', 20);
+	const panel = makePanel(makeApp({
+		vault: {
+			getFiles: () => [attachment],
+			getMarkdownFiles: () => [],
+			getAbstractFileByPath: (path) => (path === attachment.path ? attachment : null),
+			cachedRead: async () => '',
+		},
+	}));
+	const realRender = panel.renderContents.bind(panel);
+	let aborted = false;
+	panel.renderContents = () => {
+		realRender();
+		if (!aborted && panel.scanning && panel.scannedTabs.has('attachments')) {
+			aborted = true;
+			panel.abortScan();
+		}
+	};
+
+	await panel.scan();
+	assert.equal(panel.lastScanAborted, true);
+
+	await panel.scan();
+	assert.equal(panel.scanning, false);
+	assert.equal(panel.scanController, undefined);
+	assert.equal(panel.lastScanAborted, undefined);
+	assert.equal(panel.lastScanError, undefined);
+	assert.equal(panel.dirtyTabs.size, 0);
+	assert.equal(panel.scannedTabs.size, 9);
+	assert.deepEqual(panel.candidates.attachments.map((file) => file.path), ['orphan.pdf']);
+});
+
+test('中止扫描会清理进度计时器，完成后不再刷新面板', async () => {
+	Notice.messages = [];
+	const attachment = makeFile('orphan.pdf', 'pdf', 20);
+	const panel = makePanel(makeApp({
+		vault: {
+			getFiles: () => [attachment],
+			getMarkdownFiles: () => [],
+			getAbstractFileByPath: (path) => (path === attachment.path ? attachment : null),
+			cachedRead: async () => '',
+		},
+	}));
+	const created = [];
+	const cleared = [];
+	const realSet = window.setInterval;
+	const realClear = window.clearInterval;
+	try {
+		window.setInterval = () => { const id = 100 + created.length; created.push(id); return id; };
+		window.clearInterval = (id) => { cleared.push(id); };
+		const realRender = panel.renderContents.bind(panel);
+		let aborted = false;
+		panel.renderContents = () => {
+			realRender();
+			if (!aborted && panel.scanning && panel.scannedTabs.has('attachments')) {
+				aborted = true;
+				panel.abortScan();
+			}
+		};
+		await panel.scan();
+	} finally {
+		window.setInterval = realSet;
+		window.clearInterval = realClear;
+	}
+	assert.deepEqual(created, [100], '一次全量扫描只创建一个计时器');
+	assert.equal(cleared.at(-1), 100, '结束或中止时必须停止该计时器');
+});
+
 test('首次扫描即中止时提示开始扫描而不是重新扫描', async () => {
 	Notice.messages = [];
 	const panel = makePanel(makeApp());
