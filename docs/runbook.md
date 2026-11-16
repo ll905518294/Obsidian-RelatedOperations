@@ -61,7 +61,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - [ ] 本次包含图片转换时，按第 9 节在演示库完成验证。
 - [ ] `npm run test:deploy` 与 `npm run deploy:check` 通过（两者都不复制文件、不重启 Obsidian）。
 - [ ] 三件套存在：`Get-Item main.js, manifest.json, styles.css`。
-- [ ] `npm run package` 通过，`dist/vault-doctor-$v.zip` 存在；解压或读取该 ZIP，确认只有 `main.js`、`manifest.json`、`styles.css`，且包内 `manifest.json` 的 `version` 等于 `$v`。
+- [ ] **必须**在打 tag 前执行 `npm run package`：`dist/vault-doctor-$v.zip` 存在，且包内 `manifest.json` 的 `version` 与 `manifest.json` 完全一致（读取 ZIP 内文件比对，不能只看文件名）。连续打包两次的 SHA-256 应相同；ZIP 内三个条目要与仓库根的三件套逐字节一致。
 - [ ] tag 与版本一致：`git tag --list $v`（应显示 `$v`），用 `git push origin $v` 推送。
 - [ ] 发布后核对：`gh release view $v --json tagName,name,body,assets`，确认 `assets` 包含 `main.js`、`manifest.json`、`styles.css`（若存在）与 `vault-doctor-$v.zip`。
 - [ ] 可选：`Get-FileHash main.js, manifest.json, styles.css, dist/vault-doctor-$v.zip -Algorithm SHA256`，与 release 正文中的 SHA-256 对照。
@@ -135,7 +135,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 
 ## 8. 截图与 README 一致性维护
 
-README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-settings.png`）。当前截图状态（对照 1.8.0）：
+README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert-result.png`）。当前截图状态（对照 1.8.0）：
 
 - **已用演示库实拍替换（6 张，无缺口）**：通过 Obsidian CDP 在纯合成演示库 `vault-doctor-demo` 实拍，1920×1032，深色 Border 主题，9 分类齐全（含「Wiki 笔记链接」页签），内容全为虚构示例数据，不含任何真实项目/客户/公司名。
   - `01-dashboard.png`：体检首页 · 扫描前 `0/9`
@@ -146,12 +146,13 @@ README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-setting
   - `06-duplicate-files.png`：重复文件 1 组
 - **无需更新**：`07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致。
 - `00-installed.png`（已安装插件列表与 **⋯** 操作菜单）只用于安装说明，本轮未单独核对它与 1.8.0 界面的一致性。
+- **1.8.0 新增（2 张）**：`09-image-convert.png`（图片转换页签：候选列表与汇总条）与 `10-image-convert-result.png`（转换完成后的结果与提示）。
 
 更新截图时保持文件名不变，避免改动 README 引用；不要用真实 Vault 截图（会暴露私有内容），统一使用演示库实拍并保持 9 个分类页签齐全。
 
-1.7.0 新增「图片转换」页签后，`01-dashboard.png`、`02-scan-result.png` 仍是 9 分类旧图，尚未包含该页签；补拍前不要复用旧图冒充 1.7.0 界面，README 的图片转换章节暂以文字说明为准。
+`01-dashboard.png`、`02-scan-result.png` 仍是含 9 分类的旧取景，未包含末尾的「图片转换」页签；图片转换改由 `09`、`10` 两张单独说明，不要求首页截图滚动到标签条末尾。
 
-补拍前置条件（2026-11-17 核实）：演示库 `X:\Obsidian\vault-doctor-demo` 当前没有在 Obsidian 中打开（`obsidian.json` 中 `open=true` 的是真实库 `X:\Obsidian\我的空间`），且演示库 `.obsidian/plugins/vault-doctor/` 里的 `main.js`、`styles.css` 仍是旧构建。补拍需要先打开演示库并把当前构建部署进去，等于切换 Vault 并重启 Obsidian，因此本轮未执行，截图保持「待补拍」。
+`09`/`10` 的拍摄方式（2026-11-17 实测）：把演示库复制到临时目录后打开，先在复制件里补一张合成的噪声 PNG 作为「可节省」素材，扫描并估算后截取候选列表与汇总条；选择「全选可节省项」→ 连点两次「开始转换」→ 截取完成提示与「最近一次转换」行。转换会真实改写文件，因此只在临时复制件里执行，正式演示库 `X:\Obsidian\vault-doctor-demo` 未被改动；拍完恢复 `obsidian.json` 并重启回真实库。
 
 ## 9. 图片转换验证
 

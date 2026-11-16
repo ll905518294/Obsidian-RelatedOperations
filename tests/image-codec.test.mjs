@@ -116,3 +116,40 @@ test('always paints a white background when encoding JPG', async (t) => {
 		quality: 0.85,
 	});
 });
+
+test('release 把画布后备存储立刻缩到 0，而不是等 GC', async (t) => {
+	const dom = installDomStub();
+	t.after(() => dom.restore());
+	const codec = new CanvasImageCodec();
+	const decoded = await codec.decode(new Uint8Array([1]).buffer);
+	assert.equal(decoded.ok, true);
+	assert.equal(decoded.image.source.width, 10);
+	assert.equal(decoded.image.source.height, 20);
+	codec.release(decoded.image);
+	assert.equal(decoded.image.source.width, 0);
+	assert.equal(decoded.image.source.height, 0);
+});
+
+test('release 关闭实现 close() 的 ImageBitmap 类源', () => {
+	let closed = 0;
+	new CanvasImageCodec().release({
+		width: 1,
+		height: 1,
+		hasAlpha: false,
+		source: { close() { closed += 1; } },
+	});
+	assert.equal(closed, 1);
+});
+
+test('encode 结束（含失败）后释放输出画布的后备存储', async (t) => {
+	const dom = installDomStub();
+	t.after(() => dom.restore());
+	const decoded = await new CanvasImageCodec().decode(new Uint8Array([1]).buffer);
+	const result = await new CanvasImageCodec().encode(decoded.image, 'webp', {
+		quality: 0.8,
+		flatten: false,
+	});
+	assert.equal(result.ok, true);
+	assert.equal(dom.createdCanvases[1].width, 0);
+	assert.equal(dom.createdCanvases[1].height, 0);
+});

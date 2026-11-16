@@ -390,6 +390,27 @@ test('reduced-motion 与窄屏规则存在且覆盖到弹窗与首页', () => {
 	assert.ok(narrow.includes('.orphan-cleanup-dashboard-item-actions'));
 });
 
+test('语义色混合比例达到 WCAG 阈值（实测得出的回归约束）', () => {
+	const css = fs.readFileSync(path.join(process.cwd(), 'styles.css'), 'utf8');
+	// 错误横幅边框：55% 在浅色主题只有 2.84:1（非文本阈值 3:1），75% 为 3.68:1。
+	assert.ok(
+		/orphan-cleanup-scan-error \{[^}]*border: 1px solid color-mix\(in srgb, var\(--text-error\) 75%/.test(css),
+		'错误横幅边框必须用 75% text-error，55% 在浅色主题对比度不足',
+	);
+	// 计数徽标底：18% warning + secondary 在浅色主题只有 3.81:1；6% + primary 为 4.86:1。
+	assert.ok(
+		/orphan-cleanup-dashboard-item-count \{[^}]*background: color-mix\(in srgb, var\(--text-warning\) 6%, var\(--background-primary\)\)/.test(css),
+		'计数徽标底色必须用 6% warning + primary，旧配方浅色主题不足 4.5:1',
+	);
+	// 计数徽标边框：45% warning 混色在浅色主题仅 1.85:1，改用主题分隔色。
+	assert.ok(
+		/orphan-cleanup-dashboard-item-count \{[^}]*border: 1px solid var\(--background-modifier-border\)/.test(css),
+		'计数徽标边框必须改用主题分隔色',
+	);
+	// 硬编码颜色必须保持为零。
+	assert.ok(!/rgba?\(|hsla?\(|#[0-9a-fA-F]{3,8}\b/.test(css), 'styles.css 不得出现硬编码颜色');
+});
+
 test('rememberFocusOrigin 在没有活动元素时返回空', () => {
 	globalThis.document.activeElement = null;
 	assert.equal(rememberFocusOrigin(), undefined);

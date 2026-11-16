@@ -363,3 +363,53 @@ test('normalizeImageConversionConfig 丢弃畸形源扩展名并把 jpeg 映射�
 		alpha: 'flatten',
 	});
 });
+
+test('估算在成功、编码失败、超像素与跳透明四条路径上都释放解码资源', async () => {
+	// 用首字节区分四张图：10 正常、20 编码失败、30 超像素、40 含透明。
+	const files = [file('assets/ok.png', 100), file('assets/fail.png', 100), file('assets/huge.png', 100), file('assets/alpha.png', 100)];
+	const app = fakeApp({
+		files,
+		binaries: Object.fromEntries(files.map((item, index) => [item.path, new Uint8Array([[10], [20], [30], [40]][index]).buffer])),
+	});
+	const released = [];
+	const codec = {
+		async decode(bytes) {
+			const id = new Uint8Array(bytes)[0];
+			if (id === 30) return { ok: true, image: { id, width: 8000, height: 6000, hasAlpha: false, source: {} } };
+			return { ok: true, image: { id, width: 100, height: 100, hasAlpha: id === 40, source: {} } };
+		},
+		async encode(image) {
+			if (image.id === 20) return { ok: false, reason: '编码失败' };
+			return { ok: true, bytes: new ArrayBuffer(5) };
+		},
+		release(image) {
+			released.push(image.id);
+		},
+	};
+	const items = await estimateConversions(app, files, { ...config, alpha: 'skip' }, codec);
+	assert.deepEqual(released.sort((a, b) => a - b), [10, 20, 30, 40]);
+	assert.deepEqual(items.map((item) => item.path).sort(), files.map((item) => item.path).sort());
+	assert.equal(items.find((item) => item.path === 'assets/fail.png').blockedReason, '编码失败');
+	assert.equal(items.find((item) => item.path === 'assets/huge.png').blockedReason, '分辨率超过 40MP');
+	assert.equal(items.find((item) => item.path === 'assets/alpha.png').blockedReason, 'alpha-skip');
+});
+
+test('解码失败时没有可释放的图片，不会误调 release', async () => {
+	const image = file('assets/broken.png', 100);
+	const app = fakeApp({ files: [image] });
+	let releases = 0;
+	const codec = {
+		async decode() {
+			throw new Error('corrupt');
+		},
+		async encode() {
+			throw new Error('must not encode');
+		},
+		release() {
+			releases += 1;
+		},
+	};
+	const [item] = await estimateConversions(app, [image], config, codec);
+	assert.equal(item.blockedReason, '图片解码失败');
+	assert.equal(releases, 0);
+});

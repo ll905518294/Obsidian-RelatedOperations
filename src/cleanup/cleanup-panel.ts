@@ -1,8 +1,9 @@
 import { App, Component, Modal, Notice, TFile } from 'obsidian';
 import { parseIgnoredFolders } from '../core-utils';
 import { removeFileReferencesForFiles, removeImageReferencesForFile, type DuplicateFileGroup } from '../duplicate-files';
-import type { OrphanCleanupCache, RelatedOperationsSettings } from '../settings';
+import type { RelatedOperationsSettings } from '../settings';
 import { CLEANUP_CATEGORIES, normalizeImageConversionConfig, type CleanupCandidates, type CleanupScanError, type CleanupTab, type ImageConversionConfig, type ImageConversionState, type ImageGrouping, type OrphanCleanupHost, type OrphanCleanupOptions, type OrphanImageExtensions, type ScanCategoryTab, type ScanProgress, type ScanStage } from './cleanup-types';
+import { createCleanupCache, restoreCleanupCandidates, type OrphanCleanupCache } from './cleanup-cache';
 import { byPath, reasonFor } from './cleanup-actions';
 import { findRecursivelyEmptyFolders, referencedByCanvas } from './cleanup-scan';
 import { categoryStatus, renderHelp, renderOverview, renderProcessedSummary, renderTabs, tabEntries, updateScanProgress } from './cleanup-dashboard';
@@ -46,6 +47,7 @@ export class OrphanCleanupPanel extends Component {
 	showingCachedResult = false;
 	scanController?: AbortController;
 	private codecInstance?: ImageCodec;
+	private lastCacheSaveError?: string;
 	estimateController?: AbortController;
 	convertController?: AbortController;
 	conversionSaveTimer = 0;
@@ -135,8 +137,8 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	private restoreFromCache() {
-		// 旧缓存没有 convertibleImages；转换结果本身也从不写入缓存。
-		this.candidates = { ...this.options.cachedCandidates!, convertibleImages: [] };
+		// 缓存里只有路径；文件已删除或改名时按路径解析失败会安全丢弃。
+		this.candidates = restoreCleanupCandidates(this.app, this.options.cachedCandidates);
 		this.hasScanned = true;
 		this.showingCachedResult = true;
 		this.lastScannedAt = this.options.cachedAt;
@@ -150,18 +152,40 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	saveCacheToSettings() {
-		const cache: OrphanCleanupCache = {
-			version: 1,
-			scannedAt: new Date().toISOString(),
-			// 转换候选与估算结果不属于体检缓存，避免把图片转换状态写进 data.json。
-			candidates: { ...this.candidates, convertibleImages: [] },
-			settingsSnapshot: {
-				orphanImageExtensions: this.settings.orphanImageExtensions,
-				orphanIgnoredFolders: this.settings.orphanIgnoredFolders,
-			},
-		};
+		// 转换候选与估算结果不属于体检缓存，createCleanupCache 会强制写空。
+		const cache = createCleanupCache(new Date().toISOString(), this.candidates, {
+			orphanImageExtensions: this.settings.orphanImageExtensions,
+			orphanIgnoredFolders: this.settings.orphanIgnoredFolders,
+		});
 		this.lastScannedAt = cache.scannedAt;
-		void this.options.saveCache?.(cache);
+		this.persistCache(cache);
+	}
+
+	private persistCache(cache: OrphanCleanupCache) {
+		let pending: Promise<void> | void;
+		try {
+			pending = this.options.saveCache?.(cache);
+		} catch (error) {
+			this.reportCacheSaveFailure(error);
+			return;
+		}
+		if (!isPromiseLike(pending)) {
+			this.lastCacheSaveError = undefined;
+			return;
+		}
+		void pending.then(
+			() => { this.lastCacheSaveError = undefined; },
+			(error) => this.reportCacheSaveFailure(error),
+		);
+	}
+
+	private reportCacheSaveFailure(error: unknown) {
+		const reason = reasonFor(error);
+		console.warn(`[vault-doctor] 缓存保存失败：${reason}`);
+		// 文件事件会频繁触发缓存写入；同一错误只提示一次，成功后再重置。
+		if (this.lastCacheSaveError === reason) return;
+		this.lastCacheSaveError = reason;
+		new Notice(`缓存保存失败：${reason}`);
 	}
 
 	dispose() {
@@ -408,4 +432,10 @@ export class OrphanCleanupModal extends Modal {
 		this.panel = undefined;
 		this.contentEl.empty();
 	}
+}
+
+function isPromiseLike(value: unknown): value is Promise<void> {
+	return (typeof value === 'object' || typeof value === 'function')
+		&& value !== null
+		&& typeof (value as { then?: unknown }).then === 'function';
 }

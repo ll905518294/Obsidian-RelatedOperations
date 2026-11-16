@@ -180,6 +180,25 @@ test('reduces aliases, headings and block ids to the link path', () => {
 	}
 });
 
+// Converted Markdown links resolve through the fragment-free path. As long as
+// that note exists the conversion result must not be reported as broken, even
+// when it carries a combined heading and block-id anchor.
+test('converted markdown links to an existing note are not broken', () => {
+	const cases = [
+		['[a](<a.md>)', 'a.md'],
+		['[a > 标题](<a.md#标题>)', 'a.md#标题'],
+		['[a > 标题](<a.md#标题#^块id>)', 'a.md#标题#^块id'],
+	];
+	for (const [original, link] of cases) {
+		const cache = { links: [{ original, link, position: { start: { offset: 0 }, end: { offset: original.length } } }] };
+		const app = {
+			vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+			metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: (path) => (path === 'a.md' ? { path: 'a.md' } : null) },
+		};
+		assert.deepEqual(findBrokenNoteLinks(app, 'png'), [], original);
+	}
+});
+
 test('skips embeds, same-file anchors, external URLs and attachments', () => {
 	const cases = [
 		['![[beta]]', 'beta'],

@@ -10,6 +10,9 @@ import { byPath } from './cleanup-actions';
 import { CleanupScanAbortedError, COMMON_IMAGE_EXTENSIONS, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
 
 const READ_CONCURRENCY = 8;
+// 解码一张 40MP 图约占 160MB（宽×高×4），2 路并发峰值约 320MB；
+// 3 路会再加 160MB，吞吐收益抵不上低配机器的内存风险，故保持 2。
+// 编码结束后由 codec.release 立刻释放画布，避免旧画布堆积到 GC。
 const CONVERSION_CONCURRENCY = 2;
 
 export interface CleanupFileSets {
@@ -309,21 +312,26 @@ async function estimateOneImage(app: App, file: TFile, config: ImageConversionCo
 		return { ...base, blockedReason: '图片解码失败' };
 	}
 	if (!decoded.ok) return { ...base, blockedReason: decoded.reason };
-	const width = Math.max(0, Math.round(decoded.image.width));
-	const height = Math.max(0, Math.round(decoded.image.height));
-	const sized: ConvertibleImage = { ...base, width, height, hasAlpha: Boolean(decoded.image.hasAlpha) };
-	if (!isWithinPixelLimit(width, height)) return { ...sized, blockedReason: '分辨率超过 40MP' };
-	// “跳过透明图”对所有目标格式一致；选白底时 JPG 恒白底，WebP/PNG 也按白底估算体积。
-	if (config.alpha === 'skip' && sized.hasAlpha) return { ...sized, blockedReason: 'alpha-skip' };
-	const flatten = config.target === 'jpg' || config.alpha === 'flatten';
-	let encoded: Awaited<ReturnType<ImageCodec['encode']>>;
+	const image = decoded.image;
 	try {
-		encoded = await codec.encode(decoded.image, config.target, { quality: config.quality / 100, flatten });
-	} catch {
-		return { ...sized, blockedReason: '图片编码失败' };
+		const width = Math.max(0, Math.round(image.width));
+		const height = Math.max(0, Math.round(image.height));
+		const sized: ConvertibleImage = { ...base, width, height, hasAlpha: Boolean(image.hasAlpha) };
+		if (!isWithinPixelLimit(width, height)) return { ...sized, blockedReason: '分辨率超过 40MP' };
+		// “跳过透明图”对所有目标格式一致；选白底时 JPG 恒白底，WebP/PNG 也按白底估算体积。
+		if (config.alpha === 'skip' && sized.hasAlpha) return { ...sized, blockedReason: 'alpha-skip' };
+		const flatten = config.target === 'jpg' || config.alpha === 'flatten';
+		let encoded: Awaited<ReturnType<ImageCodec['encode']>>;
+		try {
+			encoded = await codec.encode(image, config.target, { quality: config.quality / 100, flatten });
+		} catch {
+			return { ...sized, blockedReason: '图片编码失败' };
+		}
+		if (!encoded.ok) return { ...sized, blockedReason: encoded.reason };
+		return { ...sized, newBytes: encoded.bytes.byteLength };
+	} finally {
+		codec.release?.(image);
 	}
-	if (!encoded.ok) return { ...sized, blockedReason: encoded.reason };
-	return { ...sized, newBytes: encoded.bytes.byteLength };
 }
 
 export async function referencedByCanvas(app: App, canvas: TFile): Promise<string[] | null> {

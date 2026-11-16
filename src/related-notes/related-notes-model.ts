@@ -49,6 +49,15 @@ export function sortForDisplay(a: RelatedNote, b: RelatedNote, groupingMode: Gro
 		: folderCompare || sourceCompare || a.file.path.localeCompare(b.file.path);
 }
 
+// Single-source rows have no source column, so the relation alone ("出链")
+// does not tell the reader which note it refers to. Spell out the direction
+// against the source note instead of adding another scan or column.
+export function relationExplanation(note: RelatedNote): string {
+	const source = note.sourceFile.basename;
+	if (note.relation === 'both') return `与 ${source} 双向链接`;
+	return note.relation === 'incoming' ? `${source} 的入链` : `出链自 ${source}`;
+}
+
 export function uniqueCount(group: RelatedNote[]) {
 	return new Set(group.map((note) => note.file.path)).size;
 }

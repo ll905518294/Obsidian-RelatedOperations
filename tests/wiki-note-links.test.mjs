@@ -220,6 +220,18 @@ test('already converted markdown links are not candidates again', () => {
 	assert.equal(found[0].original, '[[a]]');
 });
 
+// Conversion can emit heading and block-id fragments. Those results are still
+// Markdown links, so a rescan of the same positions must never list them again.
+test('converted heading and block-id links are not wiki candidates again', () => {
+	const cache = {
+		links: [
+			{ original: '[a > 标题](<a.md#标题>)', link: 'a.md#标题', position: { start: { offset: 0 }, end: { offset: 24 } } },
+			{ original: '[a > 标题](<a.md#标题#^块id>)', link: 'a.md#标题#^块id', position: { start: { offset: 30 }, end: { offset: 59 } } },
+		],
+	};
+	assert.deepEqual(findWikiNoteLinks(app(cache)), []);
+});
+
 // After conversion the link is markdown syntax. When its target disappears the
 // broken-note-links scan must report it (path split at `#`, fragment ignored).
 test('converted markdown link is reported as broken once the target is removed', () => {

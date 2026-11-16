@@ -847,3 +847,49 @@ test('reports progress in order and supports abort before the first item', async
 	assert.equal(aborted.aborted, true);
 	assert.equal(aborted.converted.length, 0);
 });
+
+test('转换成功后释放解码资源，编码失败时也释放', async () => {
+	const app = notesApp({
+		notes: { 'note.md': '![[img.png]]' },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache('![[img.png]]', 'img.png') },
+	});
+	const released = [];
+	const codec = {
+		async decode() {
+			return { ok: true, image: { width: 10, height: 10, hasAlpha: false, source: {} } };
+		},
+		async encode() {
+			return { ok: true, bytes: bytesOf(40) };
+		},
+		release(image) {
+			released.push(image);
+		},
+	};
+	const result = await runImageConversion(app, codec, [{ path: 'img.png', size: 100, mtime: 1 }], { target: 'webp' });
+	assert.equal(result.converted.length, 1);
+	assert.equal(released.length, 1);
+
+	const failApp = notesApp({
+		notes: { 'note.md': '![[other.png]]' },
+		images: { 'other.png': 100 },
+		resolvedLinks: { 'note.md': { 'other.png': 1 } },
+		caches: { 'note.md': wikiCache('![[other.png]]', 'other.png') },
+	});
+	let failReleases = 0;
+	const failCodec = {
+		async decode() {
+			return { ok: true, image: { width: 10, height: 10, hasAlpha: false, source: {} } };
+		},
+		async encode() {
+			return { ok: false, reason: '编码失败' };
+		},
+		release() {
+			failReleases += 1;
+		},
+	};
+	const failed = await runImageConversion(failApp, failCodec, [{ path: 'other.png', size: 100, mtime: 1 }], { target: 'webp' });
+	assert.equal(failed.skipped[0].reason, 'unsupported-codec');
+	assert.equal(failReleases, 1);
+});

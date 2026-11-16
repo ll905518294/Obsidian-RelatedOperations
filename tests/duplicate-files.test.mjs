@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { findDuplicateFiles, planDuplicateDeletion, removeFileReferencesForFiles } from '../src/duplicate-files.ts';
 
 function appFor(files, contents, resolvedLinks = {}) {
@@ -345,4 +346,87 @@ test('并发读取失败时告警按原始文件顺序收集', async () => {
 		metadataCache: { resolvedLinks: {} },
 	});
 	assert.deepEqual(result.warnings.map((warning) => warning.path), ['slow.bin', 'fast.bin']);
+});
+
+test('分组哈希是标准 SHA-256 十六进制串', async () => {
+	const bytes = new TextEncoder().encode('hello');
+	const files = [
+		{ path: 'a.bin', extension: 'bin', stat: { size: bytes.byteLength, mtime: 1 } },
+		{ path: 'b.bin', extension: 'bin', stat: { size: bytes.byteLength, mtime: 2 } },
+	];
+	const result = await findDuplicateFiles(appFor(files, { 'a.bin': bytes, 'b.bin': bytes }));
+	assert.equal(result.groups.length, 1);
+	assert.equal(result.groups[0].hash, '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824');
+	assert.equal(result.groups[0].hash, createHash('sha256').update(bytes).digest('hex'));
+});
+
+test('5000 张同尺寸图分成 100 组且引用计数不串位', async () => {
+	const GROUP_COUNT = 100;
+	const PER_GROUP = 50;
+	const SIZE = 4096;
+	const contents = new Map();
+	const files = [];
+	const resolvedLinks = {};
+	const expectedNoteByPath = new Map();
+	const expectedHashByGroup = new Map();
+	for (let group = 0; group < GROUP_COUNT; group++) {
+		const bytes = new Uint8Array(SIZE).fill(group);
+		expectedHashByGroup.set(group, createHash('sha256').update(bytes).digest('hex'));
+		for (let index = 0; index < PER_GROUP; index++) {
+			const path = `assets/g${String(group).padStart(3, '0')}/img-${String(index).padStart(2, '0')}.png`;
+			const note = `notes/note-${String(group).padStart(3, '0')}-${String(index).padStart(2, '0')}.md`;
+			files.push({ path, extension: 'png', stat: { size: SIZE, mtime: group * PER_GROUP + index } });
+			contents.set(path, bytes);
+			resolvedLinks[note] = { [path]: 1 };
+			expectedNoteByPath.set(path, note);
+		}
+	}
+	assert.equal(files.length, 5000);
+	const result = await findDuplicateFiles(appFor(files, Object.fromEntries(contents), resolvedLinks));
+	assert.equal(result.groups.length, GROUP_COUNT);
+	assert.deepEqual(result.warnings, []);
+	const seen = new Set();
+	let total = 0;
+	for (const group of result.groups) {
+		assert.equal(group.files.length, PER_GROUP);
+		assert.equal(group.size, SIZE);
+		const groupIndex = Number(/g(\d{3})/.exec(group.files[0].path)[1]);
+		assert.equal(group.hash, expectedHashByGroup.get(groupIndex));
+		for (const item of group.files) {
+			assert.equal(seen.has(item.path), false, `重复出现的路径：${item.path}`);
+			seen.add(item.path);
+			total += 1;
+			assert.deepEqual(item.referencingNotes, [expectedNoteByPath.get(item.path)]);
+			assert.equal(item.referenced, true);
+		}
+	}
+	assert.equal(total, 5000);
+	assert.equal(seen.size, 5000);
+});
+
+test('大文件按字节预算降低哈希并发，避免同时驻留多份完整文件', async () => {
+	const SIZE = 100 * 1024 * 1024;
+	const files = Array.from({ length: 4 }, (_, index) => ({
+		path: `video-${index}.mp4`,
+		extension: 'mp4',
+		stat: { size: SIZE, mtime: index },
+	}));
+	let active = 0;
+	let peak = 0;
+	const result = await findDuplicateFiles({
+		vault: {
+			getFiles: () => files,
+			readBinary: async () => {
+				active += 1;
+				peak = Math.max(peak, active);
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				active -= 1;
+				return new Uint8Array([1, 2, 3]);
+			},
+		},
+		metadataCache: { resolvedLinks: {} },
+	});
+	assert.equal(peak, 1, `100MB 文件峰值并发应为 1，实际 ${peak}`);
+	assert.equal(result.groups.length, 1);
+	assert.equal(result.groups[0].files.length, 4);
 });

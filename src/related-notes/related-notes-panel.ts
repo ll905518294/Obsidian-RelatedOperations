@@ -16,6 +16,7 @@ import {
 import { withFocusPreserved } from '../cleanup/cleanup-focus';
 import { moveFiles as moveFilesWithHost, moveSelected as moveSelectedWithHost, undoLastMove as undoLastMoveWithHost, type RelatedNotesMoveHost } from './related-notes-move';
 import { renderList, syncRowCheckboxes, updatePreviews, updateSelectAllState, updateSelectionSummary } from './related-notes-list';
+import { makeNoteLinkActivatable } from './related-notes-a11y';
 import type { RelatedNotesListHost } from './related-notes-list-host';
 
 export interface RelatedNotesHost {
@@ -139,8 +140,7 @@ export class RelatedNotesPanel {
 	private addSourceLink(container: HTMLElement, source: TFile) {
 		const link = container.createEl('a', { text: source.path, cls: 'related-operations-source-link' });
 		link.title = source.path;
-		link.addEventListener('click', (event) => {
-			event.preventDefault();
+		makeNoteLinkActivatable(link, () => {
 			void this.app.workspace.openLinkText(source.path, this.sourceFile.path, 'tab');
 		});
 	}

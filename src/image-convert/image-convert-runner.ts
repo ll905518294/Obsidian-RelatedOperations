@@ -275,29 +275,38 @@ async function convertOne(
 	if (!decoded.ok) {
 		return skip(sourceFile.path, 'unsupported-codec', decoded.reason);
 	}
-	const alpha = options.alpha ?? 'flatten';
-	if (alpha === 'skip' && decoded.image.hasAlpha) {
-		return skip(sourceFile.path, 'alpha-skip', '含透明通道，已按设置跳过');
-	}
-	const encoded = await codec.encode(decoded.image, options.target, {
-		quality: options.quality ?? 0.85,
-		flatten: options.target === 'jpg' || alpha === 'flatten',
-	});
-	if (!encoded.ok) {
-		return skip(sourceFile.path, 'unsupported-codec', encoded.reason);
-	}
-	if (targetFile) {
-		const existingBytes = await app.vault.readBinary(targetFile);
-		if (!(await sameBytes(existingBytes, encoded.bytes))) {
-			return skip(sourceFile.path, 'target-exists', '目标文件已存在且内容不同');
+	const image = decoded.image;
+	let encodedBytes: ArrayBuffer;
+	try {
+		const alpha = options.alpha ?? 'flatten';
+		if (alpha === 'skip' && image.hasAlpha) {
+			return skip(sourceFile.path, 'alpha-skip', '含透明通道，已按设置跳过');
 		}
-		return retryOrSkipExistingTarget(app, sourceFile, sourceStat, targetFile, caseSensitive);
+		const encoded = await codec.encode(image, options.target, {
+			quality: options.quality ?? 0.85,
+			flatten: options.target === 'jpg' || alpha === 'flatten',
+		});
+		if (!encoded.ok) {
+			return skip(sourceFile.path, 'unsupported-codec', encoded.reason);
+		}
+		encodedBytes = encoded.bytes;
+		if (targetFile) {
+			const existingBytes = await app.vault.readBinary(targetFile);
+			if (!(await sameBytes(existingBytes, encodedBytes))) {
+				return skip(sourceFile.path, 'target-exists', '目标文件已存在且内容不同');
+			}
+			return retryOrSkipExistingTarget(app, sourceFile, sourceStat, targetFile, caseSensitive);
+		}
+	} finally {
+		// 解码出的画布占 宽×高×4 字节；编码结束立刻还回去，避免两个并发
+		// worker 的旧画布一直留到 GC。
+		codec.release?.(image);
 	}
 	const referenceSites = sites ?? [];
 
 	let newFile: ConversionFile;
 	try {
-		newFile = await app.vault.createBinary(targetPath, encoded.bytes);
+		newFile = await app.vault.createBinary(targetPath, encodedBytes);
 	} catch (error) {
 		return {
 			failed: {
@@ -398,7 +407,7 @@ async function convertOne(
 			path: sourceFile.path,
 			newPath: newFile.path,
 			oldBytes: bytes.byteLength,
-			newBytes: encoded.bytes.byteLength,
+			newBytes: encodedBytes.byteLength,
 		},
 	};
 }

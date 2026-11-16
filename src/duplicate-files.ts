@@ -3,6 +3,9 @@ import { errorMessage, forEachWithConcurrency, hasHiddenPathSegment, isIgnoredPa
 import { CleanupScanAbortedError } from './cleanup/cleanup-types.ts';
 
 const HASH_CONCURRENCY = 8;
+// `readBinary` 只能整份读入；8 路并发遇到 100MB 视频就是 800MB。
+// 用最大候选文件的体积把“文件体积 × 并发”压在约 64MB 以内，小文件仍跑满 8 路。
+const HASH_BYTE_BUDGET = 64 * 1024 * 1024;
 
 type HashResult = { ok: true; hash: string } | { ok: false; error: unknown };
 
@@ -71,7 +74,7 @@ export async function findDuplicateFiles(
 	// 并发读取哈希，但按原始顺序回收结果与告警，保证输出稳定。
 	const hashes: Array<HashResult | undefined> = new Array<HashResult | undefined>(candidates.length);
 	let processed = 0;
-	await forEachWithConcurrency(candidates, HASH_CONCURRENCY, async (file, index) => {
+	await forEachWithConcurrency(candidates, hashConcurrency(candidates), async (file, index) => {
 		// 校验和是重复文件阶段最重的工作；中止后不再领取新文件。
 		if (signal?.aborted) throw new CleanupScanAbortedError();
 		try {
@@ -101,6 +104,13 @@ export async function findDuplicateFiles(
 			.sort((a, b) => a.files[0]!.path.localeCompare(b.files[0]!.path)),
 		warnings,
 	};
+}
+
+function hashConcurrency(candidates: TFile[]): number {
+	let largest = 0;
+	for (const file of candidates) largest = Math.max(largest, file.stat.size);
+	if (largest <= 0) return HASH_CONCURRENCY;
+	return Math.max(1, Math.min(HASH_CONCURRENCY, Math.floor(HASH_BYTE_BUDGET / largest)));
 }
 
 export async function removeFileReferencesForFiles(app: App, filePaths: Iterable<string>): Promise<{ removed: number; failed: string[] }> {
@@ -245,9 +255,16 @@ async function digestFile(app: App, file: TFile): Promise<string> {
 	return digestBytes(await app.vault.readBinary(file));
 }
 
+// 每个候选文件都要把 32 字节摘要转成十六进制。原先的
+// `[...bytes].map(...).join('')` 会为每个文件分配 32 个子串和 1 个数组；
+// 同尺寸候选多时这些短命对象会直接抬高扫描峰值。
+const HEX_BYTES = Array.from({ length: 256 }, (_, value) => value.toString(16).padStart(2, '0'));
+
 async function digestBytes(bytes: ArrayBuffer): Promise<string> {
-	const digest = await crypto.subtle.digest('SHA-256', bytes);
-	return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+	let hex = '';
+	for (const byte of digest) hex += HEX_BYTES[byte]!;
+	return hex;
 }
 
 function resolveFile(app: App, path: string): TFile {

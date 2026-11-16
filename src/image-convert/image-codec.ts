@@ -20,6 +20,12 @@ export interface ImageCodec {
 		target: ImageConvertTarget,
 		options: { quality: number; flatten: boolean },
 	): Promise<EncodeImageResult>;
+	/**
+	 * 释放 decode 返回的 source 占用的像素内存。解码一张 4000×3000 的图会
+	 * 占用约 45.8MB（宽×高×4）；不主动释放就要等 GC，两个 worker 叠加时
+	 * 峰值会明显高于实际并发数。调用方保证 encode 结束后才调用。
+	 */
+	release?(image: DecodedImage): void;
 }
 
 export function isWithinPixelLimit(width: number, height: number): boolean {
@@ -72,20 +78,42 @@ export class CanvasImageCodec implements ImageCodec {
 			const canvas = createEl('canvas');
 			canvas.width = image.width;
 			canvas.height = image.height;
-			const context = canvas.getContext('2d');
-			if (!context) return { ok: false, reason: '无法创建图片画布' };
-			if (options.flatten || target === 'jpg') {
-				context.fillStyle = '#ffffff';
-				context.fillRect(0, 0, image.width, image.height);
+			try {
+				const context = canvas.getContext('2d');
+				if (!context) return { ok: false, reason: '无法创建图片画布' };
+				if (options.flatten || target === 'jpg') {
+					context.fillStyle = '#ffffff';
+					context.fillRect(0, 0, image.width, image.height);
+				}
+				context.drawImage(image.source, 0, 0, image.width, image.height);
+				const mime = target === 'jpg' ? 'image/jpeg' : `image/${target}`;
+				const quality = Math.min(1, Math.max(0, options.quality));
+				const blob = await canvasToBlob(canvas, mime, quality);
+				if (!blob) return { ok: false, reason: '图片编码失败' };
+				return { ok: true, bytes: await blob.arrayBuffer() };
+			} finally {
+				// 输出画布同样占 宽×高×4；编码结束立刻缩到 0，避免和源画布
+				// 一起堆积到下一轮 GC。
+				canvas.width = 0;
+				canvas.height = 0;
 			}
-			context.drawImage(image.source, 0, 0, image.width, image.height);
-			const mime = target === 'jpg' ? 'image/jpeg' : `image/${target}`;
-			const quality = Math.min(1, Math.max(0, options.quality));
-			const blob = await canvasToBlob(canvas, mime, quality);
-			if (!blob) return { ok: false, reason: '图片编码失败' };
-			return { ok: true, bytes: await blob.arrayBuffer() };
 		} catch (error) {
 			return { ok: false, reason: `图片编码失败：${reasonOf(error)}` };
+		}
+	}
+
+	release(image: DecodedImage): void {
+		const source = image.source as { close?: () => void; width?: number; height?: number } | null;
+		if (!source) return;
+		// ImageBitmap 必须显式 close；画布则把宽高置 0，浏览器会立即回收
+		// 后备存储，不必等这个 canvas 元素被 GC。
+		if (typeof source.close === 'function') {
+			source.close();
+			return;
+		}
+		if (typeof source.width === 'number' && typeof source.height === 'number') {
+			source.width = 0;
+			source.height = 0;
 		}
 	}
 }

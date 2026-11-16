@@ -7,12 +7,14 @@ import {
 	mergedRelationLabel,
 	parentFolder,
 	relatedKey,
+	relationExplanation,
 	sortForDisplay,
 	uniqueCount,
 } from './related-notes-model';
 import { renderListToolbar } from './related-notes-list-toolbar';
 import type { RelatedNotesListHost } from './related-notes-list-host';
 import { createColumnHeader } from '../cleanup/cleanup-a11y';
+import { makeNoteLinkActivatable } from './related-notes-a11y';
 
 export function syncRowCheckboxes(host: RelatedNotesListHost, group: RelatedNote[]) {
 	const paths = new Set(group.map((note) => note.file.path));
@@ -85,6 +87,13 @@ export function updatePreviews(host: RelatedNotesListHost) {
 	updateSelectionSummary(host);
 }
 
+function emptyListText(host: RelatedNotesListHost) {
+	if (host.relatedNotes().length > 0) return '当前标签页暂无关联笔记，可切换其他标签页查看。';
+	return host.sourceCount === 1
+		? '暂无关联笔记：当前笔记没有出链，也没有其他笔记链接到它。'
+		: '暂无关联笔记：所选源笔记没有出链，也没有其他笔记链接到它们。';
+}
+
 export function renderList(host: RelatedNotesListHost) {
 	host.containerEl.querySelector('.related-operations-list')?.remove();
 	const wrapper = host.containerEl.createDiv({ cls: 'related-operations-list' });
@@ -97,7 +106,7 @@ export function renderList(host: RelatedNotesListHost) {
 	host.updateSelectionSummary();
 
 	if (currentGroup.length === 0) {
-		wrapper.createEl('p', { text: '暂无关联笔记。', cls: 'related-operations-empty' });
+		wrapper.createEl('p', { text: emptyListText(host), cls: 'related-operations-empty' });
 		return;
 	}
 	const displayGroup = (host.hideCompliant()
@@ -179,15 +188,13 @@ export function renderList(host: RelatedNotesListHost) {
 						cls: 'related-operations-note-link',
 					});
 					sourceLink.title = note.sourceFile.path;
-					sourceLink.addEventListener('click', (event) => {
-						event.preventDefault();
+					makeNoteLinkActivatable(sourceLink, () => {
 						void host.app.workspace.openLinkText(note.sourceFile.path, host.sourceFile.path, 'tab');
 					});
 				} else {
 					const sourcesButton = sourceCell.createEl('a', { text: `${notes.length} 个来源`, cls: 'related-operations-note-link' });
 					sourcesButton.title = [...new Set(notes.map((item) => item.sourceFile.path))].join('\n');
-					sourcesButton.addEventListener('click', (event) => {
-						event.preventDefault();
+					makeNoteLinkActivatable(sourcesButton, () => {
 						void host.app.workspace.openLinkText(note.sourceFile.path, host.sourceFile.path, 'tab');
 					});
 				}
@@ -202,8 +209,7 @@ export function renderList(host: RelatedNotesListHost) {
 					cls: 'related-operations-note-link',
 				});
 				sourceLink.title = note.sourceFile.path;
-				sourceLink.addEventListener('click', (event) => {
-					event.preventDefault();
+				makeNoteLinkActivatable(sourceLink, () => {
 					void host.app.workspace.openLinkText(note.sourceFile.path, host.sourceFile.path, 'tab');
 				});
 				previousSource = note.sourceFile.path;
@@ -212,14 +218,17 @@ export function renderList(host: RelatedNotesListHost) {
 		const nameCell = row.createEl('td');
 		const link = nameCell.createEl('a', { text: note.file.basename, cls: 'related-operations-note-link' });
 		link.title = note.file.path;
-		link.addEventListener('click', (event) => {
-			event.preventDefault();
+		makeNoteLinkActivatable(link, () => {
 			void host.app.workspace.openLinkText(note.file.path, host.sourceFile.path, 'tab');
 		});
 		row.createEl('td', { text: note.file.path, cls: 'related-operations-path' });
 		if (host.merging()) {
 			const relationCell = row.createEl('td', { cls: 'related-operations-relation' });
-			relationCell.createSpan({ text: mergedRelationLabel(notes), cls: 'related-operations-relation-main' });
+			relationCell.createSpan({
+				text: host.showSourceColumn ? mergedRelationLabel(notes) : relationExplanation(note),
+				cls: 'related-operations-relation-main',
+			});
+			relationCell.title = notes.map((item) => `${item.sourceFile.path}：${relationExplanation(item)}`).join('\n');
 			const detail = mergedRelationDetail(notes);
 			if (detail.length > 1 && new Set(detail.map((item) => item.label)).size > 1) {
 				const detailText = detail.map((item) => `${item.name}：${item.label}`).join(' · ');
@@ -227,7 +236,11 @@ export function renderList(host: RelatedNotesListHost) {
 				detailEl.title = detail.map((item) => `${item.path}：${item.label}`).join('\n');
 			}
 		} else {
-			row.createEl('td', { text: relationLabel(note.relation), cls: 'related-operations-relation' });
+			const relationCell = row.createEl('td', {
+				text: host.showSourceColumn ? relationLabel(note.relation) : relationExplanation(note),
+				cls: 'related-operations-relation',
+			});
+			relationCell.title = relationExplanation(note);
 		}
 		row.createEl('td', { text: destinationFor(note.file, host.targetFolder()), cls: 'related-operations-path' });
 	}

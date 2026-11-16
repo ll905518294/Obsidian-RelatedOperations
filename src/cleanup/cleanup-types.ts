@@ -4,7 +4,7 @@ import type { BrokenNoteLink } from '../broken-note-links';
 import type { NativeImageLink } from '../native-image-links';
 import type { WikiNoteLink } from '../wiki-note-links';
 import type { DuplicateFileGroup } from '../duplicate-files';
-import type { OrphanCleanupCache } from '../settings';
+import type { OrphanCleanupCache } from './cleanup-cache';
 import { normalizeExtensionToken } from '../core-utils.ts';
 
 export type ImageGrouping = 'none' | 'path' | 'extension';
@@ -229,12 +229,14 @@ export interface CleanupViewContext {
 }
 
 export interface OrphanCleanupOptions {
-	cachedCandidates?: CleanupCandidates;
+	// 新缓存是纯数据，旧缓存可能直接带 TFile 或已损坏；恢复时统一交给
+	// restoreCleanupCandidates 校验。
+	cachedCandidates?: unknown;
 	cachedAt?: string;
 	cachedSettings?: {
 		orphanImageExtensions: string;
 		orphanIgnoredFolders: string;
 	};
-	saveCache?: (cache: OrphanCleanupCache) => Promise<void>;
+	saveCache?: (cache: OrphanCleanupCache) => Promise<void> | void;
 	saveSettings?: () => Promise<void>;
 }

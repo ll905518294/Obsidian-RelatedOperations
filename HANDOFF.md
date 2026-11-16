@@ -4,13 +4,14 @@
 
 ## 状态
 - 更新时间：2026-11-17
-- 当前状态：**待发布 1.8.0**。`manifest.json`、`package.json`、`package-lock.json`、`versions.json` 已统一为 `1.8.0`（`versions.json` 映射 `"1.8.0": "1.13.0"`）；最新正式 release 仍是 **1.7.0**（2026-11-16T17:07Z，核实为非 draft/pre-release、资产含三件套），1.8.0 的 tag 与 release 尚未创建。仓库为公开的 `obsidian-vault-doctor`；README 含 9 张截图，历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`。
+- 当前状态：**待发布 1.8.0**。`manifest.json`、`package.json`、`package-lock.json`、`versions.json` 已统一为 `1.8.0`（`versions.json` 映射 `"1.8.0": "1.13.0"`）；最新正式 release 仍是 **1.7.0**（2026-11-16T17:07Z，核实为非 draft/pre-release、资产含三件套），1.8.0 的 tag 与 release 尚未创建。仓库为公开的 `obsidian-vault-doctor`；README 含 11 张截图（新增 `09-image-convert.png`、`10-image-convert-result.png`），历史交接说明归档至 `docs/legacy-obsidian-plugin-handoff.md`。
 
 ## 当前任务
-- 1.8.0 发版准备（未提交、未打 tag）：CHANGELOG 已写 1.8.0 正式条目（性能/新功能/优化/修复/测试/文档）；`src/update-intro-content.ts` 已加 1.8.0 中文说明，弹窗标题为「Vault Doctor · 1.8.0 · 全面提速与安装包」；README 功能总览补充扫描中止、性能与键盘/读屏能力。
+- 1.8.0 发版准备（未提交、未打 tag）：CHANGELOG 已写 1.8.0 正式条目（性能/新功能/优化/修复/测试/文档），并补入并行线程落地的缓存序列化 v2、哈希/编解码内存上限、关联笔记键盘可达；`src/update-intro-content.ts` 已加 1.8.0 中文说明，弹窗标题为「Vault Doctor · 1.8.0 · 全面提速与安装包」；README 功能总览补充扫描中止、上次扫描时间戳、性能与键盘/读屏能力，图片转换章节已配图。
+- 截图：`docs/images/09-image-convert.png`（候选列表 + 汇总条）与 `10-image-convert-result.png`（转换完成提示 + 最近一次转换）已于 2026-11-17 在演示库的临时复制件中实拍（1920×1032），正式演示库未被转换动作改动；已恢复 `obsidian.json` 并重启回真实库。
 - 版本来源：`npm version 1.8.0 --no-git-tag-version` 触发 `version-bump.mjs`，四份清单文件统一；未 git commit、未打 tag。
-- 安装包：`npm run package` 产出 `dist/vault-doctor-1.8.0.zip`（根层三件套），连续两次 SHA-256 相同；release workflow 会同时附 ZIP。
-- 验证基线（2026-11-17 本机实测）：`npm run build` 通过；`npm test` **487 通过 / 0 失败**；`npm run lint` 0 error、1 条既有 warning（`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）；`npm run package` 与 `npm run package:check` 通过。`npm run test:deploy`、`npm run deploy:check` 本轮未重跑。
+- 安装包：缓存修复落地后已重新 `npm run build` 并连跑两次 `npm run package`，`dist/vault-doctor-1.8.0.zip` 376049 字节，SHA-256 `481D4F2D5B7BD23DD228F27EEA0D6B5BFE086F692202B6F8A3EFBF257B5323E7`（两次相同）；包内 `main.js` 648349 / `manifest.json` 282（version 1.8.0）/ `styles.css` 52793，三者与仓库根同名文件逐字节一致；`npm run package:check` 通过。release workflow 会同时附 ZIP。
+- 验证基线（2026-11-17 本机实测）：`npm test` **513 通过 / 0 失败**；`npm run lint` 0 error、1 条既有 warning（`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）。打包与 `npm run package:check` 结果见下方「未完成」的最新一次记录；`npm run test:deploy`、`npm run deploy:check` 本轮未重跑。
 
 ## 2026-11-15 第五轮：界面与可访问性审计（已完成）
 - 方法：解包官方 `obsidian-1.15.1.asar` 的 `app.css`（SHA-256 已核对一致），叠加用户实际生效的 Border 主题与插件 `styles.css`，在 ego lite/Chromium 中按 740/500/320 三档 × 浅深两主题复现 12 个场景；DOM 由 `gen-markup.mjs` 调用插件真实渲染函数生成，测量全部来自 `getBoundingClientRect` 与 `getComputedStyle`。
@@ -23,7 +24,7 @@
 ## 未完成
 - 社区市场尚未提交：`community-plugins.json` 中 `vault-doctor` / `Vault Doctor` 未被占用，manifest 与 release 均合规。提交入口已从 PR 改为网页表单：用 Obsidian 账号登录 <https://community.obsidian.md/> → 在 Profile → GitHub 选择 **Connect** 绑定 GitHub → **Plugins → New plugin** 填仓库 URL。目录读取默认分支 HEAD 的 `manifest.json`，并要求存在 tag 与 `version` 一致的正式 release（manifest 已升到 `1.8.0`，需先发布 tag=1.8.0 的正式 release 才满足）。此前为走 PR 旧流程准备的 fork 分支 `add-vault-doctor` 已无用途（它仍留在 fork `ll905518294/obsidian-releases` 上，核实于 2026-11-15；可忽略，需要时可删除该 fork）。
 - 第五轮的对比度与布局测量是在 ego lite/Chromium 仿真里完成的（官方 `app.css` + Border 主题 + 插件 `styles.css`），尚未在真实 Obsidian 内核里复现；截图存于 `C:\Users\Administrator\.codex\visualizations\2026\11\14\01a1d9da-adc1-7522-b34d-9e23978baea9\`，命名 `vault-doctor-r5-*`。
-- 1.8.0 截图仍缺「图片转换」页签：`01-dashboard.png`、`02-scan-result.png` 还是 9 分类旧图，需在演示库补拍后才能宣称截图代表当前界面。
+- `01-dashboard.png`、`02-scan-result.png` 仍是含 9 分类的旧取景，未把标签条滚到末尾的「图片转换」；该页签已由 `09`/`10` 单独覆盖，不视为缺口。
 - release workflow 的 ZIP 步骤只在本地用 YAML 解析与 `npm run package` 验证过，尚未在 GitHub Actions 实跑（本机无 bash/jq）；首次推送 tag 后需确认 release 资产含 `vault-doctor-<版本号>.zip`。
 
 ## 关键上下文

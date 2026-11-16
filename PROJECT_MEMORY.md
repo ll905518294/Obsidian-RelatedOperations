@@ -23,6 +23,8 @@
 - 界面文字强调色用 `var(--ro-accent-text)`，不要直接用 `--text-accent`：浅色主题下 `--text-accent` 对比度只有 3.19~3.56（低于正文 4.5），深色下 4.99~5.72 已达标；`--ro-accent-text` 是 `color-mix(in srgb, var(--text-accent) 65%, var(--text-normal))`，浅色提到 5.41~6.03、深色提到 6.22~7.12。该变量定义在 `.related-operations-panel`、`.orphan-cleanup-panel` 与 `.modal-content` 上——`related-operations-confirm-target` 用在关联笔记的确认弹窗里，弹窗不在面板作用域内。
 - 列表勾选框不套 `label`：窄屏 44×44 命中区来自 `input[type="checkbox"]` 自己的边框盒（`box-sizing: content-box`，content 30px + 7px 透明边框），可见文本由 `aria-labelledby` 关联。`associateCheckbox()` 只负责给可见文本设 id 并回填 `aria-labelledby`，不改动勾选框的父节点。
 - 清理表格必须设整表 `min-width`（普通表 460px、重复文件表 660px）：窄视口下「勾选 44px + 操作 145px」这些固定列会把中间列压到 0，改由 `.orphan-cleanup-scroll` 横向滚动。
+- 体检缓存写入 `data.json` 前必须序列化成纯数据（`src/cleanup/cleanup-cache.ts`，`CLEANUP_CACHE_VERSION = 2`）：只保留路径与 `size`/`mtime`，读取时按路径重新解析成 `TFile`/`TFolder`；转换候选 `convertibleImages` 永远写空，估算结果不落盘。旧缓存或已删除文件由 `restoreCleanupCandidates` 逐项校验后丢弃，不能让面板崩溃。
+- 截图流程：演示库 `X:\Obsidian\vault-doctor-demo` 含合成数据，但图片转换会真实改写文件并清空原图，因此转换类截图必须在**临时复制件**里拍摄（复制目录可同名以保持界面左下角库名一致）；截图用窗口客户区抓屏，保持 1920×1032。切换 Vault 前先备份 `%APPDATA%\obsidian\obsidian.json`，拍完恢复备份并重启回真实库。
 
 ## 已验证结论
 ### 插件入口与模块边界

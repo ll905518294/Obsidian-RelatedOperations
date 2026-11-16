@@ -1077,3 +1077,118 @@ test('a failed rename in a batch keeps results and undo records consistent', asy
 	assert.deepEqual(panel.lastMove, result.moved);
 	assert.deepEqual(renamed, [['dst/good.md', 'archive/good.md'], ['dst/later.md', 'archive/later.md']]);
 });
+
+// Keyboard users cannot reach a bare <a> without href. The note-name links must
+// expose button semantics and activate on Enter or Space, for both the related
+// note and the source note shown in the header.
+test('related note and source links are keyboard activatable', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { el, opened } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	const noteLink = el.querySelector('tr[data-related-path] a');
+	const sourceLink = el.querySelector('.related-operations-source-link');
+	for (const link of [noteLink, sourceLink]) {
+		assert.equal(link.getAttribute('role'), 'button');
+		assert.equal(link.getAttribute('tabindex'), '0');
+	}
+	noteLink.fire('keydown', { key: 'Enter' });
+	noteLink.fire('keydown', { key: ' ' });
+	noteLink.fire('keydown', { key: 'a' });
+	sourceLink.fire('keydown', { key: 'Enter' });
+	assert.deepEqual(opened, [
+		['dst/t.md', 'src/a.md', 'tab'],
+		['dst/t.md', 'src/a.md', 'tab'],
+		['src/a.md', 'src/a.md', 'tab'],
+	]);
+});
+
+// Single-source rows have no source column, so the relation cell must say which
+// note the direction refers to instead of only "出链/入链".
+test('single-source relation cells explain which note the relation points at', () => {
+	const a = file('src/a.md');
+	const relationText = (relation, tab) => {
+		const t = file('dst/t.md');
+		const { el } = panelFor([{ file: t, relation, sourceFile: a }], [a]);
+		if (tab) {
+			el.querySelectorAll('.related-operations-tab').find((item) => item.textContent.startsWith(tab)).fire('click');
+		}
+		const row = el.querySelector('tr[data-related-path]');
+		return row.children[3].textContent;
+	};
+	assert.equal(relationText('outgoing'), '出链自 a');
+	assert.equal(relationText('incoming', '入链'), 'a 的入链');
+	assert.equal(relationText('both'), '与 a 双向链接');
+});
+
+// With no relations at all the panel must explain what was checked, not just
+// show a bare "empty" line, and the bulk actions must stay disabled.
+test('empty related list explains that no outgoing or incoming links exist', () => {
+	const a = file('src/a.md');
+	const { el } = panelFor([], [a], { files: [a] });
+	const empty = el.querySelector('.related-operations-empty');
+	assert.match(empty.textContent, /没有出链/);
+	assert.match(empty.textContent, /没有其他笔记链接/);
+	assert.equal(el.querySelectorAll('tr[data-related-path]').length, 0);
+	assert.equal(el.querySelector('.related-operations-select-all').disabled, true);
+	assert.equal(el.querySelector('.related-operations-actions button').disabled, false, '返回按钮不应被禁用');
+});
+
+// Only the active tab can be empty while other tabs still have rows. The empty
+// state must then point at the other tabs instead of claiming the note has no
+// relations at all.
+test('an empty tab points to the other tabs when relations exist elsewhere', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	el.querySelectorAll('.related-operations-tab').find((tab) => tab.textContent.startsWith('入链')).fire('click');
+	const empty = el.querySelector('.related-operations-empty');
+	assert.match(empty.textContent, /切换其他标签页/);
+	assert.doesNotMatch(empty.textContent, /没有出链/);
+});
+
+// A hub note can list 1000 relations. Rendering must stay responsive, use the
+// scroll container, and keep select-all working on the whole group.
+test('renders 1000 related notes with a scroll container and working select-all', (t) => {
+	const a = file('src/a.md');
+	const targets = Array.from({ length: 1000 }, (_, index) => file(`dst/t-${index}.md`));
+	const relatedNotes = targets.map((target) => ({ file: target, relation: 'outgoing', sourceFile: a }));
+	const start = performance.now();
+	const { panel, el } = panelFor(relatedNotes, [a], {
+		files: [a, ...targets],
+		settings: { groupingMode: 'none', hideCompliant: false },
+	});
+	const renderMs = performance.now() - start;
+	assert.equal(el.querySelectorAll('tr[data-related-path]').length, 1000);
+	assert.ok(el.querySelector('.related-operations-table-scroll'), '大列表应放在可滚动容器中');
+	el.querySelector('.related-operations-select-all').fire('click');
+	assert.equal([...panel.selections.values()].filter(Boolean).length, 1000);
+	assert.ok(renderMs < 5000, `1000 行渲染应保持响应，实际 ${renderMs.toFixed(1)}ms`);
+	t.diagnostic(`1000 rows: render=${renderMs.toFixed(1)}ms`);
+});
+
+// Changing grouping is an immediate display action: rows must regroup before
+// the next open, and the choice must be written through to settings.
+test('changing grouping re-renders immediately and persists to settings', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t1 = file('dst/t1.md');
+	const t2 = file('dst/t2.md');
+	const settings = { groupingMode: 'none', hideCompliant: false };
+	let saves = 0;
+	const { el } = panelFor([
+		{ file: t1, relation: 'outgoing', sourceFile: a },
+		{ file: t2, relation: 'outgoing', sourceFile: b },
+	], [a, b], {
+		files: [a, b, t1, t2],
+		settings,
+		saveSettings: async () => { saves++; },
+	});
+	const groupRows = () => el.querySelectorAll('.related-operations-path-group');
+	assert.equal(groupRows().length, 0);
+	const grouping = el.querySelector('.related-operations-grouping-select');
+	grouping.value = 'source';
+	grouping.fire('change');
+	assert.deepEqual(groupRows().map((row) => row.textContent), ['src/a.md', 'src/b.md']);
+	assert.equal(settings.groupingMode, 'source');
+	assert.equal(saves, 1);
+});

@@ -95,7 +95,7 @@ export class Modal extends Component { static opens = 0; open() { Modal.opens++;
 export class ItemView extends Component {}
 export class PluginSettingTab extends Component {}
 export class TAbstractFile {}
-export class TFile extends TAbstractFile { constructor(path) { super(); this.path = path; this.extension = 'md'; this.name = path.split('/').pop(); this.stat = { size: 0, mtime: 0 }; } }
+export class TFile extends TAbstractFile { constructor(path) { super(); this.path = path; this.extension = 'md'; this.name = path.split('/').pop(); this.stat = { size: 0, mtime: 0 }; this.vault = {}; this.vault.self = this.vault; } }
 export class TFolder extends TAbstractFile { constructor(path) { super(); this.path = path; this.children = []; } }
 export class App {}
 export class FileSystemAdapter {}
@@ -449,4 +449,68 @@ test('全量扫描成功后写入缓存时间并在首页展示', async () => {
 	assert.equal(panel.lastScannedAt, saved.scannedAt);
 	assert.match(panel.contentEl.textContent, /上次扫描：/);
 	assert.equal(panel.lastScanAborted, undefined);
+});
+
+test('写入缓存前把文件对象转成纯数据，JSON.stringify 不再循环', async () => {
+	const attachment = makeFile('orphan.pdf', 'pdf', 20);
+	const panel = makePanel(makeApp({ vault: { getFiles: () => [attachment] } }));
+	let saved;
+	panel.options.saveCache = async (cache) => { saved = cache; };
+
+	await panel.scan();
+
+	assert.ok(saved);
+	assert.equal(saved.version, 2);
+	assert.deepEqual(saved.candidates.attachments, [{ path: 'orphan.pdf', size: 20, mtime: 0 }]);
+	assert.doesNotThrow(() => JSON.stringify(saved));
+	assert.deepEqual(JSON.parse(JSON.stringify(saved)), saved);
+});
+
+test('缓存保存失败时输出警告并给出可见提示', async () => {
+	Notice.messages = [];
+	const attachment = makeFile('orphan.pdf', 'pdf', 20);
+	const panel = makePanel(makeApp({ vault: { getFiles: () => [attachment] } }));
+	panel.options.saveCache = async () => { throw new Error('磁盘只读'); };
+	const warnings = [];
+	const originalWarn = console.warn;
+	console.warn = (...args) => { warnings.push(args.join(' ')); };
+	try {
+		await panel.scan();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	} finally {
+		console.warn = originalWarn;
+	}
+
+	assert.ok(warnings.some((message) => /缓存保存失败/.test(message)), '必须写入 console.warn');
+	assert.ok(Notice.messages.some((message) => message === '缓存保存失败：磁盘只读'), '必须给出可见提示');
+});
+
+test('恢复序列化缓存时按路径解析回 TFile，缺失文件安全丢弃', () => {
+	const attachment = makeFile('orphan.pdf', 'pdf', 20);
+	const app = makeApp({
+		vault: {
+			getAbstractFileByPath: (path) => (path === 'orphan.pdf' ? attachment : null),
+		},
+	});
+	const panel = makePanel(app);
+	panel.options.cachedCandidates = {
+		images: [],
+		attachments: [{ path: 'orphan.pdf', size: 20, mtime: 0 }, { path: 'gone.pdf', size: 1, mtime: 0 }],
+		emptyFiles: [],
+		folders: [{ path: 'Empty' }],
+		brokenLinks: [],
+		nativeLinks: [],
+		brokenNoteLinks: [],
+		wikiLinks: [],
+		duplicates: [],
+		duplicateWarnings: [],
+		convertibleImages: [],
+	};
+	panel.options.cachedAt = '2026-11-17T03:04:05.000Z';
+
+	panel.render();
+
+	assert.equal(panel.candidates.attachments.length, 1);
+	assert.equal(panel.candidates.attachments[0], attachment);
+	assert.equal(panel.candidates.folders.length, 0);
 });

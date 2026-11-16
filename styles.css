@@ -808,7 +808,8 @@
 .orphan-cleanup-scan-error {
 	margin: 0 0 0.9rem;
 	padding: 0.6rem 0.75rem 0.6rem 0.85rem;
-	border: 1px solid color-mix(in srgb, var(--text-error) 55%, var(--background-modifier-border));
+	/* 55% 在浅色主题只有 2.84:1（非文本 3:1）；75% 达 3.68:1，深浅主题均过线。 */
+	border: 1px solid color-mix(in srgb, var(--text-error) 75%, var(--background-modifier-border));
 	border-left: 3px solid var(--text-error);
 	border-radius: var(--radius-s);
 	color: color-mix(in srgb, var(--text-error) 70%, var(--text-normal));
@@ -1221,8 +1222,11 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	padding: 0.15rem 0.5rem;
 	border-radius: 999px;
 	color: var(--text-normal);
-	background: color-mix(in srgb, var(--text-warning) 18%, var(--background-secondary));
-	border: 1px solid color-mix(in srgb, var(--text-warning) 45%, transparent);
+	/* 浅色主题下 18% warning 底会把 70% warning 文字压到 3.81:1；改用 primary 基底 6%，两主题均 ≥4.5:1。 */
+	background: color-mix(in srgb, var(--text-warning) 6%, var(--background-primary));
+	/* 边框改用主题分隔色：原 45% warning 混色在浅色主题仅 1.85:1；徽标非交互组件，
+	   3:1 仅适用于交互控件边界，这里只需一条中性描边，主题 border 更稳。 */
+	border: 1px solid var(--background-modifier-border);
 	font-size: var(--font-ui-small);
 	font-weight: 700;
 	text-align: center;

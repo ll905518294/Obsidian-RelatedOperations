@@ -1,7 +1,9 @@
 import { App, PluginSettingTab, SettingDefinitionItem } from 'obsidian';
 import type RelatedOperationsPlugin from './main';
-import { CleanupCandidates } from './orphan-cleanup';
+import type { OrphanCleanupCache } from './cleanup/cleanup-cache';
 import { DEFAULT_IMAGE_CONVERSION, type ImageConversionConfig } from './cleanup/cleanup-types';
+
+export type { OrphanCleanupCache } from './cleanup/cleanup-cache';
 
 export interface RelatedOperationsSettings {
 	groupingMode: 'none' | 'source' | 'path';
@@ -12,16 +14,6 @@ export interface RelatedOperationsSettings {
 	onboardingSeen: boolean;
 	orphanCleanupCache?: OrphanCleanupCache;
 	imageConversion?: ImageConversionConfig;
-}
-
-export interface OrphanCleanupCache {
-	version: number;
-	scannedAt: string;
-	candidates: CleanupCandidates;
-	settingsSnapshot: {
-		orphanImageExtensions: string;
-		orphanIgnoredFolders: string;
-	};
 }
 
 export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
