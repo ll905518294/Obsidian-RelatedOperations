@@ -60,6 +60,60 @@ test('reports how many note links failed when the source note is missing', async
 	assert.ok(result.failed[0].reason.includes('源笔记不存在'));
 });
 
+// A write failure in one source must not discard removals that already
+// succeeded in another note, and the failure must be reported with its count.
+test('keeps successful note-link removals and reports only the failing source', async () => {
+	const original = '[[missing]]';
+	let okContent = `before ${original} after`;
+	const files = {
+		'ok.md': { path: 'ok.md', extension: 'md' },
+		'bad.md': { path: 'bad.md', extension: 'md' },
+	};
+	const at = okContent.indexOf(original);
+	const result = await removeSelectedBrokenNoteLinks({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: {
+			getFileByPath: (path) => files[path] ?? null,
+			process: async (file, callback) => {
+				if (file.path === 'bad.md') throw new Error('locked');
+				okContent = callback(okContent);
+			},
+		},
+	}, [
+		{ sourcePath: 'ok.md', original, linkPath: 'missing', position: { start: { offset: at }, end: { offset: at + original.length } }, syntax: 'wiki' },
+		{ sourcePath: 'bad.md', original, linkPath: 'missing', position: { start: { offset: 0 }, end: { offset: original.length } }, syntax: 'wiki' },
+	]);
+	assert.equal(result.removed, 1);
+	assert.equal(result.skipped, 0);
+	assert.equal(result.failed.length, 1);
+	assert.equal(result.failed[0].path, 'bad.md');
+	assert.match(result.failed[0].reason, /1 条链接：locked/);
+	assert.ok(!okContent.includes(original), '成功来源中的链接应被移除');
+	assert.match(okContent, /before/);
+	assert.match(okContent, /after/);
+});
+
+// The target may reappear between scanning and removal. That link must be
+// counted as skipped and left untouched instead of being removed or reported as
+// a failure.
+test('skips note links whose target was restored after scanning', async () => {
+	const original = '[[restored]]';
+	let content = original;
+	const result = await removeSelectedBrokenNoteLinks({
+		metadataCache: { getFirstLinkpathDest: (path) => (path === 'restored' ? { path: 'restored.md' } : null) },
+		vault: {
+			getFileByPath: () => ({ path: 'note.md', extension: 'md' }),
+			process: async (_file, callback) => { content = callback(content); },
+		},
+	}, [
+		{ sourcePath: 'note.md', original, linkPath: 'restored', position: { start: { offset: 0 }, end: { offset: original.length } }, syntax: 'wiki' },
+	]);
+	assert.equal(result.removed, 0);
+	assert.equal(result.skipped, 1);
+	assert.deepEqual(result.failed, []);
+	assert.equal(content, original);
+});
+
 test('reports a failed create when writing the note throws', async () => {
 	const link = { sourcePath: 'note.md', original: '[[missing]]', linkPath: 'missing', position: { start: { offset: 0 }, end: { offset: 11 } }, syntax: 'wiki' };
 	const result = await createMissingNotes({

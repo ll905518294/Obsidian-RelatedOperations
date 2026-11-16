@@ -14,7 +14,7 @@ interface RemoveBrokenLinksResult {
 	skipped: number;
 }
 
-export function brokenLinkKey(link: BrokenImageLink) {
+export function brokenLinkKey(link: BrokenImageLink): string {
 	return `${link.sourcePath}\u0000${link.position.start.offset}:${link.position.end.offset}`;
 }
 

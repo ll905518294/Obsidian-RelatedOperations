@@ -132,6 +132,15 @@ test('wikiNoteLinkOffset matches exact position and falls back to search', () =>
 	assert.equal(wikiNoteLinkOffset(content, link('[[a]]', 'a.md', 999), false), null);
 });
 
+// If the cache position is stale and the same link text appears twice, the
+// fallback cannot know which occurrence the user meant. Refuse to guess rather
+// than acting on the wrong link.
+test('wikiNoteLinkOffset refuses to guess between repeated links when the position is stale', () => {
+	const content = '[[a]] and [[a]]';
+	assert.equal(wikiNoteLinkOffset(content, link('[[a]]', 'a.md', 999)), null);
+	assert.deepEqual(wikiNoteLinkOffset(content, link('[[a]]', 'a.md', 0)), { start: 0, end: 5 });
+});
+
 test('wikiNoteLinkKey is unique per source and position', () => {
 	const l1 = link('[[a]]', 'a.md', 0);
 	const l2 = link('[[a]]', 'a.md', 8);

@@ -1,6 +1,6 @@
 import type { CachedMetadata } from 'obsidian';
 import { isCaseSensitiveFileSystem } from '../core-utils.ts';
-import type { ImageCodec } from './image-codec.ts';
+import { LARGE_IMAGE_BYTES, type ImageCodec } from './image-codec.ts';
 import type { ImageConvertTarget } from './image-convert-plan.ts';
 import { pathKey, sourceImageFormat, targetPathFor } from './image-convert-plan.ts';
 import {
@@ -147,34 +147,42 @@ async function execute(
 ): Promise<ConversionResult> {
 	const total = items.length;
 	let processed = 0;
-	let next = 0;
 	const outcomes = new Array<Outcome | undefined>(total);
 	const caseSensitive = options.caseSensitive ?? isCaseSensitiveFileSystem();
 	const colliding = collidingTargetPaths(items, options.target, caseSensitive);
-	const limit = Math.min(2, items.length || 1);
-	const workers = Array.from({ length: limit }, async () => {
-		while (!options.signal?.aborted) {
-			const index = next++;
-			if (index >= total) return;
-			const item = items[index]!;
-			try {
-				outcomes[index] = colliding.has(item.path)
-					? skip(item.path, 'target-collision', '多张图片会转换为同一目标文件')
-					: await convertOne(app, codec, item, options, caseSensitive);
-			} catch (error) {
-				outcomes[index] = {
-					failed: {
-						path: item.path,
-						reason: 'write-failed',
-						reasonText: `转换失败：${reasonOf(error)}`,
-					},
-				};
+	const limit = Math.min(4, items.length || 1);
+	const indexed = items.map((item, index) => ({ item, index }));
+	// 与估算一致：解码前按文件体积把大图分到单并发通道，普通图跑满 4 路。
+	const runLane = async (lane: Array<{ item: ConversionItem; index: number }>, concurrency: number) => {
+		let next = 0;
+		const workers = Array.from({ length: Math.max(1, Math.min(concurrency, lane.length || 1)) }, async () => {
+			while (!options.signal?.aborted) {
+				const entry = lane[next++];
+				if (!entry) return;
+				const { item, index } = entry;
+				try {
+					outcomes[index] = colliding.has(item.path)
+						? skip(item.path, 'target-collision', '多张图片会转换为同一目标文件')
+						: await convertOne(app, codec, item, options, caseSensitive);
+				} catch (error) {
+					outcomes[index] = {
+						failed: {
+							path: item.path,
+							reason: 'write-failed',
+							reasonText: `转换失败：${reasonOf(error)}`,
+						},
+					};
+				}
+				processed++;
+				onProgress?.(processed, total, item.path);
 			}
-			processed++;
-			onProgress?.(processed, total, item.path);
-		}
-	});
-	await Promise.all(workers);
+		});
+		await Promise.all(workers);
+	};
+	await Promise.all([
+		runLane(indexed.filter((entry) => entry.item.size < LARGE_IMAGE_BYTES), limit),
+		runLane(indexed.filter((entry) => entry.item.size >= LARGE_IMAGE_BYTES), 1),
+	]);
 
 	const result: ConversionResult = {
 		converted: [],
@@ -624,7 +632,7 @@ async function deleteCreatedFile(app: ConversionApp, path: string, caseSensitive
 	}
 }
 
-function makeResolver(app: ConversionApp, sourcePath: string) {
+function makeResolver(app: ConversionApp, sourcePath: string): (linkPath: string) => string | null {
 	return (linkPath: string) => app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath)?.path ?? null;
 }
 

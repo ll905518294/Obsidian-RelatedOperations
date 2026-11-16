@@ -10,8 +10,8 @@
 - 1.8.0 发版准备（未提交、未打 tag）：CHANGELOG 已写 1.8.0 正式条目（性能/新功能/优化/修复/测试/文档），并补入并行线程落地的缓存序列化 v2、哈希/编解码内存上限、关联笔记键盘可达；`src/update-intro-content.ts` 已加 1.8.0 中文说明，弹窗标题为「Vault Doctor · 1.8.0 · 全面提速与安装包」；README 功能总览补充扫描中止、上次扫描时间戳、性能与键盘/读屏能力，图片转换章节已配图。
 - 截图：`docs/images/09-image-convert.png`（候选列表 + 汇总条）与 `10-image-convert-result.png`（转换完成提示 + 最近一次转换）已于 2026-11-17 在演示库的临时复制件中实拍（1920×1032），正式演示库未被转换动作改动；已恢复 `obsidian.json` 并重启回真实库。
 - 版本来源：`npm version 1.8.0 --no-git-tag-version` 触发 `version-bump.mjs`，四份清单文件统一；未 git commit、未打 tag。
-- 安装包：缓存修复落地后已重新 `npm run build` 并连跑两次 `npm run package`，`dist/vault-doctor-1.8.0.zip` 376049 字节，SHA-256 `481D4F2D5B7BD23DD228F27EEA0D6B5BFE086F692202B6F8A3EFBF257B5323E7`（两次相同）；包内 `main.js` 648349 / `manifest.json` 282（version 1.8.0）/ `styles.css` 52793，三者与仓库根同名文件逐字节一致；`npm run package:check` 通过。release workflow 会同时附 ZIP。
-- 验证基线（2026-11-17 本机实测）：`npm test` **513 通过 / 0 失败**；`npm run lint` 0 error、1 条既有 warning（`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）。打包与 `npm run package:check` 结果见下方「未完成」的最新一次记录；`npm run test:deploy`、`npm run deploy:check` 本轮未重跑。
+- 安装包：上一轮（缓存修复后）`dist/vault-doctor-1.8.0.zip` 为 376049 字节、SHA-256 `481D4F2D5B7BD23DD228F27EEA0D6B5BFE086F692202B6F8A3EFBF257B5323E7`，该结果已被并行线程改动取代；发版前需在所有线程收口后重新 `npm run build` 并连跑两次 `npm run package` 记录新的大小与 SHA-256。当前 `npm run package:check` 通过，ZIP 名为 `vault-doctor-1.8.0.zip`。
+- 验证基线（2026-11-17 本机实测）：`npm test` **571 通过 / 0 失败**；`npm run package:check`、`npm run test:deploy` 通过。`npm run lint` 当前 1 error（`src/duplicate-files.ts:288`，`@typescript-eslint/no-unsafe-assignment`，属并行线程未收口改动）与 1 条既有 warning（`src/update-intro-content.ts` 里 `.obsidian` 文案触发 `obsidianmd/hardcoded-config-path`）。
 
 ## 2026-11-15 第五轮：界面与可访问性审计（已完成）
 - 方法：解包官方 `obsidian-1.15.1.asar` 的 `app.css`（SHA-256 已核对一致），叠加用户实际生效的 Border 主题与插件 `styles.css`，在 ego lite/Chromium 中按 740/500/320 三档 × 浅深两主题复现 12 个场景；DOM 由 `gen-markup.mjs` 调用插件真实渲染函数生成，测量全部来自 `getBoundingClientRect` 与 `getComputedStyle`。
@@ -23,14 +23,14 @@
 
 ## 未完成
 - 社区市场尚未提交：`community-plugins.json` 中 `vault-doctor` / `Vault Doctor` 未被占用，manifest 与 release 均合规。提交入口已从 PR 改为网页表单：用 Obsidian 账号登录 <https://community.obsidian.md/> → 在 Profile → GitHub 选择 **Connect** 绑定 GitHub → **Plugins → New plugin** 填仓库 URL。目录读取默认分支 HEAD 的 `manifest.json`，并要求存在 tag 与 `version` 一致的正式 release（manifest 已升到 `1.8.0`，需先发布 tag=1.8.0 的正式 release 才满足）。此前为走 PR 旧流程准备的 fork 分支 `add-vault-doctor` 已无用途（它仍留在 fork `ll905518294/obsidian-releases` 上，核实于 2026-11-15；可忽略，需要时可删除该 fork）。
-- 第五轮的对比度与布局测量是在 ego lite/Chromium 仿真里完成的（官方 `app.css` + Border 主题 + 插件 `styles.css`），尚未在真实 Obsidian 内核里复现；截图存于 `C:\Users\Administrator\.codex\visualizations\2026\11\14\01a1d9da-adc1-7522-b34d-9e23978baea9\`，命名 `vault-doctor-r5-*`。
+- 第五轮的对比度与布局测量是在 ego lite/Chromium 仿真里完成的（官方 `app.css` + Border 主题 + 插件 `styles.css`），尚未在真实 Obsidian 内核里复现；截图存于本机 visualizations 归档目录，命名 `vault-doctor-r5-*`。
 - `01-dashboard.png`、`02-scan-result.png` 仍是含 9 分类的旧取景，未把标签条滚到末尾的「图片转换」；该页签已由 `09`/`10` 单独覆盖，不视为缺口。
 - release workflow 的 ZIP 步骤只在本地用 YAML 解析与 `npm run package` 验证过，尚未在 GitHub Actions 实跑（本机无 bash/jq）；首次推送 tag 后需确认 release 资产含 `vault-doctor-<版本号>.zip`。
 
 ## 关键上下文
 - 相关文件：`AGENTS.md`、`PROJECT_MEMORY.md`、`CHANGELOG.md`、`docs/`
 - 验证命令：`npm run build`、`npm run lint`、`npm test`、`npm run package`、`npm run package:check`、`npm run test:deploy`、`npm run deploy:check`（`package:check`、`test:deploy`、`deploy:check` 都不会复制文件或重启 Obsidian）。
-- 发布：推送与 `manifest.json` 的 `version` 完全一致（无 `v` 前缀）的 tag 触发 release workflow；workflow 先校验版本与 `versions.json` 映射，再运行 `npm run lint`、`npm test` 与 `npm run package`，通过后创建正式 release 并附带 `main.js`、`manifest.json`、`styles.css` 与 `dist/vault-doctor-<版本号>.zip`，发布说明写入版本、最低 Obsidian 版本与全部资产的 SHA-256。
+- 发布：推送与 `manifest.json` 的 `version` 完全一致（无 `v` 前缀）的 tag 触发 release workflow；workflow 先校验 `manifest.json`、`package.json` 与 `versions.json` 的版本一致，再运行 `npm run lint`、`npm test` 与 `npm run package`，打包后复检 ZIP 内版本并用 `--verify-tag` 创建正式 release，附带 `main.js`、`manifest.json`、`styles.css` 与 `dist/vault-doctor-<版本号>.zip`，发布说明写入版本、最低 Obsidian 版本与全部资产的 SHA-256。
 - 部署：`npm run deploy` 失败时默认恢复 `.obsidian/plugin-backups/<plugin-id>.backup`；加 `-NoRollbackOnFail` 可保留新文件用于排查。
 - 部署后确认：读取 `.obsidian/plugins/vault-doctor/manifest.json` 的 `version` 应与项目根 `manifest.json` 一致，且 `main.js` 的 `LastWriteTime` 不应早于本次构建。
 - 已知坑与避免方式：不要把 `main.js`、`node_modules/` 或 Vault 数据文件当作源码提交。嵌套对象需显式 map 到 path string 再 add 到 selection Set。多线程共用同一工作区，临时脚本必须在收尾前删除，仓库根目录只保留源码、测试、文档与 `main.js`。

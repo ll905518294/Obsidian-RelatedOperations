@@ -1,8 +1,10 @@
 import { setIcon } from 'obsidian';
-import { CLEANUP_CATEGORIES, type CleanupViewContext, type ScanCategoryTab } from './cleanup-types';
+import { CLEANUP_CATEGORIES, type CleanupTab, type CleanupViewContext, type ScanCategoryTab } from './cleanup-types';
 import { categoryCount, categoryStatus, categoryTotal, formatScanDuration, scanPercent, tabEntries } from './cleanup-selectors';
 import { announceStatus, ensureLiveRegion, nextListElementId, setTextIfChanged } from './cleanup-a11y';
 export { categoryStatus, tabEntries };
+
+const CONVERSION_TAB: CleanupTab = 'image-convert';
 
 /*
  * 同一个视图可以出现在多个 leaf 中，帮助内容的 id 必须按容器区分；
@@ -28,6 +30,13 @@ export function updateScanProgress(view: CleanupViewContext) {
 	view.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-bar-wrap')?.setAttribute('aria-valuenow', String(percent));
 	for (const item of Array.from(view.contentEl.querySelectorAll<HTMLElement>('.orphan-cleanup-dashboard-item[data-tab]'))) {
 		const tab = item.dataset.tab as ScanCategoryTab;
+		if (tab === 'image-convert') {
+			// 图片转换卡片不走 9 类扫描编排：全量扫描不会刷新它，
+			// 状态只由估算进度与「是否已枚举候选」决定。
+			item.toggleClass('is-scanning', view.conversion.estimating);
+			setTextIfChanged(item.querySelector<HTMLElement>('.orphan-cleanup-dashboard-item-status'), conversionStatus(view, view.candidates.convertibleImages.length));
+			continue;
+		}
 		const completed = view.scannedTabs.has(tab);
 		const current = view.scanning && !completed && categoryScanStage(tab) === stage;
 		item.toggleClass('is-scanning', current);
@@ -46,7 +55,7 @@ export function updateScanProgress(view: CleanupViewContext) {
 	else if (view.lastScanError) {
 		// 部分分类失败时不能播报「扫描完成」，否则屏幕阅读器会误导。
 		announceStatus(view.contentEl, '扫描未完成，部分分类结果已保留');
-	} else if (view.hasScanned) announceStatus(view.contentEl, `扫描完成，共 ${categoryTotal(view.candidates)} 项待处理`);
+	} else if (view.hasScanned) announceStatus(view.contentEl, `扫描完成，共 ${categoryTotal(view.candidates) + view.candidates.convertibleImages.length} 项待处理`);
 }
 
 function categoryScanStage(tab: ScanCategoryTab): number {
@@ -56,8 +65,12 @@ function categoryScanStage(tab: ScanCategoryTab): number {
 export function renderOverview(view: CleanupViewContext) {
 	const home = view.contentEl.createDiv({ cls: 'orphan-cleanup-home orphan-cleanup-dashboard' });
 	if (view.scanning) home.addClass('is-scanning');
-	const total = categoryTotal(view.candidates);
-	// 图片转换不是分类：不参与首页“已扫描分类”和健康度判断。
+	// 扫描进行中给容器加 aria-busy，屏幕阅读器与辅助技术据此跳过对未稳定内容的逐条读取。
+	if (view.scanning) home.setAttribute('aria-busy', 'true');
+	// 图片转换是独立功能 tab：它不属于 9 类扫描分类（不驱动扫描编排），
+	// 但「有候选」时是可处理项，需要并入首页待处理总数，让用户在首页就能看到它。
+	const convertCount = view.candidates.convertibleImages.length;
+	const total = categoryTotal(view.candidates) + convertCount;
 	const scanned = CLEANUP_CATEGORIES.filter((category) => view.scannedTabs.has(category.tab)).length;
 	const categoryDirty = CLEANUP_CATEGORIES.some((category) => view.dirtyTabs.has(category.tab));
 	const stale = CLEANUP_CATEGORIES.filter((category) => view.scannedTabs.has(category.tab) && view.dirtyTabs.has(category.tab)).length;
@@ -80,7 +93,10 @@ export function renderOverview(view: CleanupViewContext) {
 	const heroCopy = hero.createDiv({ cls: 'orphan-cleanup-dashboard-hero-copy' });
 	heroCopy.createDiv({ text: view.scanning ? '扫描中的现有结果' : '当前待处理', cls: 'orphan-cleanup-dashboard-label' });
 	heroCopy.createDiv({ text: String(total), cls: 'orphan-cleanup-dashboard-total' });
-	heroCopy.createDiv({ text: `${scanned} / ${CLEANUP_CATEGORIES.length} 个分类已扫描${stale ? ` · ${stale} 类待复核` : ''}`, cls: 'orphan-cleanup-dashboard-meta' });
+	heroCopy.createDiv({
+		text: `${scanned} / ${CLEANUP_CATEGORIES.length} 个分类已扫描${stale ? ` · ${stale} 类待复核` : ''}${!view.scanning && convertCount > 0 ? ` · ${convertCount} 张图片待转换` : ''}`,
+		cls: 'orphan-cleanup-dashboard-meta',
+	});
 	if (view.scanning) {
 		const progress = heroCopy.createDiv({ cls: 'orphan-cleanup-dashboard-progress-bar-wrap' });
 		progress.setAttribute('role', 'progressbar');
@@ -102,13 +118,27 @@ export function renderOverview(view: CleanupViewContext) {
 		.sort((a, b) => view.scanning
 			? categoryScanStage(a.tab) - categoryScanStage(b.tab)
 			: categoryCount(view.candidates, b.tab) - categoryCount(view.candidates, a.tab));
+	// 图片转换卡片与扫描分类同区展示：有候选时归入优先处理，无候选且已估算归入已检查，
+	// 未估算/结果过期归入待检查。
+	const conversionScanned = view.scannedTabs.has(CONVERSION_TAB);
+	const conversionDirty = view.dirtyTabs.has(CONVERSION_TAB);
+	const conversionInPriority = view.scanning || convertCount > 0;
+	const conversionInHealthy = !view.scanning && convertCount === 0 && conversionScanned && !conversionDirty;
+	const conversionInPending = !view.scanning && convertCount === 0 && !conversionInHealthy;
 	const prioritySection = home.createDiv({ cls: 'orphan-cleanup-dashboard-section' });
 	const priorityHeading = prioritySection.createDiv({ cls: 'orphan-cleanup-dashboard-section-heading' });
 	priorityHeading.createEl('h3', { text: view.scanning ? '扫描进度' : '优先处理' });
 	priorityHeading.createSpan({ text: view.scanning ? '模块完成后会直接更新状态' : priority.length ? '按问题数量排序' : '没有待处理项目' });
 	const priorityGrid = prioritySection.createDiv({ cls: 'orphan-cleanup-priority-grid' });
 	if (priority.length) for (const category of priority) renderDashboardCategory(view, priorityGrid, category, true);
-	else priorityGrid.createDiv({ text: '所有已检查分类都很干净。', cls: 'orphan-cleanup-dashboard-empty' });
+	if (conversionInPriority) renderConversionCard(view, priorityGrid, 'priority');
+	const priorityCards = priority.length + (conversionInPriority ? 1 : 0);
+	if (priorityCards === 0) {
+		// 尚未扫描任何分类时，不能播报「很干净」——此时没有已检查内容，
+		// 会让用户误以为资料库已经确认无问题而错过扫描。区分未扫描与已扫描且干净两种空态。
+		const empty = priorityGrid.createDiv({ cls: scanned === 0 ? 'orphan-cleanup-dashboard-empty is-idle' : 'orphan-cleanup-dashboard-empty' });
+		empty.setText(scanned === 0 ? '还没有扫描结果，点击「开始扫描」检查资料库。' : '所有已检查分类都很干净。');
+	}
 
 	const healthy = view.scanning ? [] : CLEANUP_CATEGORIES.filter((category) => view.scannedTabs.has(category.tab) && categoryCount(view.candidates, category.tab) === 0 && !view.dirtyTabs.has(category.tab));
 	if (healthy.length) {
@@ -118,18 +148,58 @@ export function renderOverview(view: CleanupViewContext) {
 		healthyHeading.createSpan({ text: `${healthy.length} 个分类没有问题` });
 		const healthyList = healthySection.createDiv({ cls: 'orphan-cleanup-healthy-list' });
 		for (const category of healthy) renderDashboardCategory(view, healthyList, category, false);
+		if (conversionInHealthy) renderConversionCard(view, healthyList, 'healthy');
 	}
 
 	const pending = view.scanning ? [] : CLEANUP_CATEGORIES.filter((category) => categoryCount(view.candidates, category.tab) === 0 && (!view.scannedTabs.has(category.tab) || view.dirtyTabs.has(category.tab)));
-	if (pending.length) {
+	if (pending.length || conversionInPending) {
 		const pendingSection = home.createDiv({ cls: 'orphan-cleanup-dashboard-section orphan-cleanup-dashboard-pending' });
 		const pendingHeading = pendingSection.createDiv({ cls: 'orphan-cleanup-dashboard-section-heading' });
 		pendingHeading.createEl('h3', { text: '待检查 / 复核' });
 		pendingHeading.createSpan({ text: '未扫描或结果已过期' });
 		const pendingList = pendingSection.createDiv({ cls: 'orphan-cleanup-healthy-list' });
 		for (const category of pending) renderDashboardCategory(view, pendingList, category, false);
+		if (conversionInPending) renderConversionCard(view, pendingList, 'pending');
 	}
 	updateScanProgress(view);
+}
+
+/** 图片转换卡片：功能入口在首页可见，行为与其它分类卡片一致（进入 image-convert 页签）。 */
+function renderConversionCard(view: CleanupViewContext, container: HTMLElement, group: 'priority' | 'pending' | 'healthy') {
+	const count = view.candidates.convertibleImages.length;
+	const scanned = view.scannedTabs.has(CONVERSION_TAB);
+	const dirty = view.dirtyTabs.has(CONVERSION_TAB);
+
+	const card = container.createDiv({ cls: group === 'priority' ? 'orphan-cleanup-dashboard-item is-priority' : 'orphan-cleanup-dashboard-item' });
+	card.dataset.tab = CONVERSION_TAB;
+	if (view.conversion.estimating) card.addClass('is-scanning');
+	else if (dirty) card.addClass('is-dirty');
+	else if (count > 0) card.addClass('has-issues');
+	else if (scanned) card.addClass('is-healthy');
+
+	const icon = card.createDiv({ cls: 'orphan-cleanup-dashboard-icon' });
+	setIcon(icon, 'image-plus');
+	const body = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-body' });
+	const title = body.createDiv({ cls: 'orphan-cleanup-dashboard-item-title' });
+	title.createEl('strong', { text: '图片转换' });
+	if (group === 'priority') title.createSpan({ text: count > 0 ? String(count) : '—', cls: count > 0 ? 'orphan-cleanup-dashboard-item-count' : 'orphan-cleanup-dashboard-item-count is-zero' });
+	body.createDiv({ text: '把图片转成 JPG / WebP 并改写全部引用', cls: 'orphan-cleanup-dashboard-item-desc' });
+	body.createDiv({ text: conversionStatus(view, count), cls: 'orphan-cleanup-dashboard-item-status' });
+
+	const actions = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-actions' });
+	const viewButton = actions.createEl('button', { text: '查看' });
+	viewButton.setAttribute('aria-label', '图片转换：查看');
+	viewButton.disabled = view.scanning;
+	viewButton.addEventListener('click', (event) => { event.stopPropagation(); void view.activateTab(CONVERSION_TAB); });
+	card.addEventListener('click', () => { if (!view.scanning) void view.activateTab(CONVERSION_TAB); });
+}
+
+function conversionStatus(view: CleanupViewContext, count: number): string {
+	if (view.conversion.estimating) return '正在估算…';
+	if (view.scanning) return '等待估算（全量扫描不含此项）';
+	if (!view.scannedTabs.has(CONVERSION_TAB)) return '尚未估算';
+	if (view.dirtyTabs.has(CONVERSION_TAB)) return '结果待复核，请重新估算';
+	return count > 0 ? `${count} 张图片可转换` : '没有可转换的图片';
 }
 
 function overviewSubtitle(view: CleanupViewContext): string {

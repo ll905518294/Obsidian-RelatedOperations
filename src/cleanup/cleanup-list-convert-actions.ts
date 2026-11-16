@@ -1,7 +1,7 @@
 import type { CleanupViewContext, ImageConversionResult } from './cleanup-types';
 import { formatBytes } from './cleanup-actions';
 import { requireSecondClick } from './cleanup-confirm-button';
-import { describeBlockedReason, updateConversionSelectionSummary } from './cleanup-list-convert';
+import { describeBlockedReason, renderProgress, updateConversionSelectionSummary } from './cleanup-list-convert';
 
 interface ConversionDetail {
 	path?: string;
@@ -122,6 +122,8 @@ export function renderConversionActions(host: CleanupViewContext) {
 	if (host.conversion.converting) {
 		start.setText('转换中…');
 		start.disabled = true;
+		// 转换期间在动作区直接展示进度条与已处理张数，避免长时间无反馈。
+		renderProgress(host, actions);
 		const abort = actions.createEl('button', { text: '中止转换', cls: 'orphan-cleanup-convert-abort' });
 		abort.addEventListener('click', () => {
 			abort.disabled = true;

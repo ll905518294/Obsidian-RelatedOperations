@@ -101,7 +101,10 @@ export function renderList(host: RelatedNotesListHost) {
 	const actions = host.containerEl.querySelector('.related-operations-actions');
 	host.containerEl.insertBefore(wrapper, actions ?? null);
 	const currentGroup = host.groups()[host.activeGroup()];
-	const hiddenCount = uniqueCount(currentGroup.filter((note) => isAlreadyAtTarget(note.file, host.targetFolder())));
+	const hiddenNotes = currentGroup.filter((note) => isAlreadyAtTarget(note.file, host.targetFolder()));
+	// Non-merged view shows one row per source, while merged view collapses a
+	// target to one row; the count must match what the button will reveal.
+	const hiddenCount = host.merging() ? uniqueCount(hiddenNotes) : hiddenNotes.length;
 	const { effectiveGrouping, selectAll } = renderListToolbar(host, wrapper, currentGroup, hiddenCount);
 	host.updateSelectAllState(selectAll, currentGroup);
 	host.updateSelectionSummary();

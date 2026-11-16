@@ -41,6 +41,20 @@ try {
 	try { Get-OpenVaultPath $registry; throw 'invalid json accepted' } catch { if ($_.Exception.Message -notmatch 'invalid JSON') { throw } }
 	@{ vaults = @{ a = @{ path = $vault; open = $true }; b = @{ path = $vault; open = $true } } } | ConvertTo-Json | Set-Content $registry
 	try { Get-OpenVaultPath $registry; throw 'multiple vaults accepted' } catch { if ($_.Exception.Message -notmatch 'Multiple') { throw } }
+	$versionRoot = Join-Path $root 'version-check'
+	New-Item -ItemType Directory -Path $versionRoot -Force | Out-Null
+	'{"id":"vault-doctor","version":"1.2.3","minAppVersion":"1.13.0"}' | Set-Content (Join-Path $versionRoot 'manifest.json')
+	'{"version":"1.2.3"}' | Set-Content (Join-Path $versionRoot 'package.json')
+	'{"1.2.3":"1.13.0"}' | Set-Content (Join-Path $versionRoot 'versions.json')
+	if ((Assert-ReleaseVersionConsistency $versionRoot) -ne '1.2.3') { throw 'version consistency returned wrong version' }
+	'{"version":"1.2.4"}' | Set-Content (Join-Path $versionRoot 'package.json')
+	try { Assert-ReleaseVersionConsistency $versionRoot; throw 'package version mismatch accepted' } catch { if ($_.Exception.Message -notmatch 'Version mismatch') { throw } }
+	'{"version":"1.2.3"}' | Set-Content (Join-Path $versionRoot 'package.json')
+	'{"1.2.3":"1.12.0"}' | Set-Content (Join-Path $versionRoot 'versions.json')
+	try { Assert-ReleaseVersionConsistency $versionRoot; throw 'versions mapping mismatch accepted' } catch { if ($_.Exception.Message -notmatch 'Version mismatch') { throw } }
+	'{"1.2.3":"1.13.0"}' | Set-Content (Join-Path $versionRoot 'versions.json')
+	'{"id":"vault-doctor","version":"v1.2.3","minAppVersion":"1.13.0"}' | Set-Content (Join-Path $versionRoot 'manifest.json')
+	try { Assert-ReleaseVersionConsistency $versionRoot; throw 'v-prefixed version accepted' } catch { if ($_.Exception.Message -notmatch 'SemVer') { throw } }
 	Write-Host 'PASS: deploy script helper tests'
 } finally {
 	if (Test-Path $root) { Remove-Item $root -Recurse -Force }

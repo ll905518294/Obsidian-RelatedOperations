@@ -276,7 +276,7 @@ test('codec 返回的失败原因会写入 blockedReason', async () => {
 });
 
 test('中止后返回已完成条目并停止领取新文件', async () => {
-	const files = ['a.png', 'b.png', 'c.png', 'd.png'].map((path) => file(path, 10));
+	const files = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png', 'f.png', 'g.png', 'h.png'].map((path) => file(path, 10));
 	const app = fakeApp({ files });
 	const controller = new AbortController();
 	let decodes = 0;
@@ -292,7 +292,115 @@ test('中止后返回已完成条目并停止领取新文件', async () => {
 	}, controller.signal);
 	assert.ok(items.length >= 2, '已完成的结果必须保留');
 	assert.ok(items.length < files.length, '中止后不再处理剩余文件');
-	assert.ok(decodes <= 3, '最多只多处理并发中的一张');
+	// 4 路并发：已完成 2 张 + 中止时仍在解码的 4 张（含刚领取的一张）。
+	assert.ok(decodes <= 5, '最多只多处理并发中的图片');
+});
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const okImage = (width = 100, height = 100, hasAlpha = false) => ({
+	ok: true,
+	image: { width, height, hasAlpha, source: {} },
+});
+
+test('普通图片估算跑满 4 路并发', async () => {
+	const files = Array.from({ length: 8 }, (_, index) => file(`n/${index}.png`, 100));
+	const app = fakeApp({ files });
+	let active = 0;
+	let peak = 0;
+	const codec = {
+		decode: async () => {
+			active += 1;
+			peak = Math.max(peak, active);
+			await sleep(5);
+			active -= 1;
+			return okImage();
+		},
+		encode: async () => ({ ok: true, bytes: new ArrayBuffer(5) }),
+	};
+	await estimateConversions(app, files, config, codec);
+	assert.equal(peak, 4);
+});
+
+test('体积超过 8MB 的大图走单并发通道', async () => {
+	const files = Array.from({ length: 4 }, (_, index) => file(`large/${index}.png`, 8 * 1024 * 1024));
+	const app = fakeApp({ files });
+	let active = 0;
+	let peak = 0;
+	const codec = {
+		decode: async () => {
+			active += 1;
+			peak = Math.max(peak, active);
+			await sleep(5);
+			active -= 1;
+			return okImage();
+		},
+		encode: async () => ({ ok: true, bytes: new ArrayBuffer(5) }),
+	};
+	await estimateConversions(app, files, config, codec);
+	assert.equal(peak, 1);
+});
+
+test('解码后超过 10MP 的图片编码阶段排队执行', async () => {
+	const files = Array.from({ length: 6 }, (_, index) => file(`big/${index}.png`, 100));
+	const app = fakeApp({ files });
+	let decoding = 0;
+	let peakDecode = 0;
+	let encoding = 0;
+	let peakEncode = 0;
+	const codec = {
+		decode: async () => {
+			decoding += 1;
+			peakDecode = Math.max(peakDecode, decoding);
+			await sleep(5);
+			decoding -= 1;
+			return okImage(4000, 3000);
+		},
+		encode: async () => {
+			encoding += 1;
+			peakEncode = Math.max(peakEncode, encoding);
+			await sleep(5);
+			encoding -= 1;
+			return { ok: true, bytes: new ArrayBuffer(5) };
+		},
+	};
+	await estimateConversions(app, files, config, codec);
+	assert.equal(peakDecode, 4);
+	assert.equal(peakEncode, 1);
+});
+
+test('每张解码成功的图片都在编码结束后释放一次', async () => {
+	const files = Array.from({ length: 6 }, (_, index) => file(`rel/${index}.png`, 100));
+	const app = fakeApp({ files });
+	const events = [];
+	let decodeIndex = 0;
+	const codec = {
+		decode: async () => {
+			const id = decodeIndex++;
+			// 第一张走 alpha-skip，不编码但同样必须释放。
+			return { ok: true, image: { width: 100, height: 100, hasAlpha: id === 0, source: { id } } };
+		},
+		encode: async (image) => {
+			events.push(`encode-start:${image.source.id}`);
+			await sleep(1);
+			events.push(`encode-end:${image.source.id}`);
+			return { ok: true, bytes: new ArrayBuffer(5) };
+		},
+		release: (image) => {
+			events.push(`release:${image.source.id}`);
+		},
+	};
+	const items = await estimateConversions(app, files, { ...config, alpha: 'skip' }, codec);
+	assert.equal(items.length, 6);
+	const releases = events.filter((event) => event.startsWith('release:')).map((event) => event.split(':')[1]);
+	assert.equal(releases.length, 6, '每张解码成功的图片都要释放一次');
+	assert.equal(new Set(releases).size, 6, '不能重复释放同一张图');
+	for (const id of releases) {
+		if (!events.includes(`encode-start:${id}`)) continue;
+		assert.ok(
+			events.indexOf(`release:${id}`) > events.indexOf(`encode-end:${id}`),
+			`释放必须发生在编码结束之后：${id}`,
+		);
+	}
 });
 
 test('collectConvertibleImages 只保留允许的源格式与可见目录', () => {

@@ -893,3 +893,53 @@ test('转换成功后释放解码资源，编码失败时也释放', async () =>
 	assert.equal(failed.skipped[0].reason, 'unsupported-codec');
 	assert.equal(failReleases, 1);
 });
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function pipelineCodec(options = {}) {
+	let active = 0;
+	const state = { peak: 0, releases: 0 };
+	return {
+		state,
+		async decode() {
+			active += 1;
+			state.peak = Math.max(state.peak, active);
+			await sleep(options.decodeMs ?? 5);
+			return { ok: true, image: { width: 10, height: 10, hasAlpha: false, source: {} } };
+		},
+		async encode() {
+			await sleep(options.encodeMs ?? 2);
+			return { ok: true, bytes: bytesOf(40) };
+		},
+		release() {
+			active -= 1;
+			state.releases += 1;
+		},
+	};
+}
+
+test('互不引用的多图转换跑满 4 路并发，且每张只释放一次', async () => {
+	const images = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`img/${index}.png`, 100]));
+	const app = notesApp({ notes: {}, images });
+	const codec = pipelineCodec();
+	const items = Object.keys(images).map((path) => ({ path, size: 100, mtime: 1 }));
+
+	const result = await runImageConversion(app, codec, items, { target: 'webp' });
+
+	assert.equal(result.converted.length, 8);
+	assert.equal(codec.state.peak, 4);
+	assert.equal(codec.state.releases, 8);
+});
+
+test('体积超过 8MB 的大图在转换阶段单并发执行', async () => {
+	const imageBytes = { 'large/a.png': 8 * 1024 * 1024, 'large/b.png': 8 * 1024 * 1024 };
+	const app = notesApp({ notes: {}, images: imageBytes });
+	const codec = pipelineCodec();
+	const items = Object.entries(imageBytes).map(([path, size]) => ({ path, size, mtime: 1 }));
+
+	const result = await runImageConversion(app, codec, items, { target: 'webp' });
+
+	assert.equal(result.converted.length, 2);
+	assert.equal(codec.state.peak, 1);
+	assert.equal(codec.state.releases, 2);
+});

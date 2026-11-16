@@ -7,7 +7,7 @@
 - **[新功能]** 新增 `npm run package`（`scripts/package-plugin.mjs`，零第三方依赖，用 `node:zlib` 与手工 ZIP 结构写出）产出 `dist/vault-doctor-<版本号>.zip`；ZIP 内只含根层的 `main.js`、`manifest.json` 与可选的 `styles.css`，写出后重新解压校验条目、大小、CRC-32 与包内版本号。`npm run package:check` 只校验不写文件；`main.js` 缺失时报错并提示先执行 `npm run build`，不自动构建。
 - **[优化]** 拆分体检面板：`cleanup-panel.ts` 由 752 行降到 386 行，扫描与图片转换分别移入 `cleanup-scan-controller.ts`、`cleanup-conversion-controller.ts`；统一扩展名解析口径并清理零引用导出。
 - **[优化]** 可访问性：图片预览支持键盘操作（`role="button"`、`Enter`/空格打开，带 `aria-haspopup="dialog"` 与 `aria-label`）；同一组预览图改为 roving tabindex，整组只占一个 Tab 停靠点、方向键在组内移动；表头补 `scope="col"`；清理、引导与更新说明弹窗补 `role="dialog"`、`aria-modal`、`aria-labelledby`，关闭后焦点回到触发元素；状态播报只在内容变化时写入 live 区域；支持系统「减少动态效果」，清理表格支持横向滚动并去除硬编码颜色。
-- **[优化]** release workflow 在构建、lint、测试后调用 `npm run package`，把 ZIP 与三件套一起附到 release，release notes 的 SHA-256 与资产校验同步包含 ZIP；`dist/` 加入 `.gitignore`。
+- **[优化]** release workflow 在构建、lint、测试后调用 `npm run package`，把 ZIP 与三件套一起附到 release，release notes 的 SHA-256 与资产校验同步包含 ZIP；`dist/` 加入 `.gitignore`。发布闸门同时校验 tag、`manifest.json`、`package.json` 与 `versions.json` 的版本一致，并复检 ZIP 包内版本；ZIP 文件名取自 manifest 的 id 与 version。
 - **[优化]** 关联笔记面板：笔记链接可用 `Enter` 与空格打开；不显示来源列时，关系一栏改写为「出链自 X / X 的入链 / 与 X 双向链接」并补 tooltip；空列表按「当前标签页为空」与「没有任何关联笔记」给出不同提示。
 - **[修复]** 表格中写成 `[[笔记\|别名]]` 的 Wiki 链接与 `![[图片\|别名]]` 嵌入，反斜杠会被带进目标路径，导致解析失败或改写出错；现先把 `\|` 归一化为分隔符再拆分，多段别名用 `|` 原样保留。
 - **[修复]** 链接转换输出未转义：别名含 `]`、`[`、`|`、`\` 时会生成坏 Markdown；Wiki 笔记链接文本与原生图片链接的 alt 文本现统一转义。
@@ -33,7 +33,12 @@
 - **[优化]** 默认只勾选 PNG、目标格式 JPG、质量 85、透明图白底；排除 `.obsidian`、隐藏目录与设置中的「忽略目录」，不处理 GIF、SVG、TIFF、HEIC/HEIF、ICO。
 - **[优化]** 转换在本地完成，不引入第三方依赖，也不发起网络请求。
 
-### 未发布 — 1.5.0：版本更新欢迎弹窗
+### 1.6.0–1.6.3：使用引导与界面截图
+
+- **[新功能]** 首次安装自动显示三步使用引导（它能做什么 / 安全说明 / 怎么开始），可从设置关闭并在命令面板重看；1.6.1 起对所有用户生效，1.6.3 为三步各加入一张界面截图。
+- **[优化]** 更新说明弹窗在标题中标注软件名与版本（`Vault Doctor · 版本号 · 主题词`）。
+
+### 1.5.0：版本更新欢迎弹窗
 
 - **[新功能]** 新增「版本更新欢迎」弹窗与「查看更新说明」命令：安装或升级到新版本后首次加载自动弹出一次该版本的中文更新说明（标题为「版本号 · 主题词」，按新功能/改进/修复分类，含「开始使用」按钮）；已展示的版本写入 `data.json` 的 `lastSeenVersion`，同一版本不再重复弹出；随时可在命令面板搜索「查看更新说明」重新打开当前版本的说明。更新说明随插件包内置，不依赖网络。
 
@@ -42,7 +47,7 @@
 - **[修复]** 移动端（Capacitor 无 Node `process` 全局）经移动端回退 Modal → `OrphanCleanupPanel.render` → `reportCleanupInvariants` 访问 `process.env` 时抛出 `ReferenceError`。现改为 `typeof process !== 'undefined' && process.env?.NODE_ENV === 'production'` 守卫：缺少 `process` 时安全跳过开发期自检，production 仍短路。
 - **[测试]** 新增「缺少 `process` 全局时 `reportCleanupInvariants` 不抛错」的回归测试；测试基线由 261 项增至 262 项。
 
-### 未发布 — 文档
+### 2026-11-15 — 文档：演示库截图
 
 - **[文档]** README 与 `docs/runbook.md` 的截图统一改用纯合成演示库 `vault-doctor-demo` 的实拍图：`docs/images/01-dashboard.png` 至 `06-duplicate-files.png` 共 6 张全部替换为 1920×1032、深色 Border 主题、9 分类齐全（含「Wiki 笔记链接」页签）的合规截图，内容为虚构示例数据，不含真实项目/客户/公司名；README 增加「截图取自演示库，仅含示例内容」说明。
 - **[文档]** README 演示库截图补齐 `docs/images/07-related-notes.png` 与 `08-settings.png`：均为 1920×1032 深色实拍，内容分别为演示库 `vault-doctor-demo` 的关联笔记视图（`Projects/项目A-概览.md`）与 Vault Doctor 插件设置页，全部为合成示例数据；07 在清理演示库根目录空临时文件后重拍，侧栏不含残留条目。

@@ -220,6 +220,8 @@ npm version patch  # 或 minor / major
 
 ## 九、当前状态与下一步
 
+> 以下为 2026-08-29 的历史快照，部分能力后来已经变更（例如「关联数量属性」已下线、测试规模与发布流程已扩充）；现状以 `HANDOFF.md`、`README.md` 与 `docs/runbook.md` 为准。
+
 ### 当前状态（2026-08-29）
 
 - [x] 完成插件仓库初始化，并配置 npm、TypeScript、esbuild、Lint、测试和本地部署预检。

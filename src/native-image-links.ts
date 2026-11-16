@@ -42,8 +42,16 @@ export function nativeImageLinkOffset(content: string, link: NativeImageLink, al
 	const start = offsetOf(link.position.start.offset), end = offsetOf(link.position.end.offset);
 	if (start >= 0 && end > start && end <= content.length && content.slice(start, end) === link.original) return { start, end };
 	if (!allowFallback) return null;
-	const found = content.indexOf(link.original);
+	const found = uniqueIndexOf(content, link.original);
 	return found < 0 ? null : { start: found, end: found + link.original.length };
+}
+
+// Same rule as the wiki converter: a stale offset plus repeated identical
+// embeds cannot be resolved safely, so do not guess.
+function uniqueIndexOf(content: string, needle: string) {
+	const first = content.indexOf(needle);
+	if (first < 0) return -1;
+	return content.indexOf(needle, first + 1) < 0 ? first : -1;
 }
 
 export function convertNativeImageLink(link: NativeImageLink): string | null {

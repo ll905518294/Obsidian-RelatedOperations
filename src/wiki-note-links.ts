@@ -43,8 +43,16 @@ export function wikiNoteLinkOffset(content: string, link: WikiNoteLink, allowFal
 	const start = link.position.start.offset, end = link.position.end.offset;
 	if (start >= 0 && end > start && end <= content.length && content.slice(start, end) === link.original) return { start, end };
 	if (!allowFallback) return null;
-	const found = content.indexOf(link.original);
+	const found = uniqueIndexOf(content, link.original);
 	return found < 0 ? null : { start: found, end: found + link.original.length };
+}
+
+// A stale cached offset plus repeated identical link text is ambiguous. Acting
+// on the first match could edit the wrong link, so only a unique match is safe.
+function uniqueIndexOf(content: string, needle: string) {
+	const first = content.indexOf(needle);
+	if (first < 0) return -1;
+	return content.indexOf(needle, first + 1) < 0 ? first : -1;
 }
 
 export function convertWikiNoteLink(link: WikiNoteLink): string | null {

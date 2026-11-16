@@ -34,7 +34,7 @@ function readAttribute(button: HTMLButtonElement, name: string): string | null {
 	return typeof getter === 'function' ? getter.call(button, name) : null;
 }
 
-function writeAttribute(button: HTMLButtonElement, name: string, value: string | null) {
+function writeAttribute(button: HTMLButtonElement, name: string, value: string | null): void {
 	if (value === null) {
 		const remover = (button as AttributeCapable).removeAttribute;
 		if (typeof remover === 'function') remover.call(button, name);
@@ -56,7 +56,7 @@ function writeAttribute(button: HTMLButtonElement, name: string, value: string |
  */
 export function requireSecondClick(
 	button: HTMLButtonElement,
-	onConfirm: () => unknown,
+	onConfirm: () => void | Promise<void>,
 	options: ConfirmButtonOptions | ConfirmButtonLabels = {},
 ): ConfirmButtonHandle {
 	// Icon/rich-content buttons keep their SVG (or other) child nodes across

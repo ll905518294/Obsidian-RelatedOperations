@@ -157,3 +157,58 @@ test('扫描后内容变化的文件自动跳过并带原因，其余照常删�
 	assert.match(notice, /^已删除：1\n跳过：1\n失败：0/);
 	assert.match(notice, /whole\/b\.png（文件内容已变化，请重新扫描）/);
 });
+
+test('计划校验之后、删除之前发生的内容变化仍会被拦下', async () => {
+	const sameBytes = new Uint8Array([1, 2, 3]);
+	const keep = makeFile('keep.png', sameBytes);
+	const victim = makeFile('victim.png', sameBytes);
+	const vaultFiles = [keep, victim];
+	const contents = new Map([[keep.path, sameBytes], [victim.path, sameBytes]]);
+	const groups = [makeGroup([keep, victim], 'pair-hash')];
+	const trashed = [];
+	const note = { path: 'ref.md', extension: 'md' };
+	let mutated = false;
+	const noteContent = '![[victim.png]]';
+	const host = {
+		app: {
+			vault: {
+				getFiles: () => vaultFiles,
+				getMarkdownFiles: () => [note],
+				getAbstractFileByPath: (path) => vaultFiles.find((file) => file.path === path) ?? null,
+				readBinary: async (file) => contents.get(file.path),
+				process: async (_file, change) => {
+					const updated = change(noteContent);
+					// 链接清理期间，另一处编辑改写了待删除的重复文件。
+					if (!mutated) {
+						mutated = true;
+						contents.set('victim.png', new Uint8Array([9, 9, 9]));
+						victim.stat = { size: 3, mtime: 9 };
+					}
+					return updated;
+				},
+			},
+			metadataCache: {
+				resolvedLinks: { 'ref.md': { 'victim.png': 1 } },
+				getFileCache: () => ({ embeds: [{ original: '![[victim.png]]', link: 'victim.png', position: { start: { offset: 0 }, end: { offset: 14 } } }] }),
+				getFirstLinkpathDest: (link) => (link === 'victim.png' ? victim : null),
+			},
+			fileManager: { trashFile: async (file) => { trashed.push(file.path); } },
+		},
+		candidates: { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], wikiLinks: [], duplicates: groups, duplicateWarnings: [] },
+		duplicateSelections: new Set(['victim.png']),
+		selections: new Set(),
+		settings: { orphanImageExtensions: 'png', orphanIgnoredFolders: '' },
+		activeTab: 'duplicates',
+		processed: undefined,
+		async scanTab() {},
+		saveCacheToSettings() {},
+		renderContents() {},
+	};
+
+	await confirmCleanupDuplicates(host);
+
+	assert.deepEqual(trashed, [], '内容已变化的文件不能进入回收站');
+	const notice = globalThis.__notices.at(-1);
+	assert.match(notice, /^已删除：0\n跳过：1\n失败：0/);
+	assert.match(notice, /victim\.png（文件内容已变化，请重新扫描）/);
+});

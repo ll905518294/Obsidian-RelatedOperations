@@ -1,6 +1,41 @@
 import type { ImageConvertTarget } from './image-convert-plan.ts';
 
 export const MAX_IMAGE_PIXELS = 40_000_000;
+/**
+ * 超过该像素数视为大图：解码/编码各占 宽×高×4 字节，大图进入单独的
+ * 低并发通道，避免多张 40MP 图同时把画布堆到 GB 级。
+ */
+export const LARGE_IMAGE_PIXELS = 10_000_000;
+/**
+ * 解码前拿不到像素数，只能用文件体积预判：约 0.8 字节/像素时，8MB
+ * 大致对应 10MP，常见照片达到该体积基本已进入大图区间。
+ */
+export const LARGE_IMAGE_BYTES = 8 * 1024 * 1024;
+
+export function isLargeImage(width: number, height: number): boolean {
+	return width > 0 && height > 0 && width * height > LARGE_IMAGE_PIXELS;
+}
+
+/**
+ * 串行闸门：同一时刻只放行一个任务。用于大图编码阶段，让已知像素数
+ * 超过 10MP 的图排队，而不是和普通图一起并发占用输出画布。
+ */
+export function createSerialGate(): <T>(task: () => Promise<T>) => Promise<T> {
+	let tail: Promise<void> = Promise.resolve();
+	return async <T>(task: () => Promise<T>): Promise<T> => {
+		const wait = tail;
+		let release!: () => void;
+		tail = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await wait;
+		try {
+			return await task();
+		} finally {
+			release();
+		}
+	};
+}
 
 export interface DecodedImage {
 	width: number;

@@ -38,6 +38,8 @@ export interface DuplicateScanResult {
 export interface DuplicateDeletionPlan {
 	deletable: DuplicateFileItem[];
 	skipped: Array<{ path: string; reason: string }>;
+	// 计划阶段校验通过的字节指纹；引用清理等操作会耗时，删除前据此复检。
+	verified: Array<{ path: string; size: number; digest: string }>;
 }
 
 export async function findDuplicateFiles(
@@ -75,6 +77,7 @@ export async function findDuplicateFiles(
 	const candidates = [...bySize.values()].filter((group) => group.length > 1).flat();
 	// 并发读取哈希，但按原始顺序回收结果与告警，保证输出稳定。
 	const hashes: Array<HashResult | undefined> = new Array<HashResult | undefined>(candidates.length);
+	const stillPresent = createPresenceChecker(app);
 	let processed = 0;
 	await forEachWithConcurrency(candidates, hashConcurrency(candidates), async (file, index) => {
 		// 校验和是重复文件阶段最重的工作；中止后不再领取新文件。
@@ -92,7 +95,7 @@ export async function findDuplicateFiles(
 		if (!result) continue;
 		// 文件在扫描期间被删除或改名后，旧路径不再是候选；改名会更新同一个
 		// TFile 的 path，因此仍然按当前路径收录。
-		if (!stillPresent(app, file)) continue;
+		if (!stillPresent(file)) continue;
 		const before = snapshot.get(file)!;
 		if (file.stat.size !== before.size || file.stat.mtime !== before.mtime) {
 			warnings.push({ path: file.path, reason: '文件内容已变化，请重新扫描' });
@@ -117,18 +120,28 @@ export async function findDuplicateFiles(
 }
 
 function hashConcurrency(candidates: TFile[]): number {
+	return byteBudgetConcurrency(candidates.map((file) => file.stat.size));
+}
+
+function byteBudgetConcurrency(sizes: Iterable<number>): number {
 	let largest = 0;
-	for (const file of candidates) largest = Math.max(largest, file.stat.size);
+	for (const size of sizes) largest = Math.max(largest, size);
 	if (largest <= 0) return HASH_CONCURRENCY;
 	return Math.max(1, Math.min(HASH_CONCURRENCY, Math.floor(HASH_BYTE_BUDGET / largest)));
 }
 
-function stillPresent(app: App, file: TFile): boolean {
-	if (typeof app.vault.getAbstractFileByPath !== 'function') return true;
-	const current = app.vault.getAbstractFileByPath(file.path);
-	if (current === file) return true;
+function createPresenceChecker(app: App): (file: TFile) => boolean {
+	if (typeof app.vault.getAbstractFileByPath !== 'function') return () => true;
 	// 宿主索引与 getFiles 短暂不一致时，只要文件仍在列表里就保留。
-	return !current && app.vault.getFiles().some((candidate) => candidate === file);
+	// 集合惰性构建并复用，避免每个候选都全量遍历（同尺寸文件多时是平方级）。
+	let listed: Set<TAbstractFile> | undefined;
+	return (file) => {
+		const current = app.vault.getAbstractFileByPath(file.path);
+		if (current === file) return true;
+		if (current) return false;
+		listed ??= new Set(app.vault.getFiles());
+		return listed.has(file);
+	};
 }
 
 export async function removeFileReferencesForFiles(app: App, filePaths: Iterable<string>): Promise<{ removed: number; failed: string[] }> {
@@ -187,7 +200,7 @@ export async function removeFileReferencesForFiles(app: App, filePaths: Iterable
 // `resolvedLinks` is Obsidian's own resolution of every link in the note. If it
 // counts more links to a target than the metadata cache exposes, the removal
 // pass cannot rewrite them all and the caller must not delete anything.
-function countUnresolvedReferences(app: App, sourcePath: string, targets: Set<string>, matched: Map<string, number>) {
+function countUnresolvedReferences(app: App, sourcePath: string, targets: Set<string>, matched: Map<string, number>): number {
 	const resolved = app.metadataCache.resolvedLinks?.[sourcePath];
 	if (!resolved) return 0;
 	let unresolved = 0;
@@ -198,7 +211,7 @@ function countUnresolvedReferences(app: App, sourcePath: string, targets: Set<st
 	return unresolved;
 }
 
-export async function removeImageReferencesForFile(app: App, filePath: string) {
+export async function removeImageReferencesForFile(app: App, filePath: string): Promise<{ removed: number; failed: string[] }> {
 	return removeFileReferencesForFiles(app, [filePath]);
 }
 
@@ -222,6 +235,7 @@ export async function planDuplicateDeletion(
 	const known = new Set<string>();
 	const deletable: DuplicateFileItem[] = [];
 	const skipped: Array<{ path: string; reason: string }> = [];
+	const verified: Array<{ path: string; size: number; digest: string }> = [];
 	for (const group of groups) {
 		for (const file of group.files) known.add(file.path);
 		const candidates = group.files.filter((file) => selected.has(file.path));
@@ -243,11 +257,13 @@ export async function planDuplicateDeletion(
 		for (const file of candidates) {
 			try {
 				const bytes = await app.vault.readBinary(resolveFile(app, file.path));
-				if (bytes.byteLength !== keeperSize || await digestBytes(bytes) !== keeperHash) {
+				const digest = await digestBytes(bytes);
+				if (bytes.byteLength !== keeperSize || digest !== keeperHash) {
 					skipped.push({ path: file.path, reason: '文件内容已变化，请重新扫描' });
 					continue;
 				}
 				deletable.push(file);
+				verified.push({ path: file.path, size: bytes.byteLength, digest });
 			} catch (error) {
 				skipped.push({ path: file.path, reason: errorMessage(error) });
 			}
@@ -256,7 +272,31 @@ export async function planDuplicateDeletion(
 	for (const path of selected) {
 		if (!known.has(path)) skipped.push({ path, reason: '重复分组已变化，请重新扫描' });
 	}
-	return { deletable, skipped };
+	return { deletable, skipped, verified };
+}
+
+/**
+ * Re-reads planned files right before deletion and reports any whose bytes no
+ * longer match what the plan verified. Files removed or unreadable in the
+ * meantime are skipped with the same reason users see after a rescan.
+ */
+export async function revalidateDuplicateDeletion(
+	app: App,
+	planned: Iterable<{ path: string; size: number; digest: string }>,
+): Promise<Array<{ path: string; reason: string }>> {
+	const items = [...planned];
+	const skipped = new Array<{ path: string; reason: string } | undefined>(items.length);
+	await forEachWithConcurrency(items, byteBudgetConcurrency(items.map((item) => item.size)), async (item, index) => {
+		try {
+			const bytes = await app.vault.readBinary(resolveFile(app, item.path));
+			if (bytes.byteLength !== item.size || await digestBytes(bytes) !== item.digest) {
+				skipped[index] = { path: item.path, reason: '文件内容已变化，请重新扫描' };
+			}
+		} catch (error) {
+			skipped[index] = { path: item.path, reason: errorMessage(error) };
+		}
+	});
+	return skipped.filter((item): item is { path: string; reason: string } => !!item);
 }
 
 function referenceRange(

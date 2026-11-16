@@ -1180,6 +1180,72 @@ test('a failed rename in a batch keeps results and undo records consistent', asy
 	assert.deepEqual(renamed, [['dst/good.md', 'archive/good.md'], ['dst/later.md', 'archive/later.md']]);
 });
 
+// A partial failure must leave the successful moves undoable, and undo must put
+// every moved note back while leaving the failed note untouched.
+test('partial batch failure keeps successes undoable and restores them completely', async () => {
+	const a = file('src/a.md');
+	const good = file('dst/good.md');
+	const bad = file('dst/bad.md');
+	const relatedNotes = [good, bad].map((target) => ({ file: target, relation: 'outgoing', sourceFile: a }));
+	const { panel, el, renamed } = panelFor(relatedNotes, [a], {
+		files: [a, good, bad],
+		resolvedLinks: { 'src/a.md': { 'dst/good.md': 1, 'dst/bad.md': 1 } },
+	});
+	panel.selections.set('dst/good.md', true);
+	panel.selections.set('dst/bad.md', true);
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	const rename = panel.app.fileManager.renameFile;
+	panel.app.fileManager.renameFile = async (file, dest) => {
+		if (file.path === 'dst/bad.md') throw new Error('locked');
+		await rename(file, dest);
+	};
+	Notice.messages = [];
+	await moveSelectedConfirmed(panel);
+	assert.equal(good.path, 'archive/good.md');
+	assert.equal(bad.path, 'dst/bad.md');
+	assert.deepEqual(renamed, [['dst/good.md', 'archive/good.md']]);
+	assert.deepEqual(panel.lastMove, [{ from: 'dst/good.md', to: 'archive/good.md' }]);
+	assert.match(Notice.messages.at(-1), /已移动：1/);
+	assert.match(Notice.messages.at(-1), /失败：1/);
+	assert.deepEqual(el.querySelectorAll('tr[data-related-path]').map((row) => row.dataset.relatedPath), ['dst/bad.md']);
+
+	await panel.undoLastMove();
+	assert.equal(good.path, 'dst/good.md');
+	assert.equal(bad.path, 'dst/bad.md');
+	assert.deepEqual(panel.lastMove, []);
+	assert.deepEqual(
+		el.querySelectorAll('tr[data-related-path]').map((row) => row.dataset.relatedPath).sort(),
+		['dst/bad.md', 'dst/good.md'],
+	);
+});
+
+// A stale selection can survive while the note is already at the target (for
+// example after an external move). It must not trigger a pointless rename.
+test('moveSelected ignores a stale selection already at the target folder', async () => {
+	Notice.messages = [];
+	const a = file('src/a.md');
+	const t = file('src/Pages/t.md');
+	const { panel, el, renamed } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, t],
+		settings: { groupingMode: 'none', hideCompliant: false },
+	});
+	const input = el.querySelector('.related-operations-target-folder');
+	input.value = 'src/Pages';
+	input.fire('input');
+	// The input handler prunes at-target selections; set one afterwards to
+	// simulate a selection left over from another frame.
+	panel.selections.set('src/Pages/t.md', true);
+	globalThis.__openModals = [];
+	await panel.moveSelected();
+	assert.equal(globalThis.__openModals.length, 0);
+	assert.deepEqual(renamed, []);
+	assert.deepEqual(panel.lastMove, []);
+	assert.match(Notice.messages.at(-1), /已经在目标文件夹|存在冲突/);
+	assert.equal(t.path, 'src/Pages/t.md');
+});
+
 // The confirmation must say what will happen: how many notes, the exact target,
 // whether the folder exists or will be created, and that the move is undoable.
 test('move confirmation names the count, target and folder creation state', async () => {
@@ -1254,6 +1320,7 @@ test('moveSelected rejects a target chain blocked by a file before confirming', 
 	assert.match(Notice.messages.at(-1), /是文件/);
 	assert.match(Notice.messages.at(-1), /其他文件夹名|先把该文件移走/);
 	assert.equal(t.path, 'dst/t.md');
+	assert.deepEqual(panel.lastMove, []);
 });
 
 // Rename failures are categorized so the user can act: permission errors point
@@ -1416,4 +1483,94 @@ test('changing grouping re-renders immediately and persists to settings', () => 
 	assert.deepEqual(groupRows().map((row) => row.textContent), ['src/a.md', 'src/b.md']);
 	assert.equal(settings.groupingMode, 'source');
 	assert.equal(saves, 1);
+});
+
+// Grouping is only a display change. Selections are keyed by path, so the same
+// notes must stay checked and counted after switching source/path grouping.
+test('grouping switches keep selections, summary and select-all consistent', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t1 = file('dst/t1.md');
+	const t2 = file('dst/t2.md');
+	const { el } = panelFor([
+		{ file: t1, relation: 'outgoing', sourceFile: a },
+		{ file: t2, relation: 'outgoing', sourceFile: b },
+	], [a, b], {
+		files: [a, b, t1, t2],
+		settings: { groupingMode: 'none', hideCompliant: false },
+	});
+	const summary = () => el.querySelector('.related-operations-selection-summary').textContent;
+	const rowFor = (path) => el.querySelectorAll('tr[data-related-path]').find((row) => row.dataset.relatedPath === path);
+	const boxFor = (path) => rowFor(path).querySelector('input[type="checkbox"]');
+	boxFor('dst/t1.md').checked = true;
+	boxFor('dst/t1.md').fire('change');
+	assert.equal(summary(), '已选 1 篇（跨标签页）：t1');
+
+	let grouping = el.querySelector('.related-operations-grouping-select');
+	grouping.value = 'source';
+	grouping.fire('change');
+	assert.equal(boxFor('dst/t1.md').checked, true);
+	assert.equal(boxFor('dst/t2.md').checked, false);
+	assert.equal(summary(), '已选 1 篇（跨标签页）：t1');
+	el.querySelector('.related-operations-select-all').fire('click');
+	assert.equal(boxFor('dst/t1.md').checked, true);
+	assert.equal(boxFor('dst/t2.md').checked, true);
+	assert.equal(summary(), '已选 2 篇（跨标签页）');
+
+	grouping = el.querySelector('.related-operations-grouping-select');
+	grouping.value = 'path';
+	grouping.fire('change');
+	assert.equal(boxFor('dst/t1.md').checked, true);
+	assert.equal(boxFor('dst/t2.md').checked, true);
+	assert.equal(summary(), '已选 2 篇（跨标签页）');
+});
+
+// In non-merged mode one target can have one row per source. The hide button
+// must count the rows it will reveal, not the deduped target paths.
+test('hidden compliant count matches rows in per-source view and targets when merged', () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('src/Pages/t.md');
+	const { el } = panelFor([
+		{ file: t, relation: 'outgoing', sourceFile: a },
+		{ file: t, relation: 'outgoing', sourceFile: b },
+	], [a, b], {
+		files: [a, b, t],
+		settings: { groupingMode: 'none', hideCompliant: true },
+	});
+	const rows = () => el.querySelectorAll('tr[data-related-path]');
+	const hide = () => el.querySelector('.related-operations-hide-button');
+	assert.equal(rows().length, 0);
+	assert.match(hide().textContent, /（2）/);
+	assert.match(el.querySelector('.related-operations-empty').textContent, /已隐藏 2 条/);
+	hide().fire('click');
+	assert.equal(rows().length, 2);
+
+	el.querySelector('.related-operations-merge-button').fire('click');
+	assert.match(hide().textContent, /（1）/);
+	hide().fire('click');
+	assert.equal(rows().length, 0);
+	assert.match(el.querySelector('.related-operations-empty').textContent, /已隐藏 1 条/);
+});
+
+// A refresh may add or remove relations, but a selection whose note still
+// exists must stay checked and counted.
+test('refresh keeps selections for notes that still exist', () => {
+	const a = file('src/a.md');
+	const keep = file('dst/keep.md');
+	const added = file('dst/added.md');
+	const { panel, el, app } = panelFor([{ file: keep, relation: 'outgoing', sourceFile: a }], [a], {
+		files: [a, keep, added],
+		resolvedLinks: { 'src/a.md': { 'dst/keep.md': 1 } },
+		settings: { groupingMode: 'none', hideCompliant: false },
+	});
+	const box = () => el.querySelectorAll('tr[data-related-path]').find((row) => row.dataset.relatedPath === 'dst/keep.md').querySelector('input[type="checkbox"]');
+	box().checked = true;
+	box().fire('change');
+	assert.equal([...panel.selections.entries()].filter(([, on]) => on).length, 1);
+	app.metadataCache.resolvedLinks['src/a.md'] = { 'dst/keep.md': 1, 'dst/added.md': 1 };
+	panel.refreshRelations();
+	assert.equal(box().checked, true);
+	assert.equal(el.querySelector('.related-operations-selection-summary').textContent, '已选 1 篇（跨标签页）：keep');
+	assert.ok(el.querySelectorAll('tr[data-related-path]').some((row) => row.dataset.relatedPath === 'dst/added.md'));
 });

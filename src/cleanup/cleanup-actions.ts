@@ -16,16 +16,16 @@ export async function trashSelected(app: App, images: TFile[], folders: TFolder[
 	return result;
 }
 
-export function byPath(a: TAbstractFile, b: TAbstractFile) {
+export function byPath(a: TAbstractFile, b: TAbstractFile): number {
 	return a.path.localeCompare(b.path);
 }
 
-export function parentFolder(path: string) {
+export function parentFolder(path: string): string {
 	const slash = path.lastIndexOf('/');
 	return slash < 0 ? '' : path.slice(0, slash);
 }
 
-export function openInSystemFolder(app: App, item: TAbstractFile) {
+export function openInSystemFolder(app: App, item: TAbstractFile): void {
 	if (!Platform.isDesktopApp || !(app.vault.adapter instanceof FileSystemAdapter)) {
 		new Notice('仅桌面端的本地资料库支持打开所在文件夹。');
 		return;
@@ -44,22 +44,22 @@ export function openInSystemFolder(app: App, item: TAbstractFile) {
 	}
 }
 
-export function openFolderInVault(app: App, folder: TFolder) {
+export function openFolderInVault(app: App, folder: TFolder): void {
 	const explorer = app.workspace.getLeavesOfType('file-explorer')[0]?.view as { revealInFolder?: (file: TAbstractFile) => void } | undefined;
 	if (explorer?.revealInFolder) explorer.revealInFolder(folder);
 	else openInSystemFolder(app, folder);
 }
 
-export function formatBytes(bytes: number) {
+export function formatBytes(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function isImageFile(extension: string) {
+export function isImageFile(extension: string): boolean {
 	return COMMON_IMAGE_EXTENSIONS.has(extension.toLowerCase());
 }
 
-export function reasonFor(error: unknown) {
+export function reasonFor(error: unknown): string {
 	return error instanceof Error ? error.message : '未知错误';
 }

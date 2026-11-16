@@ -3,17 +3,20 @@ import { forEachWithConcurrency, hasHiddenPathSegment, isCaseSensitiveFileSystem
 export { forEachWithConcurrency };
 import { findVaultLinkScans, type VaultLinkScans } from './link-scans';
 import { findDuplicateFiles, type DuplicateFileGroup } from '../duplicate-files';
-import { isWithinPixelLimit, type ImageCodec } from '../image-convert/image-codec';
+import { createSerialGate, isLargeImage, isWithinPixelLimit, LARGE_IMAGE_BYTES, type ImageCodec } from '../image-convert/image-codec';
 import { findImageReferences, findImageReferencesBatch, type ImageReferenceScanResult } from '../image-convert/image-convert-links';
 import { planImageConversions, type ImageConvertPlanItem } from '../image-convert/image-convert-plan';
 import { byPath } from './cleanup-actions';
 import { CleanupScanAbortedError, COMMON_IMAGE_EXTENSIONS, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
 
 const READ_CONCURRENCY = 8;
-// 解码一张 40MP 图约占 160MB（宽×高×4），2 路并发峰值约 320MB；
-// 3 路会再加 160MB，吞吐收益抵不上低配机器的内存风险，故保持 2。
-// 编码结束后由 codec.release 立刻释放画布，避免旧画布堆积到 GC。
-const CONVERSION_CONCURRENCY = 2;
+// 解码一张 10MP 图约占 40MB（宽×高×4），4 路并发加上同尺寸输出画布
+// 约 320MB，桌面端可接受。编码结束后由 codec.release 立刻释放画布，
+// 高峰只取决于同时在处理的图，而不是已处理总数。
+const CONVERSION_CONCURRENCY = 4;
+// 解码前只能看到文件体积；超过阈值的文件先走单并发通道，避免多张大图
+// 在解码阶段同时占内存。解码后已知像素数的，再在编码阶段排队。
+const LARGE_IMAGE_CONCURRENCY = 1;
 
 export interface CleanupFileSets {
 	extensions: Set<string>;
@@ -45,6 +48,13 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	throwIfAborted(signal);
 	const presence = createPresence(app);
 	const { extensions, ignoredFolders, visibleFiles, images, attachments } = collectCleanupFileSets(app, imageExtensions, ignoredFoldersValue);
+	// 记录快照时的路径：引用表可能仍指向旧路径，改名后的文件不能据此
+	// 判定为未引用；这类文件本轮直接不报，等下次扫描重新评估。
+	const snapshotPaths = new Map<TFile, string>(visibleFiles.map((file) => [file, file.path]));
+	const renamedDuringScan = (file: TFile) => {
+		const original = snapshotPaths.get(file);
+		return original !== undefined && original !== file.path;
+	};
 	onProgress?.({ stage: 0, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	const referenced = new Set<string>();
 	for (const [sourcePath, destinations] of Object.entries(app.metadataCache.resolvedLinks)) {
@@ -79,14 +89,14 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	throwIfAborted(signal);
 	// 扫描期间用户可能删除或改名文件；发布前按当前库状态剔除，避免面板
 	// 展示已经不存在的路径，或在稍后清理时对旧路径报错。
-	const orphanImages = pruneStillPresent(presence, images.filter((file) => !referenced.has(file.path))).sort(byPath);
-	const orphanAttachments = pruneStillPresent(presence, attachments.filter((file) => !referenced.has(file.path))).sort(byPath);
+	const orphanImages = pruneStillPresent(presence, images.filter((file) => !renamedDuringScan(file) && !referenced.has(file.path))).sort(byPath);
+	const orphanAttachments = pruneStillPresent(presence, attachments.filter((file) => !renamedDuringScan(file) && !referenced.has(file.path))).sort(byPath);
 	onCategoryComplete?.(['images', 'attachments'], {
 		images: orphanImages,
 		attachments: orphanAttachments,
 	});
 	throwIfAborted(signal);
-	const emptyFiles = pruneStillPresent(presence, (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }), signal)).filter((file) => !referenced.has(file.path)));
+	const emptyFiles = pruneStillPresent(presence, (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }), signal)).filter((file) => !renamedDuringScan(file) && !referenced.has(file.path)));
 	const folders = pruneStillPresent(presence, findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders)).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
 	onProgress?.({ stage: 3, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
 	onCategoryComplete?.(['empty-files', 'folders'], { emptyFiles, folders });
@@ -241,18 +251,24 @@ function throwIfAborted(signal?: AbortSignal): void {
 function createPresence(app: App) {
 	const supported = typeof app.vault.getAbstractFileByPath === 'function';
 	const at = (path: string): TAbstractFile | null | undefined => (supported ? app.vault.getAbstractFileByPath(path) : undefined);
+	// 索引偶发缺失时退回 getFiles 判定。候选与链接可能上千条，逐条全量
+	// 遍历会退化成平方级；按当前列表惰性建一次集合，整轮扫描复用。
+	let listedFiles: Set<TAbstractFile> | undefined;
+	let listedPaths: Set<string> | undefined;
 	return {
 		file(item: TAbstractFile): boolean {
 			const current = at(item.path);
 			if (current === undefined || current === item) return true;
 			if (current) return false;
-			return app.vault.getFiles().some((file) => file === item);
+			listedFiles ??= new Set(app.vault.getFiles());
+			return listedFiles.has(item);
 		},
 		path(path: string): boolean {
 			const current = at(path);
 			if (current === undefined) return true;
 			if (current) return true;
-			return app.vault.getFiles().some((file) => file.path === path);
+			listedPaths ??= new Set(app.vault.getFiles().map((file) => file.path));
+			return listedPaths.has(path);
 		},
 		at,
 	};
@@ -355,28 +371,47 @@ export async function estimateConversions(
 	}
 	const items: ConvertibleImage[] = [];
 	let processed = 0;
-	let next = 0;
 	let stopped = false;
+	const encodeLargeImage = createSerialGate();
 	onProgress?.({ processed, total });
-	const workers = Array.from({ length: Math.max(1, Math.min(CONVERSION_CONCURRENCY, total || 1)) }, async () => {
-		while (!stopped) {
-			if (signal?.aborted) return;
-			const index = next++;
-			if (index >= total) return;
-			const file = files[index]!;
-			items.push(await estimateOneImage(app, file, normalized, codec, planned.get(file.path), planSkipped.get(file.path), referenceScans.get(file.path)));
-			processed += 1;
-			onProgress?.({ processed, total, currentPath: file.path });
-			// 中止后不再领取新文件，但已开始的编码会自然结束并被计入结果。
-			if (signal?.aborted) stopped = true;
-		}
-	});
-	await Promise.all(workers);
+	// 大文件单独一条单并发通道，普通文件仍跑满 4 路；两条通道共用进度与
+	// 中止状态，结果最后统一按路径排序。
+	const normalFiles = files.filter((file) => (file.stat?.size ?? 0) < LARGE_IMAGE_BYTES);
+	const largeFiles = files.filter((file) => (file.stat?.size ?? 0) >= LARGE_IMAGE_BYTES);
+	const runLane = async (lane: TFile[], limit: number) => {
+		let next = 0;
+		const workers = Array.from({ length: Math.max(1, Math.min(limit, lane.length || 1)) }, async () => {
+			while (!stopped) {
+				if (signal?.aborted) return;
+				const file = lane[next++];
+				if (!file) return;
+				items.push(await estimateOneImage(app, file, normalized, codec, planned.get(file.path), planSkipped.get(file.path), referenceScans.get(file.path), encodeLargeImage));
+				processed += 1;
+				onProgress?.({ processed, total, currentPath: file.path });
+				// 中止后不再领取新文件，但已开始的编码会自然结束并被计入结果。
+				if (signal?.aborted) stopped = true;
+			}
+		});
+		await Promise.all(workers);
+	};
+	await Promise.all([
+		runLane(normalFiles, CONVERSION_CONCURRENCY),
+		runLane(largeFiles, LARGE_IMAGE_CONCURRENCY),
+	]);
 	// 同格式是“永远不能转”的噪声：即使绕过候选集调用，也不出现在估算结果里。
 	return items.filter((item) => item.blockedReason !== 'same-format').sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function estimateOneImage(app: App, file: TFile, config: ImageConversionConfig, codec: ImageCodec, planned: ImageConvertPlanItem | undefined, planBlockedReason: string | undefined, precomputed?: ImageReferenceScanResult): Promise<ConvertibleImage> {
+async function estimateOneImage(
+	app: App,
+	file: TFile,
+	config: ImageConversionConfig,
+	codec: ImageCodec,
+	planned: ImageConvertPlanItem | undefined,
+	planBlockedReason: string | undefined,
+	precomputed: ImageReferenceScanResult | undefined,
+	encodeLargeImage: <T>(task: () => Promise<T>) => Promise<T>,
+): Promise<ConvertibleImage> {
 	const extension = file.extension.toLowerCase();
 	const base: ConvertibleImage = {
 		path: file.path,
@@ -423,7 +458,10 @@ async function estimateOneImage(app: App, file: TFile, config: ImageConversionCo
 		const flatten = config.target === 'jpg' || config.alpha === 'flatten';
 		let encoded: Awaited<ReturnType<ImageCodec['encode']>>;
 		try {
-			encoded = await codec.encode(image, config.target, { quality: config.quality / 100, flatten });
+			const encode = () => codec.encode(image, config.target, { quality: config.quality / 100, flatten });
+			// 大图解码后才知道像素数；编码输出画布与源画布同尺寸，让大图
+			// 排队编码，避免 4 路并发叠加 4 份输出缓冲。
+			encoded = isLargeImage(width, height) ? await encodeLargeImage(encode) : await encode();
 		} catch {
 			return { ...sized, blockedReason: '图片编码失败' };
 		}

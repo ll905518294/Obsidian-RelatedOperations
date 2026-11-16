@@ -35,21 +35,31 @@ function removeTree(target) {
 }
 
 /** 复制脚本到临时项目目录，并写入一份假的发布产物。 */
-function makeProject({ version = '1.2.3', withStyles = true, withMain = true } = {}) {
+function makeProject({
+	version = '1.2.3',
+	withStyles = true,
+	withMain = true,
+	id = 'vault-doctor',
+	minAppVersion = '1.13.0',
+	packageVersion = null,
+	versionsMap = null,
+} = {}) {
 	const dir = mkdtempSync(join(tmpdir(), 'vault-doctor-package-'));
 	const scriptsDir = join(dir, 'scripts');
 	mkdirSync(scriptsDir, { recursive: true });
 	copyFileSync(SCRIPT, join(scriptsDir, 'package-plugin.mjs'));
 
-	const manifest = JSON.stringify({ id: 'vault-doctor', name: 'Vault Doctor', version }, null, 2);
+	const manifest = JSON.stringify({ id, name: 'Vault Doctor', version, minAppVersion }, null, 2);
 	writeFileSync(join(dir, 'manifest.json'), manifest);
+	if (packageVersion !== null) writeFileSync(join(dir, 'package.json'), JSON.stringify({ version: packageVersion }, null, 2));
+	if (versionsMap !== null) writeFileSync(join(dir, 'versions.json'), JSON.stringify(versionsMap, null, 2));
 	if (withMain) writeFileSync(join(dir, 'main.js'), '// fake bundle\n');
 	if (withStyles) writeFileSync(join(dir, 'styles.css'), '/* fake styles */\n');
 
 	return {
 		dir,
 		script: join(scriptsDir, 'package-plugin.mjs'),
-		zip: join(dir, 'dist', `vault-doctor-${version}.zip`),
+		zip: join(dir, 'dist', `${id}-${version}.zip`),
 		cleanup: () => removeTree(dir),
 	};
 }
@@ -197,6 +207,56 @@ test('版本号不是完整 SemVer 时拒绝打包', (t) => {
 	const result = runScript(project);
 	assert.notEqual(result.status, 0);
 	assert.match(result.stderr, /SemVer/);
+});
+
+test('package.json 与 manifest.json 版本不一致时拒绝打包', (t) => {
+	const project = makeProject({ packageVersion: '1.2.4' });
+	t.after(project.cleanup);
+
+	const result = runScript(project);
+	assert.notEqual(result.status, 0);
+	assert.equal(existsSync(project.zip), false);
+	assert.match(result.stderr, /版本不一致|package\.json/);
+});
+
+test('versions.json 未把当前版本映射到 minAppVersion 时拒绝打包', (t) => {
+	const project = makeProject({ versionsMap: { '1.2.3': '1.11.0' } });
+	t.after(project.cleanup);
+
+	const result = runScript(project);
+	assert.notEqual(result.status, 0);
+	assert.equal(existsSync(project.zip), false);
+	assert.match(result.stderr, /versions\.json/);
+});
+
+test('package.json 与 versions.json 一致时正常打包', (t) => {
+	const project = makeProject({
+		packageVersion: '1.2.3',
+		versionsMap: { '1.2.3': '1.13.0' },
+	});
+	t.after(project.cleanup);
+
+	const result = runScript(project);
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(existsSync(project.zip), true);
+});
+
+test('ZIP 文件名使用 manifest.json 的 id', (t) => {
+	const project = makeProject({ id: 'another-plugin' });
+	t.after(project.cleanup);
+
+	const result = runScript(project);
+	assert.equal(result.status, 0, result.stderr);
+	assert.equal(existsSync(join(project.dir, 'dist', 'another-plugin-1.2.3.zip')), true);
+});
+
+test('manifest.json 的 id 非法时拒绝打包', (t) => {
+	const project = makeProject({ id: 'Bad Id' });
+	t.after(project.cleanup);
+
+	const result = runScript(project);
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /插件 id/);
 });
 
 test('未知参数直接失败', (t) => {

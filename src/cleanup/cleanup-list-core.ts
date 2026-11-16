@@ -113,7 +113,7 @@ export function renderList(host: CleanupViewContext) {
 	renderPagination(toolbar, items.length, page, (next) => { host.pages.set(currentTab, next); host.renderContents(); });
 }
 
-export function addSelectionControls(
+function addSelectionControls(
 	container: HTMLElement,
 	pageCountValue: number,
 	totalCount: number,
@@ -166,19 +166,19 @@ function renderLinkTab<T>(
 	renderPagination(toolbar, allItems.length, page, (next) => { host.pages.set(host.activeTab, next); host.renderContents(); });
 }
 
-export function syncPageCheckboxes(list: HTMLElement, checked: boolean) {
+function syncPageCheckboxes(list: HTMLElement, checked: boolean): void {
 	for (const checkbox of Array.from(list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))) {
 		if (!checkbox.disabled) checkbox.checked = checked;
 	}
 }
 
-export function pageFor(host: CleanupViewContext, tab: string, total: number) {
+function pageFor(host: CleanupViewContext, tab: string, total: number): number {
 	const page = clampPageIndex(host.pages.get(tab) ?? 0, total, CLEANUP_PAGE_SIZE);
 	host.pages.set(tab, page);
 	return page;
 }
 
-export function renderPagination(container: HTMLElement, total: number, page: number, onChange: (page: number) => void) {
+function renderPagination(container: HTMLElement, total: number, page: number, onChange: (page: number) => void): void {
 	const pages = pageCount(total, CLEANUP_PAGE_SIZE);
 	if (total === 0) return;
 	const pagination = container.createDiv({ cls: 'orphan-cleanup-pagination' });
@@ -191,13 +191,13 @@ export function renderPagination(container: HTMLElement, total: number, page: nu
 	next.addEventListener('click', () => onChange(page + 1));
 }
 
-export function addRefreshControl(host: CleanupViewContext, container: HTMLElement) {
+function addRefreshControl(host: CleanupViewContext, container: HTMLElement): void {
 	const refresh = container.createEl('button', { text: '刷新' });
 	refresh.disabled = host.scanningTabs.has(host.activeTab);
 	refresh.title = '刷新当前页面';
 	refresh.addEventListener('click', () => void host.refreshCurrentTab());
 }
 
-export function itemsForActiveTab(host: CleanupViewContext): TAbstractFile[] {
+function itemsForActiveTab(host: CleanupViewContext): TAbstractFile[] {
 	return host.activeTab === 'images' ? host.candidates.images : host.activeTab === 'attachments' ? host.candidates.attachments : host.activeTab === 'empty-files' ? host.candidates.emptyFiles : host.candidates.folders;
 }

@@ -2,7 +2,7 @@ import { App, Component, Modal, Notice, TFile } from 'obsidian';
 import { parseIgnoredFolders } from '../core-utils';
 import { removeFileReferencesForFiles, removeImageReferencesForFile, type DuplicateFileGroup } from '../duplicate-files';
 import type { RelatedOperationsSettings } from '../settings';
-import { CLEANUP_CATEGORIES, normalizeImageConversionConfig, type CleanupCandidates, type CleanupScanError, type CleanupTab, type ImageConversionConfig, type ImageConversionState, type ImageGrouping, type OrphanCleanupHost, type OrphanCleanupOptions, type OrphanImageExtensions, type ScanCategoryTab, type ScanProgress, type ScanStage } from './cleanup-types';
+import { CLEANUP_CATEGORIES, cloneImageConversionConfig, normalizeImageConversionConfig, type CleanupCandidates, type CleanupScanError, type CleanupTab, type ImageConversionConfig, type ImageConversionState, type ImageGrouping, type OrphanCleanupHost, type OrphanCleanupOptions, type OrphanImageExtensions, type ScanCategoryTab, type ScanProgress, type ScanStage } from './cleanup-types';
 import { createCleanupCache, restoreCleanupCandidates, type OrphanCleanupCache } from './cleanup-cache';
 import { byPath, reasonFor } from './cleanup-actions';
 import { findRecursivelyEmptyFolders, referencedByCanvas } from './cleanup-scan';
@@ -276,12 +276,7 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	conversionConfig(): ImageConversionConfig {
-		return {
-			sources: [...this.conversion.sources],
-			target: this.conversion.target,
-			quality: this.conversion.quality,
-			alpha: this.conversion.alpha,
-		};
+		return cloneImageConversionConfig(this.conversion);
 	}
 
 	imageCodec(): ImageCodec {

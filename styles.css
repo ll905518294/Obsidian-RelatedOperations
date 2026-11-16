@@ -1338,6 +1338,15 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	text-align: center;
 }
 
+/* 尚未扫描的空态需要主动引导用户开始扫描，用强调色与提示图标与“已检查且干净”区分。 */
+.orphan-cleanup-dashboard-empty.is-idle {
+	border-style: solid;
+	border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--ro-border));
+	background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary));
+	color: var(--ro-accent-text);
+	font-weight: 600;
+}
+
 @media (max-width: 620px) {
 	.orphan-cleanup-dashboard .orphan-cleanup-home-header {
 		grid-template-columns: minmax(0, 1fr);
@@ -1941,6 +1950,21 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	margin-top: 0.2rem;
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
+}
+
+/* 源格式 → 目标格式：目标用强调色突出转换方向，箭头仅作视觉分隔。 */
+.orphan-cleanup-convert-format-source {
+	color: var(--text-muted);
+}
+
+.orphan-cleanup-convert-format-arrow {
+	padding: 0 0.25rem;
+	color: var(--text-faint);
+}
+
+.orphan-cleanup-convert-format-target {
+	color: var(--ro-accent-text);
+	font-weight: 600;
 }
 
 .orphan-cleanup-convert-dimensions,

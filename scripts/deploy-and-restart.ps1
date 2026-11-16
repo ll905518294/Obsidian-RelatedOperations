@@ -46,6 +46,35 @@ function Get-PluginId([string]$ManifestPath) {
     if ($id -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?$') { throw "Manifest 'id' contains invalid path characters: $id" }
     return $id
 }
+function Assert-ReleaseVersionConsistency([string]$Root) {
+    $manifestPath = Join-Path $Root 'manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "Manifest not found: $manifestPath" }
+    try { $manifest = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json } catch { throw "Manifest is invalid JSON: $manifestPath" }
+    $version = [string]$manifest.version
+    if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+        throw "manifest.json version must be SemVer without a v prefix: $version"
+    }
+    $minAppVersion = [string]$manifest.minAppVersion
+    if ([string]::IsNullOrWhiteSpace($minAppVersion)) { throw 'manifest.json is missing minAppVersion.' }
+    $packagePath = Join-Path $Root 'package.json'
+    if (Test-Path -LiteralPath $packagePath -PathType Leaf) {
+        try { $package = [IO.File]::ReadAllText($packagePath, [Text.Encoding]::UTF8) | ConvertFrom-Json } catch { throw "package.json is invalid JSON: $packagePath" }
+        $packageVersion = [string]$package.version
+        if ($packageVersion -ne $version) {
+            throw "Version mismatch: manifest.json=$version, package.json=$packageVersion"
+        }
+    }
+    $versionsPath = Join-Path $Root 'versions.json'
+    if (Test-Path -LiteralPath $versionsPath -PathType Leaf) {
+        try { $versions = [IO.File]::ReadAllText($versionsPath, [Text.Encoding]::UTF8) | ConvertFrom-Json } catch { throw "versions.json is invalid JSON: $versionsPath" }
+        $mapped = $versions.PSObject.Properties[$version]
+        if ($null -eq $mapped -or [string]$mapped.Value -ne $minAppVersion) {
+            $current = if ($null -eq $mapped) { '<missing>' } else { [string]$mapped.Value }
+            throw "Version mismatch: versions.json[$version]=$current, expected $minAppVersion"
+        }
+    }
+    return $version
+}
 function Get-FileSha256([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "File not found: $Path" }
     $stream = [IO.File]::OpenRead($Path)
@@ -139,6 +168,8 @@ function Restore-DeploymentBackup([string]$PluginDir, [string]$BackupDir) {
 function Invoke-DeployAndRestart {
     Push-Location -LiteralPath $ProjectRoot
     try {
+        $releaseVersion = Assert-ReleaseVersionConsistency $ProjectRoot
+        Write-Host "Release version: $releaseVersion"
         Write-Host '[1/5] Building plugin...' -ForegroundColor Cyan
         & npm run build
         if ($LASTEXITCODE -ne 0) { throw "npm run build failed (exit code $LASTEXITCODE)." }

@@ -27,6 +27,9 @@ export type CachedNativeImageLink = Omit<NativeImageLink, 'file'> & { file?: Cac
 export type CachedWikiNoteLink = Omit<WikiNoteLink, 'file'> & { file?: CachedFileRef };
 
 export interface SerializedCleanupCandidates {
+	// 版本标记写进候选数据本身：面板只把 candidates 传给恢复函数，
+	// 外层 version 到不了这里，没有这个标记就无法让版本升级真正失效。
+	cacheVersion: number;
 	images: CachedFileRef[];
 	attachments: CachedFileRef[];
 	emptyFiles: CachedFileRef[];
@@ -68,6 +71,7 @@ export function createCleanupCache(
 
 export function serializeCleanupCandidates(candidates: CleanupCandidates): SerializedCleanupCandidates {
 	return {
+		cacheVersion: CLEANUP_CACHE_VERSION,
 		images: candidates.images.map(toFileRef),
 		attachments: candidates.attachments.map(toFileRef),
 		emptyFiles: candidates.emptyFiles.map(toFileRef),
@@ -90,18 +94,24 @@ export function serializeCleanupCandidates(candidates: CleanupCandidates): Seria
 export function restoreCleanupCandidates(app: Pick<App, 'vault'>, raw: unknown): CleanupCandidates {
 	// 兼容“整个缓存对象”和“只传 candidates”两种旧调用方式。
 	const record = isRecord(raw) ? raw : {};
+	// 外层 version 存在于整份缓存里；cacheVersion 存在于候选数据里。
+	// 只认明确的数字版本；没有标记的旧数据按兼容路径尽力恢复。
+	const version = finiteNumber(record.version) ?? finiteNumber(record.cacheVersion);
+	if (version !== undefined && version !== CLEANUP_CACHE_VERSION) return emptyCandidates();
 	const source = isRecord(record.candidates) ? record.candidates : record;
 	try {
 		return {
 			images: resolveFiles(app, source.images),
 			attachments: resolveFiles(app, source.attachments),
-			emptyFiles: resolveFiles(app, source.emptyFiles),
+			// 空文件候选取决于当前内容：缓存后又被写入内容的文件不能继续
+			// 以“空文件”身份出现，否则会误导清理。
+			emptyFiles: resolveFiles(app, source.emptyFiles, true),
 			folders: resolveFolders(app, source.folders),
 			brokenLinks: restoreBrokenLinks(source.brokenLinks),
 			nativeLinks: restoreNativeLinks(app, source.nativeLinks),
 			brokenNoteLinks: restoreBrokenNoteLinks(source.brokenNoteLinks),
 			wikiLinks: restoreWikiLinks(app, source.wikiLinks),
-			duplicates: restoreDuplicates(source.duplicates),
+			duplicates: restoreDuplicates(app, source.duplicates),
 			duplicateWarnings: restoreWarnings(source.duplicateWarnings),
 			convertibleImages: [],
 		};
@@ -178,11 +188,21 @@ function copyDuplicateGroup(group: DuplicateFileGroup): DuplicateFileGroup {
 	};
 }
 
-function resolveFiles(app: Pick<App, 'vault'>, value: unknown): TFile[] {
+function resolveFiles(app: Pick<App, 'vault'>, value: unknown, requireUnchanged = false): TFile[] {
 	return asArray(value).flatMap((entry) => {
 		const file = resolveFile(app, entry);
-		return file ? [file] : [];
+		if (!file) return [];
+		if (requireUnchanged && !matchesCachedStat(file, entry)) return [];
+		return [file];
 	});
+}
+
+function matchesCachedStat(file: TFile, value: unknown): boolean {
+	if (!isRecord(value)) return true;
+	const size = finiteNumber(value.size);
+	const mtime = finiteNumber(value.mtime);
+	if (size === undefined || mtime === undefined) return true;
+	return file.stat?.size === size && file.stat?.mtime === mtime;
 }
 
 function resolveFolders(app: Pick<App, 'vault'>, value: unknown): TFolder[] {
@@ -286,7 +306,7 @@ function readLocation(value: unknown): { line: number; col: number; offset: numb
 	};
 }
 
-function restoreDuplicates(value: unknown): DuplicateFileGroup[] {
+function restoreDuplicates(app: Pick<App, 'vault'>, value: unknown): DuplicateFileGroup[] {
 	return asArray(value).flatMap((group) => {
 		if (!isRecord(group)) return [];
 		const hash = optionalString(group.hash);
@@ -296,11 +316,18 @@ function restoreDuplicates(value: unknown): DuplicateFileGroup[] {
 			if (!isRecord(entry)) return [];
 			const path = optionalString(entry.path);
 			if (!path) return [];
+			// 缓存只保存路径与尺寸；按当前文件重新校验，已删除或内容
+			// 已变化的成员不能继续留在“重复文件”分组里。
+			const file = resolveFile(app, entry);
+			if (!file) return [];
+			const cachedSize = finiteNumber(entry.size) ?? 0;
+			const cachedMtime = finiteNumber(entry.mtime) ?? 0;
+			if (file.stat?.size !== cachedSize || file.stat?.mtime !== cachedMtime) return [];
 			return [{
 				path,
 				extension: optionalString(entry.extension) ?? '',
-				size: finiteNumber(entry.size) ?? 0,
-				mtime: finiteNumber(entry.mtime) ?? 0,
+				size: cachedSize,
+				mtime: cachedMtime,
 				referenced: entry.referenced === true,
 				referencingNotes: asArray(entry.referencingNotes).filter((note): note is string => typeof note === 'string'),
 			}];

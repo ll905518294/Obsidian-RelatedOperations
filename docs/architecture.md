@@ -10,10 +10,12 @@
 ## 2. 系统概览
 - 核心模块：
   - `src/main.ts`：插件生命周期、命令、Ribbon、菜单和视图注册。
-  - `src/related-notes*.ts`：关联笔记计算、工作区视图和 Modal 回退实现。
-  - `src/orphan-cleanup*.ts`：Vault 体检与清理流程、工作区视图和 Modal 回退实现。
+  - `src/related-notes/`：关联笔记计算、列表、目标文件夹、移动与撤销、可访问性；`src/related-notes*.ts` 提供工作区视图与 Modal 回退。
+  - `src/orphan-cleanup*.ts`：Vault 体检与清理的工作区视图与 Modal 回退；面板与流程位于 `src/cleanup/`。
   - `src/broken-*-links.ts`、`src/native-image-links.ts`：链接扫描与转换。
-  - `src/cleanup/`（面板、分类列表、流程与可访问性）、`src/cleanup-*.ts`、`src/duplicate-files.ts`：候选筛选、风险分级、报告和重复文件扫描。
+  - `src/cleanup/`：面板、分类列表、扫描与转换控制器、缓存序列化（`cleanup-cache.ts`）、焦点与可访问性；`src/cleanup-report.ts` 生成 Markdown 报告；`src/duplicate-files.ts` 负责重复文件扫描。
+  - `src/image-convert/`：引用扫描与改写（`image-convert-links.ts`）、估算计划（`image-convert-plan.ts`）、编解码（`image-codec.ts`）与逐张执行器（`image-convert-runner.ts`）。
+  - `src/onboarding.ts`、`src/onboarding-content.ts`：首次使用引导；`src/update-intro.ts`、`src/update-intro-content.ts`：版本更新说明。
   - 关联数量属性功能已完全移除（不写入、不更新，也不提供清除命令）。
   - `src/settings.ts`、`src/core-utils.ts`：设置与共享规则。
 - 外部依赖：Obsidian API；可选集成 Notebook Navigator。
@@ -21,12 +23,15 @@
 ## 3. 关键数据流
 1. Obsidian 命令、Ribbon 或菜单触发入口。
 2. 插件从 Vault/metadata cache 收集 Markdown、Canvas 和资源信息。
-3. 扫描模块生成可操作候选，视图展示并要求用户确认。
-4. 执行阶段使用 Obsidian 文件 API 或编辑历史；报告可复制或写入 Vault 根目录。
+3. 扫描模块生成可操作候选，写入纯数据缓存（`cleanup-cache.ts` v2：路径 + `size`/`mtime`，读取时按路径还原成 `TFile`/`TFolder`），视图展示并要求用户确认。
+4. 执行阶段使用 Obsidian 文件 API 或编辑历史；图片转换按单张事务执行（重新校验 → 生成新文件 → 改写引用 → 自校验 → 移入回收站），失败回滚并保留原图。
+5. 报告可复制到剪贴板或作为 Markdown 写入 Vault；关联笔记移动使用 Obsidian 原生文件管理器，并保留最近一次移动的撤销记录。
 
 ## 4. 关键约束
 - 只对已解析或可安全判定的目标执行操作；外部 URL、代码块和 frontmatter 按功能规则保守处理。
 - 不覆盖已有目标文件；失败项与已完成项分别报告。
+- 体检缓存只能保存纯数据：不得把 `TFile`/`TFolder` 等持有 vault 引用的对象写进 `data.json`；旧缓存、缺失字段与已删除文件在恢复时安全丢弃。
+- 图片转换的错误信息与回滚结果必须能说明“哪一步失败”，不得留下指向已删除文件的引用；转换候选与估算结果不写入体检缓存。
 - 监听器、定时器和视图必须通过 Obsidian 注册机制清理。
 - 插件定位为仅桌面端（`isDesktopOnly: true`）；工作区视图无法打开时回退到 Modal。
 

@@ -67,8 +67,32 @@ export interface CleanupScanHost {
 	scanTab(tab: CleanupTab): Promise<void>;
 }
 
-export async function runFullScan(panel: CleanupScanHost, preserveProcessed = false): Promise<void> {
-	if (panel.scanning || panel.scanningTabs.size > 0) return;
+/*
+ * 同一个面板同时只允许一次全量扫描。并发调用直接复用进行中的任务，
+ * 避免重复扫描（以及第二次调用被静默丢弃）。
+ */
+const activeFullScans = new WeakMap<CleanupScanHost, Promise<void>>();
+
+export function runFullScan(panel: CleanupScanHost, preserveProcessed = false): Promise<void> {
+	const active = activeFullScans.get(panel);
+	if (active) return active;
+	const task = executeFullScan(panel, preserveProcessed).finally(() => {
+		if (activeFullScans.get(panel) === task) activeFullScans.delete(panel);
+	});
+	activeFullScans.set(panel, task);
+	return task;
+}
+
+async function executeFullScan(panel: CleanupScanHost, preserveProcessed = false): Promise<void> {
+	const requestGeneration = panel.scanGeneration;
+	if (panel.scanningTabs.size > 0) {
+		// 单分类刷新是短任务；等它结束后再执行用户请求的全量扫描，
+		// 而不是静默丢弃这次请求。
+		await Promise.allSettled([...panel.categoryScans.values()]);
+		// 等待期间面板被关闭（dispose 会递增 generation）时不要再启动。
+		if (panel.scanGeneration !== requestGeneration) return;
+	}
+	if (panel.scanning) return;
 	panel.lastScanError = undefined;
 	panel.lastScanAborted = undefined;
 	panel.showingCachedResult = false;

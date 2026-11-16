@@ -141,6 +141,18 @@ test('扫描期间改名的重复文件不会留下旧路径', async () => {
 	assert.deepEqual(paths.sort(), ['dup/a-renamed.bin', 'dup/b.bin']);
 });
 
+test('被引用的图片在扫描期间改名时不会被误报为未引用', async () => {
+	const photo = makeFile('assets/photo.png', 'image-bytes');
+	const note = makeFile('note.md', '![[assets/photo.png]]');
+	const { app, files } = createVault([photo, note], {
+		resolvedLinks: { 'note.md': { 'assets/photo.png': 1 } },
+	});
+	const result = await findCleanupCandidates(app, 'png', '', (progress) => {
+		if (progress.stage === 0) renameFile(files, photo, 'assets/renamed.png');
+	});
+	assert.deepEqual(result.images, []);
+});
+
 test('链接阶段之后新建目标或删除源笔记时，失效链接候选不会残留', async () => {
 	const linker = makeFile('linker.md', 'see [[missing]]');
 	const doomed = makeFile('doomed.md', 'see [[never]]');
@@ -185,4 +197,77 @@ test('扫描期间新建的文件不会崩溃，也不会被当成已扫描的�
 		if (progress.stage === 3 && !files.has('new.md')) files.set('new.md', makeFile('new.md', ''));
 	});
 	assert.deepEqual(result.emptyFiles, []);
+});
+
+test('索引缺失时存在性校验不会对每个候选全量遍历文件列表', async () => {
+	const files = Array.from({ length: 600 }, (_, index) => makeFile(`orphan/${index}.png`, 'x'));
+	let getFilesCalls = 0;
+	const app = {
+		vault: {
+			getFiles: () => {
+				getFilesCalls += 1;
+				return files;
+			},
+			getMarkdownFiles: () => [],
+			// 模拟宿主索引短暂缺失：路径查询返回空，但列表里仍能看到文件。
+			getAbstractFileByPath: () => null,
+			getRoot: () => ({ path: '', children: [] }),
+			cachedRead: async (file) => file.__content,
+			read: async (file) => file.__content,
+			readBinary: async (file) => new TextEncoder().encode(file.__content).buffer,
+		},
+		metadataCache: { resolvedLinks: {}, getFileCache: () => null, getFirstLinkpathDest: () => null },
+	};
+
+	const result = await findCleanupCandidates(app, 'png', '', undefined, false);
+
+	assert.equal(result.images.length, 600);
+	assert.ok(getFilesCalls <= 6, `getFiles 调用次数过高：${getFilesCalls}`);
+});
+
+test('大规模资料库中每篇笔记读取次数有界，未引用集合判定正确', { timeout: 120000 }, async () => {
+	const noteCount = 3000;
+	const referencedCount = 1500;
+	const orphanCount = 500;
+	const notes = Array.from({ length: noteCount }, (_, index) => {
+		const content = index < referencedCount ? `![[img/${index}.png]]` : `正文 ${index}`;
+		return makeFile(`note/${index}.md`, content);
+	});
+	const images = [
+		...Array.from({ length: referencedCount }, (_, index) => makeFile(`img/${index}.png`, 'img')),
+		...Array.from({ length: orphanCount }, (_, index) => makeFile(`img/extra-${index}.png`, 'img')),
+	];
+	const files = [...notes, ...images];
+	const fileByPath = new Map(files.map((file) => [file.path, file]));
+	const resolvedLinks = Object.fromEntries(
+		notes.slice(0, referencedCount).map((note, index) => [note.path, { [`img/${index}.png`]: 1 }]),
+	);
+	const reads = new Map();
+	let getFilesCalls = 0;
+	const app = {
+		vault: {
+			getFiles: () => {
+				getFilesCalls += 1;
+				return files;
+			},
+			getMarkdownFiles: () => notes,
+			getAbstractFileByPath: (path) => fileByPath.get(path) ?? null,
+			getRoot: () => ({ path: '', children: [] }),
+			cachedRead: async (file) => {
+				reads.set(file.path, (reads.get(file.path) ?? 0) + 1);
+				return file.__content;
+			},
+			read: async (file) => file.__content,
+			readBinary: async (file) => new TextEncoder().encode(file.__content).buffer,
+		},
+		metadataCache: { resolvedLinks, getFileCache: () => null, getFirstLinkpathDest: () => null },
+	};
+
+	const result = await findCleanupCandidates(app, 'png', '', undefined, false);
+
+	const expectedOrphans = images.slice(referencedCount).map((file) => file.path).sort((a, b) => a.localeCompare(b));
+	assert.deepEqual(result.images.map((file) => file.path), expectedOrphans);
+	const maxReads = Math.max(...notes.map((note) => reads.get(note.path) ?? 0));
+	assert.ok(maxReads <= 2, `单篇笔记读取次数过高：${maxReads}`);
+	assert.ok(getFilesCalls <= 6, `getFiles 调用次数过高：${getFilesCalls}`);
 });

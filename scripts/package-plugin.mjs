@@ -31,6 +31,8 @@ export const OPTIONAL_FILES = ['styles.css'];
 
 export const SEMVER_RE =
 	/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+/** Obsidian 插件 id：小写字母、数字、点、下划线与连字符，不能以分隔符结尾。 */
+export const PLUGIN_ID_RE = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?$/;
 
 /** 打包过程中的可预期错误，main() 统一转成非零退出。 */
 export class PackagingError extends Error {
@@ -230,11 +232,60 @@ export function readVersion(root = ROOT) {
 			`manifest.json 的 version 必须是无 v 前缀的 SemVer，当前为 ${JSON.stringify(manifest.version)}`,
 		);
 	}
+	if (typeof manifest.id !== 'string' || !PLUGIN_ID_RE.test(manifest.id)) {
+		throw new PackagingError(
+			`manifest.json 的 id 必须是合法的 Obsidian 插件 id，当前为 ${JSON.stringify(manifest.id)}`,
+		);
+	}
+	if (typeof manifest.minAppVersion !== 'string' || !SEMVER_RE.test(manifest.minAppVersion)) {
+		throw new PackagingError(
+			`manifest.json 的 minAppVersion 必须是 SemVer，当前为 ${JSON.stringify(manifest.minAppVersion)}`,
+		);
+	}
 	return manifest;
+}
+
+/**
+ * 校验发布清单与仓库其它版本文件一致。
+ *
+ * 只在文件存在时校验，方便测试用最小项目根目录（只放 manifest + 产物）；
+ * 真实仓库里 package.json 与 versions.json 必须同时存在并保持一致。
+ */
+export function assertVersionConsistency(root, manifest) {
+	const packagePath = join(root, 'package.json');
+	if (existsSync(packagePath)) {
+		let pkg;
+		try {
+			pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
+		} catch (error) {
+			throw new PackagingError(`package.json 无法解析：${error.message}`);
+		}
+		if (pkg.version !== manifest.version) {
+			throw new PackagingError(
+				`版本不一致：manifest.json 为 ${manifest.version}，package.json 为 ${JSON.stringify(pkg.version)}`,
+			);
+		}
+	}
+
+	const versionsPath = join(root, 'versions.json');
+	if (existsSync(versionsPath)) {
+		let versions;
+		try {
+			versions = JSON.parse(readFileSync(versionsPath, 'utf8'));
+		} catch (error) {
+			throw new PackagingError(`versions.json 无法解析：${error.message}`);
+		}
+		if (versions[manifest.version] !== manifest.minAppVersion) {
+			throw new PackagingError(
+				`versions.json 必须把 ${manifest.version} 映射到 minAppVersion ${manifest.minAppVersion}，当前为 ${JSON.stringify(versions[manifest.version])}`,
+			);
+		}
+	}
 }
 
 export function collectEntries(root = ROOT) {
 	const manifest = readVersion(root);
+	assertVersionConsistency(root, manifest);
 	const entries = [];
 
 	const take = (name, required) => {
@@ -313,15 +364,15 @@ function main() {
 	verifyEntries(manifest, entries, zipBuffer);
 
 	if (checkOnly) {
-		process.stdout.write(
-			`校验通过：${entries.length} 个文件将进入 vault-doctor-${manifest.version}.zip（--check 未写出）\n`,
+	process.stdout.write(
+			`校验通过：${entries.length} 个文件将进入 ${manifest.id}-${manifest.version}.zip（--check 未写出）\n`,
 		);
 		return;
 	}
 
 	const outputDir = join(ROOT, 'dist');
 	mkdirSync(outputDir, { recursive: true });
-	const outputPath = join(outputDir, `vault-doctor-${manifest.version}.zip`);
+	const outputPath = join(outputDir, `${manifest.id}-${manifest.version}.zip`);
 	writeFileSync(outputPath, zipBuffer);
 
 	const sha256 = createHash('sha256').update(zipBuffer).digest('hex');

@@ -145,6 +145,8 @@ function makeHost(items) {
 		items,
 		estimating: false,
 		estimateProgress: { processed: 0, total: items.length },
+		converting: false,
+		convertProgress: { processed: 0, total: 0 },
 	};
 	return {
 		contentEl: new El('div'),
@@ -176,7 +178,7 @@ test('转换页勾选只写 convertSelections，不污染共享 selections', () 
 	assert.equal(host.convertSelections.has(item.path), true);
 	const references = byClass(host.contentEl, 'orphan-cleanup-convert-references')[0];
 	assert.equal(references.textContent, '引用 2 处');
-	assert.match(references.title, /按笔记篇数统计/);
+	assert.match(references.title, /按引用处数统计/);
 });
 
 test('全选可节省项排除 blocked 与增体积项', () => {
@@ -354,4 +356,37 @@ test('blocked 行不展示 0 × 0 与 −100%，改显示 — 与 跳过', () =>
 	assert.match(row.textContent, /—/);
 	assert.match(row.textContent, /跳过/);
 	assert.match(row.textContent, /引用 0 处/);
+});
+
+test('转换进行中动作区展示转换进度与张数', () => {
+	const host = makeHost([]);
+	host.conversion.converting = true;
+	host.conversion.convertProgress = { processed: 3, total: 8, currentPath: 'pics/d.png' };
+	renderConversionActions(host);
+
+	const progress = byClass(host.contentEl, 'orphan-cleanup-convert-progress')[0];
+	assert.ok(progress, '转换中应渲染进度区域');
+	assert.equal(progress.attrs['data-phase'], 'convert');
+	assert.match(progress.textContent, /正在转换 3 \/ 8 · pics\/d\.png/);
+});
+
+test('估算进行中进度文案标记为估算阶段', () => {
+	const host = makeHost([]);
+	host.conversion.estimating = true;
+	host.conversion.estimateProgress = { processed: 2, total: 5 };
+	renderConversionList(host);
+
+	const progress = byClass(host.contentEl, 'orphan-cleanup-convert-progress')[0];
+	assert.ok(progress, '估算中应渲染进度区域');
+	assert.equal(progress.attrs['data-phase'], 'estimate');
+	assert.match(progress.textContent, /正在估算 2 \/ 5/);
+});
+
+test('行内徽标展示源格式到目标格式的转换方向', () => {
+	const host = makeHost([makeItem({ path: 'pics/a.png', extension: 'png' })]);
+	renderConversionList(host);
+
+	const badge = byClass(host.contentEl, 'orphan-cleanup-convert-format')[0];
+	assert.ok(badge, '应渲染格式徽标');
+	assert.match(badge.textContent, /PNG→JPG/);
 });

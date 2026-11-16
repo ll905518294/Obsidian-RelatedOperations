@@ -196,20 +196,28 @@ function renderControls(host: CleanupViewContext, container: HTMLElement) {
 	}
 }
 
-function renderProgress(host: CleanupViewContext, container: HTMLElement) {
-	const progress = progressFor(host.conversion);
+function progressState(host: CleanupViewContext): { phase: 'estimate' | 'convert'; progress: ImageConversionProgress } {
+	// 转换进行中优先展示转换进度，否则展示估算进度。
+	if (host.conversion.converting) return { phase: 'convert', progress: host.conversion.convertProgress };
+	return { phase: 'estimate', progress: progressFor(host.conversion) };
+}
+
+export function renderProgress(host: CleanupViewContext, container: HTMLElement) {
+	const { phase, progress } = progressState(host);
+	const verb = phase === 'convert' ? '转换' : '估算';
 	const wrapper = container.createDiv({ cls: 'orphan-cleanup-convert-progress' });
 	const text = wrapper.createDiv({ cls: 'orphan-cleanup-convert-progress-text' });
 	text.setAttribute('role', 'status');
 	text.setAttribute('aria-live', 'polite');
+	wrapper.setAttribute('data-phase', phase);
 	if (progress.total > 0) {
 		const path = progress.currentPath ? ` · ${progress.currentPath}` : '';
-		text.setText(`正在估算 ${progress.processed} / ${progress.total}${path}`);
+		text.setText(`正在${verb} ${progress.processed} / ${progress.total}${path}`);
 		const track = wrapper.createDiv({ cls: 'orphan-cleanup-convert-progress-track', attr: { 'aria-hidden': 'true' } });
 		const fill = track.createDiv({ cls: 'orphan-cleanup-convert-progress-fill' });
 		fill.style.width = `${Math.min(100, Math.max(0, progress.processed / progress.total * 100))}%`;
 	} else {
-		text.setText(progress.currentPath ? `正在估算 · ${progress.currentPath}` : '正在估算…');
+		text.setText(progress.currentPath ? `正在${verb} · ${progress.currentPath}` : `正在${verb}…`);
 	}
 }
 
@@ -345,7 +353,10 @@ function renderRow(host: CleanupViewContext, body: HTMLElement, item: Convertibl
 		void host.app.workspace.openLinkText(item.path, '', 'tab');
 	});
 	associateCheckbox(checkbox, [link]);
-	pathCell.createSpan({ text: normalizedSource(item.extension).toUpperCase(), cls: 'orphan-cleanup-convert-format' });
+	const formatBadge = pathCell.createSpan({ cls: 'orphan-cleanup-convert-format' });
+	formatBadge.createSpan({ text: normalizedSource(item.extension).toUpperCase(), cls: 'orphan-cleanup-convert-format-source' });
+	formatBadge.createSpan({ text: '→', cls: 'orphan-cleanup-convert-format-arrow' });
+	formatBadge.createSpan({ text: String(host.conversion.target).toUpperCase(), cls: 'orphan-cleanup-convert-format-target' });
 
 	const skippedRow = isBlocked(item) || item.newBytes === 0;
 	row.createEl('td', { text: skippedRow ? '—' : `${item.width} × ${item.height}`, cls: 'orphan-cleanup-convert-dimensions' });
@@ -367,7 +378,7 @@ function renderRow(host: CleanupViewContext, body: HTMLElement, item: Convertibl
 		});
 	}
 	const references = row.createEl('td', { text: `引用 ${item.referenceCount} 处`, cls: 'orphan-cleanup-convert-references' });
-	references.title = '按笔记篇数统计，表示引用这张图片的笔记数量';
+	references.title = '按引用处数统计，同一篇笔记中的多次引用会分别计数';
 	const status = row.createEl('td', { cls: 'orphan-cleanup-convert-status' });
 	if (item.hasAlpha) status.createSpan({ text: '透明', cls: 'orphan-cleanup-convert-badge is-alpha' });
 	if (item.blockedReason) status.createSpan({ text: `跳过：${describeBlockedReason(item.blockedReason)}`, cls: 'orphan-cleanup-convert-blocked-reason' });

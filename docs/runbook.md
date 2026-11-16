@@ -15,7 +15,7 @@
 - 部署预检：`npm run deploy:check`（只构建和检查，不复制、不重启）
 - 部署并重启：`npm run deploy`（失败时默认恢复到备份；加 `-NoRollbackOnFail` 可保留新文件用于排查）
 - 产物：项目根目录的 `main.js`，以及 `manifest.json`、可选 `styles.css`；`npm run package` 再产出 `dist/vault-doctor-<版本号>.zip`（`dist/` 已被 `.gitignore` 忽略）。
-- 打包脚本为 `scripts/package-plugin.mjs`：零第三方依赖（`node:zlib` + 手工写 ZIP 中央目录），ZIP 内只含根层的三件套，写出后会重新解压校验条目、大小、CRC-32 与包内 `manifest.json` 版本号；`main.js` 缺失时报错并提示先执行 `npm run build`，不会自动构建。
+- 打包脚本为 `scripts/package-plugin.mjs`：零第三方依赖（`node:zlib` + 手工写 ZIP 中央目录），ZIP 内只含根层的三件套，文件名取自 `manifest.json` 的 `id` 与 `version`；打包前校验 `manifest.json` 的 id/SemVer/minAppVersion，并在 `package.json`、`versions.json` 存在时要求版本与映射一致；写出后会重新解压校验条目、大小、CRC-32 与包内 `manifest.json` 版本号。`main.js` 缺失时报错并提示先执行 `npm run build`，不会自动构建。
 - 平台范围：插件为仅桌面端（`isDesktopOnly: true`），移动端不做验证。原因是 `src/cleanup/cleanup-actions.ts` 通过 `window.require('electron')` 调用系统资源管理器定位文件，移动端没有该能力。
 
 ## 3. 常见问题排查
@@ -59,14 +59,14 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - [ ] `npm run lint` 通过。
 - [ ] `npm test` 通过（原生测试全部绿）。
 - [ ] 本次包含图片转换时，按第 9 节在演示库完成验证。
-- [ ] `npm run test:deploy` 与 `npm run deploy:check` 通过（两者都不复制文件、不重启 Obsidian）。
+- [ ] `npm run test:deploy` 与 `npm run deploy:check` 通过（两者都不复制文件、不重启 Obsidian；部署脚本会在构建前校验 `manifest.json`、`package.json`、`versions.json` 的版本一致性）。
 - [ ] 三件套存在：`Get-Item main.js, manifest.json, styles.css`。
-- [ ] **必须**在打 tag 前执行 `npm run package`：`dist/vault-doctor-$v.zip` 存在，且包内 `manifest.json` 的 `version` 与 `manifest.json` 完全一致（读取 ZIP 内文件比对，不能只看文件名）。连续打包两次的 SHA-256 应相同；ZIP 内三个条目要与仓库根的三件套逐字节一致。
+- [ ] **必须**在打 tag 前执行 `npm run package`：脚本会交叉校验 `manifest.json`、`package.json` 与 `versions.json`，任一版本或映射不一致就失败；`dist/vault-doctor-$v.zip` 存在（文件名取自 manifest 的 id 与 version），且包内 `manifest.json` 的 `version` 与仓库根 `manifest.json` 完全一致（读取 ZIP 内文件比对，不能只看文件名）。连续打包两次的 SHA-256 应相同；ZIP 内三个条目要与仓库根的三件套逐字节一致。
 - [ ] tag 与版本一致：`git tag --list $v`（应显示 `$v`），用 `git push origin $v` 推送。
-- [ ] 发布后核对：`gh release view $v --json tagName,name,body,assets`，确认 `assets` 包含 `main.js`、`manifest.json`、`styles.css`（若存在）与 `vault-doctor-$v.zip`。
+- [ ] 发布后核对：`gh release view $v --json tagName,name,body,assets`，确认 `assets` 包含 `main.js`、`manifest.json`、`styles.css`（若存在）与 `<id>-$v.zip`。
 - [ ] 可选：`Get-FileHash main.js, manifest.json, styles.css, dist/vault-doctor-$v.zip -Algorithm SHA256`，与 release 正文中的 SHA-256 对照。
 
-发布后 release workflow 会再次运行 `npm run lint`、`npm test` 与 `npm run package`，并把 ZIP 与三件套一起附到 release；任一步失败、版本不匹配或 `versions.json` 映射不一致都会阻止发布。
+发布后 release workflow 会再次校验 tag、`manifest.json`、`package.json` 与 `versions.json` 的版本一致性，运行 `npm run lint`、`npm test` 与 `npm run package`，并复检 ZIP 内 `manifest.json` 的版本；通过后把 ZIP 与三件套一起附到 release。任一步失败、版本不匹配或 `versions.json` 映射不一致都会阻止发布。
 
 ## 5a. 发布后回退预案
 
@@ -152,11 +152,11 @@ README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert
 
 `01-dashboard.png`、`02-scan-result.png` 仍是含 9 分类的旧取景，未包含末尾的「图片转换」页签；图片转换改由 `09`、`10` 两张单独说明，不要求首页截图滚动到标签条末尾。
 
-`09`/`10` 的拍摄方式（2026-11-17 实测）：把演示库复制到临时目录后打开，先在复制件里补一张合成的噪声 PNG 作为「可节省」素材，扫描并估算后截取候选列表与汇总条；选择「全选可节省项」→ 连点两次「开始转换」→ 截取完成提示与「最近一次转换」行。转换会真实改写文件，因此只在临时复制件里执行，正式演示库 `X:\Obsidian\vault-doctor-demo` 未被改动；拍完恢复 `obsidian.json` 并重启回真实库。
+`09`/`10` 的拍摄方式（2026-11-17 实测）：把演示库 `vault-doctor-demo` 复制到临时目录后打开，先在复制件里补一张合成的噪声 PNG 作为「可节省」素材，扫描并估算后截取候选列表与汇总条；选择「全选可节省项」→ 连点两次「开始转换」→ 截取完成提示与「最近一次转换」行。转换会真实改写文件，因此只在临时复制件里执行，正式演示库未被改动；拍完恢复 `obsidian.json` 并重启回真实库。
 
 ## 9. 图片转换验证
 
-图片转换在 1.7.0 引入。当前 `manifest.json` 为 `1.8.0`，`versions.json` 映射为 `"1.8.0": "1.13.0"`。发布前用演示库 `X:\Obsidian\vault-doctor-demo` 验证图片转换：
+图片转换在 1.7.0 引入。当前 `manifest.json` 为 `1.8.0`，`versions.json` 映射为 `"1.8.0": "1.13.0"`。发布前用演示库 `vault-doctor-demo` 验证图片转换：
 
 1. 准备同一张 PNG 的三处引用：Wiki 嵌入（含别名、不含尺寸参数）、标准 Markdown 图片链接、HTML `<img src>`；确认三篇笔记都指向该 PNG。
 2. 打开 **体检与清理 → 图片转换**，源格式只勾选 PNG，目标格式选 JPG，质量 85，透明图处理选白底。

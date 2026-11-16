@@ -55,12 +55,25 @@ export interface ImageConversionConfig {
 	alpha: ImageConversionAlpha;
 }
 
-export const DEFAULT_IMAGE_CONVERSION: ImageConversionConfig = {
-	sources: ['png'],
+export type ReadonlyImageConversionConfig =
+	Readonly<Omit<ImageConversionConfig, 'sources'>>
+	& { readonly sources: readonly string[] };
+
+export const DEFAULT_IMAGE_CONVERSION: ReadonlyImageConversionConfig = Object.freeze({
+	sources: Object.freeze(['png']),
 	target: 'jpg',
 	quality: 85,
 	alpha: 'flatten',
-};
+});
+
+export function cloneImageConversionConfig(config: ReadonlyImageConversionConfig): ImageConversionConfig {
+	return {
+		sources: [...config.sources],
+		target: config.target,
+		quality: config.quality,
+		alpha: config.alpha,
+	};
+}
 
 export interface ConvertibleImage {
 	path: string;
@@ -115,6 +128,8 @@ export interface ImageConversionState extends ImageConversionConfig {
 	estimating: boolean;
 	converting: boolean;
 	estimateProgress: ImageConversionProgress;
+	// 转换执行进度：与估算进度分开，界面在转换期间据此展示已完成张数与当前文件。
+	convertProgress: ImageConversionProgress;
 	lastResult?: ImageConversionResult;
 	abort?: () => void;
 }
@@ -123,8 +138,11 @@ export interface ImageConversionState extends ImageConversionConfig {
  * data.json 里的旧配置可能缺字段或带非法值；这里只做字段级收敛，
  * 不信任持久化内容，缺省值始终来自 DEFAULT_IMAGE_CONVERSION。
  */
-export function normalizeImageConversionConfig(raw: unknown, defaults: ImageConversionConfig = DEFAULT_IMAGE_CONVERSION): ImageConversionConfig {
-	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...defaults, sources: [...defaults.sources] };
+export function normalizeImageConversionConfig(
+	raw: unknown,
+	defaults: ReadonlyImageConversionConfig = DEFAULT_IMAGE_CONVERSION,
+): ImageConversionConfig {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return cloneImageConversionConfig(defaults);
 	const value = raw as Record<string, unknown>;
 	const sources = Array.isArray(value.sources)
 		? value.sources

@@ -97,7 +97,7 @@ export function renderBrokenNoteLinkList(host: CleanupViewContext, container: HT
 	}
 }
 
-export function renderBrokenLinkRow(host: CleanupViewContext, body: HTMLElement, link: BrokenImageLink) {
+function renderBrokenLinkRow(host: CleanupViewContext, body: HTMLElement, link: BrokenImageLink): void {
 	const key = brokenLinkKey(link);
 	const row = body.createEl('tr');
 	const checkbox = row.createEl('td').createEl('input', { type: 'checkbox' });

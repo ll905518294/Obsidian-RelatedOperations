@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { convertNativeImageLink, findNativeImageLinks, replaceNativeImageLinks, revalidateNativeImageLink } from '../src/native-image-links.ts';
+import { convertNativeImageLink, findNativeImageLinks, nativeImageLinkOffset, replaceNativeImageLinks, revalidateNativeImageLink } from '../src/native-image-links.ts';
 
 const file = (path, basename = path.split('/').at(-1).replace(/\.[^.]+$/, '')) => ({ path, basename });
 const link = (original, path, start, extra = {}) => ({ sourcePath: 'note.md', original, linkPath: path, position: { start: { offset: start }, end: { offset: start + original.length } }, file: Object.hasOwn(extra, 'file') ? extra.file : file(path), reason: extra.reason });
@@ -97,6 +97,24 @@ test('replaces multiple occurrences from right to left and skips changed content
 	const b = link('![[b.png]]', 'b.png', 11);
 	assert.deepEqual(replaceNativeImageLinks('![[a.png]]\n![[b.png]]', [a, b]), { content: '![](<a.png>)\n![](<b.png>)', converted: 2, skipped: 0 });
 	assert.deepEqual(replaceNativeImageLinks('changed', [a]), { content: 'changed', converted: 0, skipped: 1 });
+});
+
+// The cached offset can be stale after an edit. A unique fallback is safe, but
+// repeated identical embeds must not be guessed or the wrong image is changed.
+test('nativeImageLinkOffset only falls back to a unique occurrence', () => {
+	const single = 'prefix ![[a.png]] suffix';
+	const at = single.indexOf('![[a.png]]');
+	assert.deepEqual(
+		nativeImageLinkOffset(single, link('![[a.png]]', 'a.png', 999)),
+		{ start: at, end: at + '![[a.png]]'.length },
+	);
+	const repeated = '![[a.png]] and ![[a.png]]';
+	assert.equal(nativeImageLinkOffset(repeated, link('![[a.png]]', 'a.png', 999)), null);
+	const second = repeated.lastIndexOf('![[a.png]]');
+	assert.deepEqual(
+		nativeImageLinkOffset(repeated, link('![[a.png]]', 'a.png', second)),
+		{ start: second, end: second + '![[a.png]]'.length },
+	);
 });
 
 test('does not replace a different identical embed when the cached position is stale', () => {

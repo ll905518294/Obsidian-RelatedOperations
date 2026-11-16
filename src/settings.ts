@@ -1,7 +1,12 @@
 import { App, PluginSettingTab, SettingDefinitionItem } from 'obsidian';
 import type RelatedOperationsPlugin from './main';
 import type { OrphanCleanupCache } from './cleanup/cleanup-cache';
-import { DEFAULT_IMAGE_CONVERSION, type ImageConversionConfig } from './cleanup/cleanup-types';
+import {
+	cloneImageConversionConfig,
+	DEFAULT_IMAGE_CONVERSION,
+	normalizeImageConversionConfig,
+	type ImageConversionConfig,
+} from './cleanup/cleanup-types';
 
 export type { OrphanCleanupCache } from './cleanup/cleanup-cache';
 
@@ -23,7 +28,7 @@ export const DEFAULT_SETTINGS: RelatedOperationsSettings = {
 	orphanIgnoredFolders: '',
 	lastSeenVersion: '',
 	onboardingSeen: false,
-	imageConversion: { ...DEFAULT_IMAGE_CONVERSION, sources: [...DEFAULT_IMAGE_CONVERSION.sources] },
+	imageConversion: cloneImageConversionConfig(DEFAULT_IMAGE_CONVERSION),
 };
 
 
@@ -35,6 +40,32 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 	// Obsidian renders, search-indexes, persists, and validates declarative
 	// settings from these definitions. Simple values bind via control.key
 	// (auto-persisted); settings with side effects use render callbacks.
+	// 图片转换配置是嵌套对象，说明式控件的 key 无法直接映射到顶层属性，
+	// 因此覆盖 getControlValue/setControlValue，把 `imageConversion.xxx` 形式
+	// 的 key 路由进嵌套对象，控件本身仍走声明式语义（标签、描述、自动持久化）。
+	getControlValue(key: string): unknown {
+		if (key.startsWith('imageConversion.')) {
+			const field = key.slice('imageConversion.'.length);
+			return (this.plugin.settings.imageConversion as unknown as Record<string, unknown>)[field];
+		}
+		return super.getControlValue(key);
+	}
+
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		if (key.startsWith('imageConversion.')) {
+			const field = key.slice('imageConversion.'.length);
+			const current = (this.plugin.settings.imageConversion
+				?? cloneImageConversionConfig(DEFAULT_IMAGE_CONVERSION)) as unknown as Record<string, unknown>;
+			current[field] = value;
+			this.plugin.settings.imageConversion = cloneImageConversionConfig(
+				normalizeImageConversionConfig({ ...(current as unknown as ImageConversionConfig) }),
+			);
+			await this.plugin.saveSettings();
+			return;
+		}
+		await super.setControlValue(key, value);
+	}
+
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
 			{
@@ -97,6 +128,41 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 									this.plugin.settings.onboardingSeen = !value;
 									await this.plugin.saveSettings();
 								}));
+						},
+					},
+				],
+			},
+			{
+				type: 'group',
+				heading: '图片转换默认配置',
+				items: [
+					{
+						name: '目标格式',
+						desc: '图片转换页的默认输出格式；进入页面后仍可在页面内临时调整。',
+						control: {
+							type: 'dropdown',
+							key: 'imageConversion.target',
+							options: { jpg: 'JPG', webp: 'WebP', png: 'PNG' },
+						},
+					},
+					{
+						name: '默认质量',
+						desc: '转换质量，50–95；越高体积越大、画质越好。目标为 PNG 时质量不生效。',
+						control: {
+							type: 'slider',
+							key: 'imageConversion.quality',
+							min: 50,
+							max: 95,
+							step: 1,
+						},
+					},
+					{
+						name: '透明图处理',
+						desc: '含透明通道的图片默认处理方式：白底铺底后转换，或直接跳过。',
+						control: {
+							type: 'dropdown',
+							key: 'imageConversion.alpha',
+							options: { flatten: '白底', skip: '跳过' },
 						},
 					},
 				],

@@ -5,26 +5,31 @@ import { collectConvertibleImages, estimateConversions as estimateConversionCost
 import { clearConversionSelections } from './cleanup-list-convert';
 import { formatBytes, reasonFor } from './cleanup-actions';
 import {
+	cloneImageConversionConfig,
 	normalizeImageConversionConfig,
 	type CleanupViewContext,
 	type ImageConversionConfig,
 	type ImageConversionResult,
 	type ImageConversionState,
 	type OrphanCleanupOptions,
+	type ReadonlyImageConversionConfig,
 } from './cleanup-types';
 
-// 修复期先串行转换：两个 worker 同时改写同一篇笔记会互相覆盖回滚。
+// 转换仍按单文件批次推进：多张图被同一篇笔记引用时，两个 worker 同时
+// 改写会互相覆盖，回滚还可能丢掉对方已完成的结果。并发提升只作用于
+// 估算与 runner 内部的解码/编码，不改变这里的串行提交边界。
 const CONVERSION_BATCH_SIZE = 1;
 
-export function createConversionState(config: ImageConversionConfig): ImageConversionState {
+export function createConversionState(config: ReadonlyImageConversionConfig): ImageConversionState {
+	const copy = cloneImageConversionConfig(config);
 	return {
-		...config,
-		sources: [...config.sources],
-		config: { ...config, sources: [...config.sources] },
+		...copy,
+		config: cloneImageConversionConfig(copy),
 		items: [],
 		estimating: false,
 		converting: false,
 		estimateProgress: { processed: 0, total: 0 },
+		convertProgress: { processed: 0, total: 0 },
 	};
 }
 
@@ -89,13 +94,22 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 	const controller = new AbortController();
 	panel.convertController = controller;
 	panel.conversion.converting = true;
+	panel.conversion.convertProgress = { processed: 0, total: files.length };
 	panel.renderContents();
+	let convertPaint = 0;
 	try {
 		const config = panel.conversionConfig();
 		const result: ConversionResult = { converted: [], skipped: [], failed: [], pendingTrash: [], savedBytes: 0, aborted: false, unrestored: [] };
 		for (let index = 0; index < files.length; index += CONVERSION_BATCH_SIZE) {
 			if (controller.signal.aborted) { result.aborted = true; break; }
 			const batch = files.slice(index, index + CONVERSION_BATCH_SIZE);
+			panel.conversion.convertProgress = { processed: index, total: files.length, currentPath: batch[0]?.path };
+			// 大批量时避免每张都重建整页 DOM；进度条仍会持续推进。
+			const now = performance.now();
+			if (now - convertPaint >= 200) {
+				convertPaint = now;
+				panel.renderContents();
+			}
 			const partial = await runImageConversion(
 				// Obsidian 的 App 在运行期满足 runner 需要的子集；vault.delete 的参数
 				// 逆变让 TS 拒绝直接赋值，因此这里显式收窄。
@@ -121,6 +135,11 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 			}
 			if (partial.aborted) break;
 		}
+		// index 只在循环内可见；用已处理（成功+跳过+失败）的累计数更稳妥。
+		panel.conversion.convertProgress = {
+			processed: result.converted.length + result.skipped.length + result.failed.length,
+			total: files.length,
+		};
 		const converted = result.converted.length;
 		const failed = result.failed.length;
 		const lastResult: ImageConversionResult & {
@@ -184,11 +203,12 @@ export async function setConversionConfig(panel: CleanupConversionHost, patch: P
 	panel.conversion = {
 		...createConversionState(next),
 		estimateProgress: previous.estimateProgress,
+		convertProgress: previous.convertProgress,
 		lastResult: previous.lastResult,
 		converting: previous.converting,
 	};
 	panel.conversion.abort = () => abortEstimate(panel);
-	panel.settings.imageConversion = { ...next, sources: [...next.sources] };
+	panel.settings.imageConversion = cloneImageConversionConfig(next);
 	if (sourcesChanged || targetChanged) {
 		panel.candidates.convertibleImages = collectConvertibleImages(panel.app, next, panel.settings.orphanImageExtensions, panel.settings.orphanIgnoredFolders);
 		panel.scannedTabs.add('image-convert');

@@ -144,3 +144,27 @@ test('整组重复文件同时删除时不会先改写任何一个再按旧哈�
 	assert.deepEqual(result, { removed: 0, failed: [] });
 	assert.equal(contents.get('a.md'), contents.get('b.md'));
 });
+
+test('索引缺失时重复文件的存在性校验只快照一次文件列表', async () => {
+	const files = Array.from({ length: 400 }, (_, index) => fileOf(`dup/${index}.bin`, 'same'));
+	const base = mutableApp(files, Object.fromEntries(files.map((file) => [file.path, 'same'])));
+	let getFilesCalls = 0;
+	const app = {
+		...base,
+		vault: {
+			...base.vault,
+			getFiles: () => {
+				getFilesCalls += 1;
+				return base.vault.getFiles();
+			},
+			// 模拟宿主索引短暂缺失：路径查询返回空，但列表里仍能看到文件。
+			getAbstractFileByPath: () => null,
+		},
+	};
+
+	const result = await findDuplicateFiles(app);
+
+	assert.equal(result.groups.length, 1);
+	assert.equal(result.groups[0].files.length, 400);
+	assert.ok(getFilesCalls <= 4, `getFiles 调用次数过高：${getFilesCalls}`);
+});

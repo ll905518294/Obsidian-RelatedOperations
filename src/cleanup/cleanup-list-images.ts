@@ -19,7 +19,7 @@ export function renderImageGrid(host: CleanupViewContext, container: HTMLElement
 	applyRovingTabindex(grid, '.orphan-cleanup-image-preview');
 }
 
-export function renderImageCard(host: CleanupViewContext, container: HTMLElement, file: TFile, items: TFile[]) {
+function renderImageCard(host: CleanupViewContext, container: HTMLElement, file: TFile, items: TFile[]): void {
 	const card = container.createDiv({ cls: 'orphan-cleanup-image-card' });
 	card.dataset.path = file.path;
 	const header = card.createDiv({ cls: 'orphan-cleanup-image-card-header' });
@@ -125,7 +125,7 @@ export function renderItemRow(host: CleanupViewContext, body: HTMLElement, item:
 	openFolder.addEventListener('click', () => openInSystemFolder(host.app, item));
 }
 
-export function addImagePreview(host: CleanupViewContext, row: HTMLElement, file: TFile) {
+function addImagePreview(host: CleanupViewContext, row: HTMLElement, file: TFile): void {
 	const cell = row.createEl('td', { cls: 'orphan-cleanup-preview' });
 	const preview = cell.createEl('img', { attr: { alt: `${file.name} 预览`, loading: 'lazy' } });
 	preview.src = host.app.vault.getResourcePath(file);

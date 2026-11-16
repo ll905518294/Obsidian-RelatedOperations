@@ -34,11 +34,15 @@ jobs:
                   import { readFileSync } from "node:fs";
 
                   const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
+                  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
                   const versions = JSON.parse(readFileSync("versions.json", "utf8"));
                   const tag = process.env.RELEASE_TAG;
 
                   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(manifest.version)) {
                       throw new Error(`manifest.json version must be a SemVer value without a v prefix: ${manifest.version}`);
+                  }
+                  if (pkg.version !== manifest.version) {
+                      throw new Error(`package.json version ${pkg.version} must match manifest.json version ${manifest.version}`);
                   }
                   if (tag !== manifest.version) {
                       throw new Error(`Release tag ${tag} must exactly match manifest.json version ${manifest.version}`);
@@ -63,8 +67,12 @@ jobs:
               run: |
                   npm run package
                   version="$(jq -r .version manifest.json)"
-                  zip="dist/vault-doctor-${version}.zip"
+                  plugin_id="$(jq -r .id manifest.json)"
+                  zip="dist/${plugin_id}-${version}.zip"
                   [ -f "$zip" ] || { echo "::error::packaging did not produce $zip"; exit 1; }
+                  packaged_version="$(unzip -p "$zip" manifest.json | jq -r .version)"
+                  [ "$packaged_version" = "$version" ] \
+                    || { echo "::error::ZIP manifest version $packaged_version does not match $version"; exit 1; }
                   echo "PACKAGE_ZIP=$zip" >> "$GITHUB_ENV"
 
             - name: Check for optional styles
@@ -105,7 +113,7 @@ jobs:
                     echo "::error::PACKAGE_ZIP is empty, the packaging step did not run"; exit 1
                   fi
 
-                  gh release create "$tag" \
+                  gh release create "$tag" --verify-tag \
                     --title="$tag" \
                     --notes-file release-notes.md \
                     main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }} \
