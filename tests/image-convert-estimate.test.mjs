@@ -354,3 +354,12 @@ test('normalizeImageConversionConfig 收敛旧配置并夹紧质量范围', () =
 	});
 	assert.deepEqual(normalizeImageConversionConfig({ sources: 'png', target: 'gif', quality: '90', alpha: 'keep' }), config);
 });
+
+test('normalizeImageConversionConfig 丢弃畸形源扩展名并把 jpeg 映射为 jpg', () => {
+	assert.deepEqual(normalizeImageConversionConfig({ sources: ['!exe', 'tar.gz', 'JPEG', '.PNG'] }), {
+		sources: ['jpg', 'png'],
+		target: 'jpg',
+		quality: 85,
+		alpha: 'flatten',
+	});
+});

@@ -4,7 +4,7 @@ import type { DuplicateFileGroup } from '../duplicate-files';
 import { formatBytes, isImageFile, openFolderInVault, openInSystemFolder, parentFolder } from './cleanup-actions';
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
-import { associateCheckbox, makePreviewTrigger } from './cleanup-a11y';
+import { associateCheckbox, createColumnHeader, makePreviewTrigger } from './cleanup-a11y';
 import { requireSecondClick } from './cleanup-confirm-button';
 
 export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLElement, groups: DuplicateFileGroup[]) {
@@ -28,7 +28,7 @@ export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLE
 		section.createDiv({ text: `SHA-256：${group.hash}`, cls: 'orphan-cleanup-detail' });
 		const table = section.createEl('table', { cls: 'orphan-cleanup-table orphan-cleanup-duplicate-table' });
 		const header = table.createEl('thead').createEl('tr');
-		for (const text of ['选择', '预览', '文件', '所在笔记', '所在文件夹', '状态', '操作']) header.createEl('th', { text });
+		for (const text of ['选择', '预览', '文件', '所在笔记', '所在文件夹', '状态', '操作']) createColumnHeader(header, text);
 		const body = table.createEl('tbody');
 		const previewFile = group.files.find((file) => isImageFile(file.extension));
 		for (const [index, file] of group.files.entries()) {

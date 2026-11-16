@@ -51,7 +51,7 @@ export function convertNativeImageLink(link: NativeImageLink): string | null {
 	const parsed = parseNative(link.original);
 	if (!parsed) return null;
 	const alt = parsed.alias ? escapeAltText(parsed.alias) : '';
-	return `![${alt}](<${link.file.path}>)`;
+	return `![${alt}](<${escapeDestination(link.file.path)}>)`;
 }
 
 export function replaceNativeImageLinks(content: string, links: NativeImageLink[]) {
@@ -109,6 +109,14 @@ function escapeAltText(value: string) {
 		.replaceAll('[', '\\[')
 		.replaceAll(']', '\\]')
 		.replaceAll('|', '\\|');
+}
+
+// Markdown destinations are URI-decoded by Obsidian and by this repo's own
+// link scans, so a literal `%` would be read as an escape, `#` would start a
+// fragment, and `<`/`>` would close the `<...>` destination. Spaces, slashes
+// and non-ASCII stay literal for readability, matching the wiki-link converter.
+function escapeDestination(value: string) {
+	return value.replaceAll('%', '%25').replaceAll('#', '%23').replaceAll('<', '%3C').replaceAll('>', '%3E');
 }
 
 function isIgnored(cache: CachedMetadata, position: Pos) {

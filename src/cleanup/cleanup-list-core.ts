@@ -11,6 +11,7 @@ import { addGroupingControl, groupedItems, renderImageGrid, renderItemRow } from
 import { renderBrokenLinkList, renderBrokenNoteLinkList, renderNativeLinkList, renderWikiLinkList } from './cleanup-list-links';
 import { renderDuplicateGroups } from './cleanup-list-duplicates';
 import { updateSelectionSummary } from './cleanup-list-actions';
+import { createColumnHeader } from './cleanup-a11y';
 
 export function renderList(host: CleanupViewContext) {
 	const currentTab = host.activeTab;
@@ -96,11 +97,11 @@ export function renderList(host: CleanupViewContext) {
 
 	const table = content.createEl('table', { cls: 'orphan-cleanup-table' });
 	const header = table.createEl('thead').createEl('tr');
-	header.createEl('th', { text: '选择' });
-	if (host.activeTab === 'images') header.createEl('th', { text: '预览' });
-	header.createEl('th', { text: host.activeTab === 'images' ? '图片' : host.activeTab === 'empty-files' ? '文件' : host.activeTab === 'attachments' ? '附件' : '文件夹' });
-	header.createEl('th', { text: host.activeTab === 'images' || host.activeTab === 'attachments' ? '大小' : host.activeTab === 'empty-files' ? '大小' : '说明' });
-	header.createEl('th', { text: '操作' });
+	createColumnHeader(header, '选择');
+	if (host.activeTab === 'images') createColumnHeader(header, '预览');
+	createColumnHeader(header, host.activeTab === 'images' ? '图片' : host.activeTab === 'empty-files' ? '文件' : host.activeTab === 'attachments' ? '附件' : '文件夹');
+	createColumnHeader(header, host.activeTab === 'images' || host.activeTab === 'attachments' ? '大小' : host.activeTab === 'empty-files' ? '大小' : '说明');
+	createColumnHeader(header, '操作');
 	const body = table.createEl('tbody');
 	for (const group of groupedItems(host, pageItems)) {
 		if (group.label) {

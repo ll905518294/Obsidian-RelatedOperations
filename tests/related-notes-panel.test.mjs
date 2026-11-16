@@ -397,6 +397,16 @@ test('merge view is off by default and keeps per-source rows', () => {
 	assert.equal(rows().length, 2);
 });
 
+test('关联笔记表头带 scope=col，便于屏幕阅读器播报列名', () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { el } = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a]);
+
+	const headers = el.querySelectorAll('th');
+	assert.ok(headers.length >= 5, '关联笔记表应有表头');
+	assert.ok(headers.every((th) => th.getAttribute('scope') === 'col'), '每个表头都需要 scope=col');
+});
+
 // Turning the merge option on collapses the same target from multiple sources
 // into a single row while leaving tab counts (already deduped by path) unchanged.
 test('merge view collapses the same target into one row with a source count', () => {
@@ -912,4 +922,19 @@ test('undoLastMove keeps failed restores retryable and reports the split', async
 	assert.match(notice, /失败：1/);
 	assert.match(notice, /archive\/t2\.md/);
 	assert.deepEqual(panel.lastMove, [{ from: 'dst/t2.md', to: 'archive/t2.md' }]);
+});
+
+// A target folder that does not exist yet (including nested segments) must be
+// created segment by segment before the note is renamed into it.
+test('moveFiles creates a missing nested target folder before renaming', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel, renamed } = panelFor([], [a], { files: [a, t] });
+	const result = await panel.moveFiles('archive/2026/q4', [t]);
+	assert.deepEqual(result.succeeded, ['archive/2026/q4/t.md']);
+	assert.deepEqual(result.failed, []);
+	const folders = panel.app.vault.getAllLoadedFiles().filter((item) => item instanceof TFolder).map((folder) => folder.path);
+	assert.deepEqual(folders.sort(), ['archive', 'archive/2026', 'archive/2026/q4']);
+	assert.deepEqual(renamed, [['dst/t.md', 'archive/2026/q4/t.md']]);
+	assert.equal(t.path, 'archive/2026/q4/t.md');
 });

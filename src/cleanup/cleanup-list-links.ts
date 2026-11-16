@@ -5,16 +5,16 @@ import { brokenNoteLinkKey, findBrokenNoteLinkOffset, type BrokenNoteLink } from
 import { convertNativeImageLink, nativeImageLinkKey, nativeImageLinkOffset, type NativeImageLink } from '../native-image-links';
 import { convertWikiNoteLink, wikiNoteLinkKey, wikiNoteLinkOffset, type WikiNoteLink } from '../wiki-note-links';
 import { updateSelectionSummary } from './cleanup-list-actions';
-import { associateCheckbox } from './cleanup-a11y';
+import { associateCheckbox, createColumnHeader } from './cleanup-a11y';
 
 export function renderBrokenLinkList(host: CleanupViewContext, container: HTMLElement, links: BrokenImageLink[]) {
 	const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
 	const header = table.createEl('thead').createEl('tr');
-	header.createEl('th', { text: '选择' });
-	header.createEl('th', { text: '源笔记' });
-	header.createEl('th', { text: '失效链接' });
-	header.createEl('th', { text: '未解析目标' });
-	header.createEl('th', { text: '操作' });
+	createColumnHeader(header, '选择');
+	createColumnHeader(header, '源笔记');
+	createColumnHeader(header, '失效链接');
+	createColumnHeader(header, '未解析目标');
+	createColumnHeader(header, '操作');
 	const body = table.createEl('tbody');
 	for (const link of links) renderBrokenLinkRow(host, body, link);
 }
@@ -22,7 +22,7 @@ export function renderBrokenLinkList(host: CleanupViewContext, container: HTMLEl
 export function renderNativeLinkList(host: CleanupViewContext, container: HTMLElement, links: NativeImageLink[]) {
 	const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
 	const header = table.createEl('thead').createEl('tr');
-	for (const text of ['选择', '源笔记', '原生链接', '目标/状态', '操作']) header.createEl('th', { text });
+	for (const text of ['选择', '源笔记', '原生链接', '目标/状态', '操作']) createColumnHeader(header, text);
 	const body = table.createEl('tbody');
 	for (const link of links) {
 		const row = body.createEl('tr');
@@ -51,7 +51,7 @@ export function renderNativeLinkList(host: CleanupViewContext, container: HTMLEl
 export function renderWikiLinkList(host: CleanupViewContext, container: HTMLElement, links: WikiNoteLink[]) {
 	const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
 	const header = table.createEl('thead').createEl('tr');
-	for (const text of ['选择', '源笔记', 'Wiki 链接', 'Markdown 链接', '操作']) header.createEl('th', { text });
+	for (const text of ['选择', '源笔记', 'Wiki 链接', 'Markdown 链接', '操作']) createColumnHeader(header, text);
 	const body = table.createEl('tbody');
 	for (const link of links) {
 		const row = body.createEl('tr');
@@ -77,7 +77,7 @@ export function renderWikiLinkList(host: CleanupViewContext, container: HTMLElem
 export function renderBrokenNoteLinkList(host: CleanupViewContext, container: HTMLElement, links: BrokenNoteLink[]) {
 	const table = container.createEl('table', { cls: 'orphan-cleanup-table' });
 	const header = table.createEl('thead').createEl('tr');
-	for (const text of ['选择', '源笔记', '失效链接', '未解析目标', '类型', '操作']) header.createEl('th', { text });
+	for (const text of ['选择', '源笔记', '失效链接', '未解析目标', '类型', '操作']) createColumnHeader(header, text);
 	const body = table.createEl('tbody');
 	for (const item of links) {
 		const row = body.createEl('tr');

@@ -54,6 +54,7 @@ class El {
 	replaceWith(node) { if (!this.parent) return; const index = this.parent.children.indexOf(this); if (index >= 0) { this.parent.children[index] = node; node.parent = this.parent; } }
 	empty() { this.children = []; this._text = ''; }
 	get parentElement() { return this.parent; }
+	focus(options) { this.lastFocusOptions = options; (globalThis.__focusLog ??= []).push(this); }
 	get previousElementSibling() { if (!this.parent) return null; const index = this.parent.children.indexOf(this); return index > 0 ? this.parent.children[index - 1] : null; }
 	get ownerDocument() { return { activeElement: null }; }
 	contains(node) { return descendants(this).includes(node); }
@@ -416,4 +417,34 @@ test('首页分类按钮的无障碍名称包含分类，避免同名按钮无�
 		'未引用附件：重新扫描',
 		'未引用附件：查看',
 	]);
+});
+
+test('所有数据表的表头都带 scope=col，便于屏幕阅读器播报列名', () => {
+	const noteLink = { sourcePath: 'note.md', original: '[[gone]]', linkPath: 'gone', position: { start: { offset: 0 }, end: { offset: 8 } }, syntax: 'wiki' };
+	const duplicateGroup = {
+		hash: 'abc',
+		size: 2048,
+		files: [{ path: 'dup/a.png', extension: 'png', size: 2048, referenced: false, referencingNotes: [] }],
+	};
+	const cases = [
+		{ tab: 'attachments', setup: (panel) => { panel.candidates.attachments = [makeFile('A/one.pdf', 'pdf', 100)]; } },
+		{ tab: 'empty-files', setup: (panel) => { panel.candidates.emptyFiles = [makeFile('Notes/blank.md', 'md', 0)]; } },
+		{ tab: 'folders', setup: (panel) => { panel.candidates.folders = [{ path: 'Notes/empty-dir' }]; } },
+		{ tab: 'duplicates', setup: (panel) => { panel.candidates.duplicates = [duplicateGroup]; } },
+		{ tab: 'broken-links', setup: (panel) => { panel.candidates.brokenLinks = [link('a.png', 0)]; } },
+		{ tab: 'native-links', setup: (panel) => { panel.candidates.nativeLinks = [link('a.png', 0)]; } },
+		{ tab: 'broken-note-links', setup: (panel) => { panel.candidates.brokenNoteLinks = [noteLink]; } },
+		{ tab: 'wiki-links', setup: (panel) => { panel.candidates.wikiLinks = [noteLink]; } },
+	];
+
+	for (const item of cases) {
+		const panel = makePanel();
+		panel.activeTab = item.tab;
+		item.setup(panel);
+		panel.renderList();
+
+		const headers = byTag(panel.contentEl, 'th');
+		assert.ok(headers.length > 0, `${item.tab} 应渲染表头`);
+		assert.ok(headers.every((th) => th.attrs.scope === 'col'), `${item.tab} 的每个表头都需要 scope=col`);
+	}
 });

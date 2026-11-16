@@ -1,44 +1,19 @@
 import { App, TFile, TFolder } from 'obsidian';
-import { hasHiddenPathSegment, isCaseSensitiveFileSystem, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens } from '../core-utils';
+import { forEachWithConcurrency, hasHiddenPathSegment, isCaseSensitiveFileSystem, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens } from '../core-utils';
+export { forEachWithConcurrency };
 import { findBrokenImageLinks } from '../broken-image-links';
 import { findBrokenNoteLinks } from '../broken-note-links';
 import { findNativeImageLinks } from '../native-image-links';
 import { findWikiNoteLinks } from '../wiki-note-links';
 import { findDuplicateFiles } from '../duplicate-files';
 import { isWithinPixelLimit, type ImageCodec } from '../image-convert/image-codec';
-import { findImageReferences } from '../image-convert/image-convert-links';
+import { findImageReferences, findImageReferencesBatch, type ImageReferenceScanResult } from '../image-convert/image-convert-links';
 import { planImageConversions, type ImageConvertPlanItem } from '../image-convert/image-convert-plan';
 import { byPath } from './cleanup-actions';
 import { COMMON_IMAGE_EXTENSIONS, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
 
 const READ_CONCURRENCY = 8;
 const CONVERSION_CONCURRENCY = 2;
-
-export async function forEachWithConcurrency<T>(items: T[], concurrency: number, visit: (item: T, index: number) => Promise<void>): Promise<void> {
-	const limit = Math.max(1, Math.min(concurrency, items.length || 1));
-	let next = 0;
-	let failure: unknown;
-	let aborted = false;
-	const workers = Array.from({ length: limit }, async () => {
-		while (!aborted) {
-			const index = next++;
-			if (index >= items.length) return;
-			try {
-				await visit(items[index] as T, index);
-			} catch (error) {
-				// Stop handing out work, but let the visits already running settle so
-				// no scan keeps touching the vault after the caller sees the rejection.
-				if (!aborted) {
-					aborted = true;
-					failure = error;
-				}
-				return;
-			}
-		}
-	});
-	await Promise.all(workers);
-	if (aborted) throw failure;
-}
 
 export interface CleanupFileSets {
 	extensions: Set<string>;
@@ -75,9 +50,21 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 		for (const path of Object.keys(destinations)) referenced.add(path);
 	}
 	const canvases = app.vault.getFiles().filter((file) => file.extension.toLowerCase() === 'canvas');
+	let canvasParseFailed = false;
 	for (const [index, canvas] of canvases.entries()) {
-		for (const path of await referencedByCanvas(app, canvas)) referenced.add(path);
+		const paths = await referencedByCanvas(app, canvas);
+		if (paths === null) {
+			// Canvas 解析失败时无法确定它引用了哪些图片；保守地把全部
+			// 图片与附件视为可能被引用，避免产生错误的未引用候选。
+			canvasParseFailed = true;
+		} else {
+			for (const path of paths) referenced.add(path);
+		}
 		onProgress?.({ stage: 1, processed: index + 1, total: canvases.length || 1, currentFile: canvas.path });
+	}
+	if (canvasParseFailed) {
+		for (const file of images) referenced.add(file.path);
+		for (const file of attachments) referenced.add(file.path);
 	}
 	onProgress?.({ stage: 2, processed: 0, total: app.vault.getMarkdownFiles().length });
 	// Conservative textual pass: HTML image tags, frontmatter path values, and
@@ -243,6 +230,13 @@ export async function estimateConversions(
 	);
 	const planned = new Map(plan.items.map((item) => [item.path, item]));
 	const planSkipped = new Map(plan.skipped.map((item) => [item.path, item.reason]));
+	// 一次批量引用扫描替代每张图各扫全库；批量失败时回退到逐图扫描。
+	let referenceScans: Map<string, ImageReferenceScanResult>;
+	try {
+		referenceScans = await findImageReferencesBatch(app, files.map((file) => file.path));
+	} catch {
+		referenceScans = new Map();
+	}
 	const items: ConvertibleImage[] = [];
 	let processed = 0;
 	let next = 0;
@@ -254,7 +248,7 @@ export async function estimateConversions(
 			const index = next++;
 			if (index >= total) return;
 			const file = files[index]!;
-			items.push(await estimateOneImage(app, file, normalized, codec, planned.get(file.path), planSkipped.get(file.path)));
+			items.push(await estimateOneImage(app, file, normalized, codec, planned.get(file.path), planSkipped.get(file.path), referenceScans.get(file.path)));
 			processed += 1;
 			onProgress?.({ processed, total, currentPath: file.path });
 			// 中止后不再领取新文件，但已开始的编码会自然结束并被计入结果。
@@ -266,7 +260,7 @@ export async function estimateConversions(
 	return items.filter((item) => item.blockedReason !== 'same-format').sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function estimateOneImage(app: App, file: TFile, config: ImageConversionConfig, codec: ImageCodec, planned: ImageConvertPlanItem | undefined, planBlockedReason: string | undefined): Promise<ConvertibleImage> {
+async function estimateOneImage(app: App, file: TFile, config: ImageConversionConfig, codec: ImageCodec, planned: ImageConvertPlanItem | undefined, planBlockedReason: string | undefined, precomputed?: ImageReferenceScanResult): Promise<ConvertibleImage> {
 	const extension = file.extension.toLowerCase();
 	const base: ConvertibleImage = {
 		path: file.path,
@@ -281,7 +275,7 @@ async function estimateOneImage(app: App, file: TFile, config: ImageConversionCo
 	if ((extension === 'jpeg' ? 'jpg' : extension) === config.target) return { ...base, blockedReason: 'same-format' };
 	// 轻量引用预检：数量即“引用处数”，任何无法安全改写的引用风险直接阻断该图。
 	try {
-		const references = await findImageReferences(app, file.path);
+		const references = precomputed ?? await findImageReferences(app, file.path);
 		if (!references.ok) return { ...base, blockedReason: references.reason };
 		base.referenceCount = references.totalLiveRefs;
 	} catch {
@@ -319,7 +313,7 @@ async function estimateOneImage(app: App, file: TFile, config: ImageConversionCo
 	return { ...sized, newBytes: encoded.bytes.byteLength };
 }
 
-export async function referencedByCanvas(app: App, canvas: TFile): Promise<string[]> {
+export async function referencedByCanvas(app: App, canvas: TFile): Promise<string[] | null> {
 	try {
 		const content = JSON.parse(await app.vault.read(canvas)) as { nodes?: Array<{ file?: unknown }> };
 		return (content.nodes ?? []).flatMap((node) => {
@@ -328,7 +322,7 @@ export async function referencedByCanvas(app: App, canvas: TFile): Promise<strin
 			return file instanceof TFile ? [file.path] : [];
 		});
 	} catch {
-		return [];
+		return null;
 	}
 }
 

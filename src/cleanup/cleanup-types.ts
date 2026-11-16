@@ -5,6 +5,7 @@ import type { NativeImageLink } from '../native-image-links';
 import type { WikiNoteLink } from '../wiki-note-links';
 import type { DuplicateFileGroup } from '../duplicate-files';
 import type { OrphanCleanupCache } from '../settings';
+import { normalizeExtensionToken } from '../core-utils.ts';
 
 export type ImageGrouping = 'none' | 'path' | 'extension';
 export const CLEANUP_PAGE_SIZE = 100;
@@ -128,7 +129,7 @@ export function normalizeImageConversionConfig(raw: unknown, defaults: ImageConv
 	const sources = Array.isArray(value.sources)
 		? value.sources
 			.filter((item): item is string => typeof item === 'string')
-			.map((item) => item.trim().toLowerCase().replace(/^\./, ''))
+			.map(normalizeExtensionToken)
 			.map((item) => (item === 'jpeg' ? 'jpg' : item))
 			.filter((item, index, list) => (CONVERTIBLE_SOURCE_EXTENSIONS as readonly string[]).includes(item) && list.indexOf(item) === index)
 		: [...defaults.sources];

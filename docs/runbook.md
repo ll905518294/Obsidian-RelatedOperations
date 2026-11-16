@@ -151,6 +151,8 @@ README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-setting
 
 1.7.0 新增「图片转换」页签后，`01-dashboard.png`、`02-scan-result.png` 仍是 9 分类旧图，尚未包含该页签；补拍前不要复用旧图冒充 1.7.0 界面，README 的图片转换章节暂以文字说明为准。
 
+补拍前置条件（2026-11-17 核实）：演示库 `X:\Obsidian\vault-doctor-demo` 当前没有在 Obsidian 中打开（`obsidian.json` 中 `open=true` 的是真实库 `X:\Obsidian\我的空间`），且演示库 `.obsidian/plugins/vault-doctor/` 里的 `main.js`、`styles.css` 仍是旧构建。补拍需要先打开演示库并把当前构建部署进去，等于切换 Vault 并重启 Obsidian，因此本轮未执行，截图保持「待补拍」。
+
 ## 9. 1.7.0 图片转换验证
 
 1.7.0 的 `manifest.json` 版本为 `1.7.0`，`versions.json` 映射为 `"1.7.0": "1.13.0"`。发布前用演示库 `X:\Obsidian\vault-doctor-demo` 验证图片转换：
@@ -167,7 +169,7 @@ README 的 9 张截图位于 `docs/images/`（`00-installed.png` 至 `08-setting
 | 操作 | 期望 |
 | --- | --- |
 | 在 Canvas 中只通过节点引用一张 PNG，转换该图 | Canvas 节点 `file` 指向新文件，图片仍能显示，复扫无失效链接 |
-| 准备一张含透明通道的 PNG，目标选 WebP，分别用「白底」与「跳过」各转换一次 | 白底输出 WebP 且透明区域变白；跳过时原 PNG 保持不动，并提示已跳过 |
+| 准备一张含透明通道的 PNG，分别用「白底」与「跳过」各转换一次，目标格式 JPG 与 WebP 各验一遍 | 「白底」时输出铺白底且透明区域变白；「跳过」时原 PNG 保持不动并提示已跳过；两种目标格式行为一致，不因目标是 JPG 就改走白底 |
 | 准备无扩展名 Wiki 嵌入 `![[cover]]` 指向 `cover.png`，转换该 PNG | 嵌入仍能解析到 `cover.jpg`，图片正常显示，复扫无失效图片链接 |
 | 在 `A/cover.png` 与 `B/cover.png` 放同名图片，同时转换 | 分别生成 `A/cover.jpg` 与 `B/cover.jpg`，不出现目标冲突跳过 |
 | 分别准备带尺寸参数的 Wiki 嵌入、frontmatter 裸路径、`picture/source`、CSS `url()`、Excalidraw 代码块引用 | 估算阶段均标记跳过，原图与引用保持不变 |

@@ -18,6 +18,7 @@ import {
 	isExternalLink,
 	isInsideIgnoredRange,
 	errorMessage,
+	normalizeExtensionToken,
 } from '../src/core-utils.ts';
 import { groupingModeFromLegacy } from '../src/core-utils.ts';
 
@@ -101,6 +102,9 @@ test('recognizes empty and populated YAML frontmatter as frontmatter-only', () =
 	assert.equal(isFrontmatterOnly('---\n---\n'), true);
 	assert.equal(isFrontmatterOnly('---\ntitle: note\n---\n'), true);
 	assert.equal(isFrontmatterOnly('---\ntitle: note\n---\n正文\n'), false);
+	// 纯空白笔记没有 frontmatter，按现状不算“空文件”，删除前仍需人工确认。
+	assert.equal(isFrontmatterOnly('   \n\t\n'), false);
+	assert.equal(isFrontmatterOnly(''), false);
 });
 
 test('includes all Markdown files when the selected folder is the vault root', () => {
@@ -367,4 +371,43 @@ test('errorMessage prefers the thrown message and falls back for unknown values'
 	assert.equal(errorMessage(new Error('boom')), 'boom');
 	assert.equal(errorMessage('text'), '未知错误');
 	assert.equal(errorMessage(undefined, '创建失败'), '创建失败');
+});
+
+test('normalizeExtensionToken keeps plain tokens and rejects malformed ones', () => {
+	assert.equal(normalizeExtensionToken('JPEG'), 'jpeg');
+	assert.equal(normalizeExtensionToken('.PNG'), 'png');
+	assert.equal(normalizeExtensionToken('webp'), 'webp');
+	assert.equal(normalizeExtensionToken('!exe'), '');
+	assert.equal(normalizeExtensionToken('tar.gz'), '');
+	assert.equal(normalizeExtensionToken('  '), '');
+});
+
+test('parseExtensions keeps only plain lowercase tokens', () => {
+	assert.deepEqual([...parseExtensions('!exe, tar.gz , JPEG, .PNG, png')], ['jpeg', 'png']);
+	assert.deepEqual([...parseExtensions('PNG, ,, png .PNG jpeg')], ['png', 'jpeg']);
+});
+
+test('broken note link scan ignores malformed custom extensions', () => {
+	const cache = { links: [{ original: '[[x.!exe]]', link: 'x.!exe', position: { start: { offset: 0 }, end: { offset: 9 } } }] };
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'source.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	assert.equal(findBrokenNoteLinks(app, '!exe').length, 1);
+	assert.equal(findBrokenNoteLinks(app, 'tar.gz').length, 1);
+});
+
+test('broken note link scan treats uppercase jpeg as an image extension', () => {
+	const cache = {
+		links: [
+			{ original: '[[y.jpeg]]', link: 'y.jpeg', position: { start: { offset: 0 }, end: { offset: 8 } } },
+			{ original: '[[z.png]]', link: 'z.png', position: { start: { offset: 8 }, end: { offset: 14 } } },
+		],
+	};
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'source.md' }] },
+		metadataCache: { getFileCache: () => cache, getFirstLinkpathDest: () => null },
+	};
+	assert.equal(findBrokenNoteLinks(app, 'JPEG').length, 0);
+	assert.equal(findBrokenNoteLinks(app, '.PNG').length, 0);
 });

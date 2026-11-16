@@ -1,5 +1,5 @@
 import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
-import { errorMessage, isExternalLink, isInsideIgnoredRange, removeCachedLinkRanges } from './core-utils.ts';
+import { errorMessage, isExternalLink, isInsideIgnoredRange, parseExtensions, removeCachedLinkRanges } from './core-utils.ts';
 
 export interface BrokenNoteLink {
 	sourcePath: string;
@@ -192,4 +192,3 @@ const KNOWN_ATTACHMENT_EXTENSIONS = new Set([
 	'base',
 ]);
 
-function parseExtensions(value: string) { return new Set(value.split(/[,，\s]+/).map((x) => x.replace(/^\./, '').toLowerCase()).filter(Boolean)); }

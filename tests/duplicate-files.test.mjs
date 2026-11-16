@@ -298,3 +298,51 @@ test('reports the reason when the selected file cannot be read', async () => {
 	assert.equal(plan.skipped[0].path, 'b.png');
 	assert.match(plan.skipped[0].reason, /无法读取文件/);
 });
+
+test('并发哈希受上限约束，不会串行读取', async () => {
+	let active = 0;
+	let peak = 0;
+	const files = Array.from({ length: 40 }, (_, index) => ({
+		path: `f${index}.bin`,
+		extension: 'bin',
+		stat: { size: 5, mtime: 1 },
+	}));
+	await findDuplicateFiles({
+		vault: {
+			getFiles: () => files,
+			readBinary: async () => {
+				active += 1;
+				peak = Math.max(peak, active);
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				active -= 1;
+				return new Uint8Array([1, 2, 3, 4, 5]);
+			},
+		},
+		metadataCache: { resolvedLinks: {} },
+	});
+	assert.ok(peak > 1, `峰值并发 ${peak}，疑似串行`);
+	assert.ok(peak <= 8, `峰值并发 ${peak}，超过上限 8`);
+});
+
+test('并发读取失败时告警按原始文件顺序收集', async () => {
+	const files = [
+		{ path: 'slow.bin', extension: 'bin', stat: { size: 5, mtime: 1 } },
+		{ path: 'fast.bin', extension: 'bin', stat: { size: 5, mtime: 2 } },
+		{ path: 'other.bin', extension: 'bin', stat: { size: 5, mtime: 3 } },
+	];
+	const result = await findDuplicateFiles({
+		vault: {
+			getFiles: () => files,
+			readBinary: async (file) => {
+				if (file.path === 'slow.bin') {
+					await new Promise((resolve) => setTimeout(resolve, 20));
+					throw new Error('slow failure');
+				}
+				if (file.path === 'fast.bin') throw new Error('fast failure');
+				return new Uint8Array([9, 9, 9, 9, 9]);
+			},
+		},
+		metadataCache: { resolvedLinks: {} },
+	});
+	assert.deepEqual(result.warnings.map((warning) => warning.path), ['slow.bin', 'fast.bin']);
+});

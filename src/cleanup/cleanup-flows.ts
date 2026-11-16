@@ -19,7 +19,7 @@ export function addReportControls(host: CleanupViewContext, container: HTMLEleme
 		exportButton.addEventListener('click', () => void exportReport(host, buildCleanupReport(data)));
 	}
 
-export function buildReportData(host: CleanupViewContext) {
+function buildReportData(host: CleanupViewContext) {
 		return {
 			generatedAt: new Date().toLocaleString('zh-CN'),
 			images: host.candidates.images.map((item) => item.path),
@@ -35,7 +35,7 @@ export function buildReportData(host: CleanupViewContext) {
 		};
 	}
 
-export async function copyReport(host: CleanupViewContext) {
+async function copyReport(host: CleanupViewContext) {
 		try {
 			await navigator.clipboard.writeText(buildCleanupReport(buildReportData(host)));
 			new Notice('报告已复制。');
@@ -44,7 +44,7 @@ export async function copyReport(host: CleanupViewContext) {
 		}
 	}
 
-export async function exportReport(host: CleanupViewContext, content: string) {
+async function exportReport(host: CleanupViewContext, content: string) {
 		const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '').replace('T', '-');
 		const base = `related-operations-report-${stamp}`;
 		let path = `${base}.md`; let index = 2;
@@ -52,7 +52,7 @@ export async function exportReport(host: CleanupViewContext, content: string) {
 		try { await host.app.vault.create(path, content); new Notice(`报告已导出：${path}`); } catch (error) { new Notice(`导出报告失败：${reasonFor(error)}`); }
 	}
 
-export function pruneDeletedCandidates(host: CleanupViewContext) {
+function pruneDeletedCandidates(host: CleanupViewContext) {
 		const exists = (item: { path: string }) => !!host.app.vault.getAbstractFileByPath(item.path);
 		for (const key of ['images', 'attachments', 'emptyFiles'] as const) host.candidates[key] = host.candidates[key].filter(exists);
 		host.candidates.folders = host.candidates.folders.filter(exists);

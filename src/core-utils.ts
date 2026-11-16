@@ -1,5 +1,31 @@
 import type { CachedMetadata, Pos } from 'obsidian';
 
+export async function forEachWithConcurrency<T>(items: T[], concurrency: number, visit: (item: T, index: number) => Promise<void>): Promise<void> {
+	const limit = Math.max(1, Math.min(concurrency, items.length || 1));
+	let next = 0;
+	let failure: unknown;
+	let aborted = false;
+	const workers = Array.from({ length: limit }, async () => {
+		while (!aborted) {
+			const index = next++;
+			if (index >= items.length) return;
+			try {
+				await visit(items[index] as T, index);
+			} catch (error) {
+				// Stop handing out work, but let the visits already running settle so
+				// no scan keeps touching the vault after the caller sees the rejection.
+				if (!aborted) {
+					aborted = true;
+					failure = error;
+				}
+				return;
+			}
+		}
+	});
+	await Promise.all(workers);
+	if (aborted) throw failure;
+}
+
 export function joinVaultPath(base: string, sub: string): string {
 	return [base.replace(/^\/+|\/+$/g, ''), sub.replace(/^\/+|\/+$/g, '')]
 		.filter(Boolean)
@@ -78,13 +104,17 @@ export function needsRawTextSearch(basename: string): boolean {
 	return !PLAIN_PATH_BASENAME_PATTERN.test(basename.toLowerCase());
 }
 
-export function parseExtensions(value: string) {
-	return new Set(
-		value
-			.split(/[,，\s]+/)
-			.map((extension) => extension.trim().replace(/^\./, '').toLowerCase())
-			.filter((extension) => /^[a-z0-9]+$/.test(extension)),
-	);
+// Single source of truth for extension-list parsing: trim, drop a leading
+// dot, lowercase, and keep only plain alphanumeric tokens. Malformed tokens
+// such as `!exe` or `tar.gz` normalize to '' and can never match a real
+// extension extracted from a path.
+export function normalizeExtensionToken(value: string): string {
+	const token = value.trim().replace(/^\./, '').toLowerCase();
+	return /^[a-z0-9]+$/.test(token) ? token : '';
+}
+
+export function parseExtensions(value: string): Set<string> {
+	return new Set(value.split(/[,，\s]+/).map(normalizeExtensionToken).filter(Boolean));
 }
 
 export function parseIgnoredFolders(value: string): string[] {

@@ -1,6 +1,7 @@
 import { App, Modal, TFile, setIcon } from 'obsidian';
 import { openInSystemFolder } from './cleanup-actions';
 import { requireSecondClick } from './cleanup-confirm-button';
+import { markDialog } from './cleanup-a11y';
 
 export class CreateNotesConfirmationModal extends Modal {
 	private resolver?: (confirmed: boolean) => void;
@@ -8,6 +9,7 @@ export class CreateNotesConfirmationModal extends Modal {
 	constructor(app: App, private readonly count: number) { super(app); }
 	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
 	onOpen() {
+		markDialog(this.modalEl, this.titleEl);
 		this.titleEl.setText('确认创建笔记');
 		this.contentEl.createEl('p', { text: `将创建 ${this.count} 个空白 Markdown 笔记，并自动创建缺失父目录。` });
 		this.contentEl.createEl('p', { text: '已有文件、非法路径和创建失败的目标会跳过或报告。', cls: 'orphan-cleanup-warning' });
@@ -35,6 +37,7 @@ export class RemoveBrokenLinksConfirmationModal extends Modal {
 	}
 
 	onOpen() {
+		markDialog(this.modalEl, this.titleEl);
 		this.titleEl.setText('确认移除链接');
 		this.contentEl.createEl('p', { text: `即将修改 ${this.sourceCount} 篇笔记，移除 ${this.linkCount} 条失效图片链接。` });
 		this.contentEl.createEl('p', { text: '这会直接修改 Markdown 内容，不会移入回收站。', cls: 'orphan-cleanup-warning' });
@@ -67,6 +70,7 @@ export class ConvertNativeLinksConfirmationModal extends Modal {
 	constructor(app: App, private readonly count: number) { super(app); }
 	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
 	onOpen() {
+		markDialog(this.modalEl, this.titleEl);
 		this.titleEl.setText('确认转换图片链接');
 		this.contentEl.createEl('p', { text: `即将转换 ${this.count} 条原生图片链接。` });
 		this.contentEl.createEl('p', { text: '尺寸参数和无法解析的链接会跳过；已转换内容可用编辑历史撤销。', cls: 'orphan-cleanup-warning' });
@@ -84,6 +88,7 @@ export class ConvertWikiLinksConfirmationModal extends Modal {
 	constructor(app: App, private readonly count: number) { super(app); }
 	waitForConfirmation() { return new Promise<boolean>((resolve) => { this.resolver = resolve; this.open(); }); }
 	onOpen() {
+		markDialog(this.modalEl, this.titleEl);
 		this.titleEl.setText('Wiki 链接转换确认');
 		this.contentEl.createEl('p', { text: `即将把 ${this.count} 条 Wiki 笔记链接转换为标准 Markdown 链接。` });
 		this.contentEl.createEl('p', { text: '无法解析或无变化的链接会跳过；已转换内容可用编辑历史撤销。', cls: 'orphan-cleanup-warning' });
@@ -113,6 +118,7 @@ export class ImagePreviewModal extends Modal {
 	}
 
 	onOpen() {
+		markDialog(this.modalEl, this.titleEl);
 		this.modalEl.addClass('orphan-cleanup-preview-dialog');
 		this.contentEl.addClass('orphan-cleanup-preview-modal');
 		const frame = this.contentEl.createDiv({ cls: 'orphan-cleanup-preview-frame' });

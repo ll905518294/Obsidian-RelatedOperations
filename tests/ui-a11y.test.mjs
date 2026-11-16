@@ -137,8 +137,9 @@ const bundle = await build({
 	stdin: {
 		contents: `
 			export { OnboardingModal } from './src/onboarding.ts';
-			export { ImagePreviewModal } from './src/cleanup/cleanup-modals.ts';
+			export { ImagePreviewModal, CreateNotesConfirmationModal, RemoveBrokenLinksConfirmationModal, ConvertNativeLinksConfirmationModal, ConvertWikiLinksConfirmationModal } from './src/cleanup/cleanup-modals.ts';
 			export { renderDuplicateGroups } from './src/cleanup/cleanup-list-duplicates.ts';
+			export { createColumnHeader } from './src/cleanup/cleanup-a11y.ts';
 			export { Modal, TFile } from 'obsidian';
 		`,
 		resolveDir: process.cwd(),
@@ -156,7 +157,7 @@ const bundle = await build({
 		},
 	}],
 });
-const { OnboardingModal, ImagePreviewModal, renderDuplicateGroups, Modal, TFile } = await import(
+const { OnboardingModal, ImagePreviewModal, CreateNotesConfirmationModal, RemoveBrokenLinksConfirmationModal, ConvertNativeLinksConfirmationModal, ConvertWikiLinksConfirmationModal, renderDuplicateGroups, createColumnHeader, Modal, TFile } = await import(
 	`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`
 );
 
@@ -230,4 +231,52 @@ test('重复文件预览弹窗不再暴露空删除按钮', () => {
 		opened.contentEl.querySelectorAll('button').some((button) => button.textContent === '删除'),
 		false,
 	);
+});
+
+test('表头工厂统一输出 scope=col', () => {
+	const row = new El('tr');
+	createColumnHeader(row, '选择');
+	createColumnHeader(row, '文件');
+
+	assert.equal(row.children.length, 2);
+	assert.deepEqual(row.children.map((th) => th.textContent), ['选择', '文件']);
+	assert.deepEqual(row.children.map((th) => th.attrs.scope), ['col', 'col']);
+});
+
+test('重复文件表的表头全部带 scope=col', () => {
+	const root = new El('div');
+	renderDuplicateGroups({
+		app: makeApp(),
+		duplicateSelections: new Set(),
+		scanningTabs: new Set(),
+		dirtyTabs: new Set(),
+		deleteDuplicateFile: async () => {},
+	}, root, [{
+		hash: 'abc',
+		size: 2,
+		files: [{ path: 'dup/a.png', extension: 'png', size: 2, referenced: false, referencingNotes: [] }],
+	}]);
+
+	const headers = root.querySelectorAll('th');
+	assert.equal(headers.length, 7);
+	assert.deepEqual(headers.map((th) => th.textContent), ['选择', '预览', '文件', '所在笔记', '所在文件夹', '状态', '操作']);
+	assert.ok(headers.every((th) => th.attrs.scope === 'col'), '每个表头都需要 scope=col');
+});
+
+test('确认弹窗与预览弹窗都声明对话框语义并指向标题', () => {
+	const dialogs = [
+		new CreateNotesConfirmationModal(makeApp(), 2),
+		new RemoveBrokenLinksConfirmationModal(makeApp(), 1, 1),
+		new ConvertNativeLinksConfirmationModal(makeApp(), 1),
+		new ConvertWikiLinksConfirmationModal(makeApp(), 1),
+		new ImagePreviewModal(makeApp(), [new TFile('dup/a.png')], 0),
+	];
+
+	for (const modal of dialogs) {
+		modal.open();
+		assert.equal(modal.modalEl.attrs.role, 'dialog');
+		assert.equal(modal.modalEl.attrs['aria-modal'], 'true');
+		assert.ok(modal.modalEl.attrs['aria-labelledby'], '对话框需要标题作为可访问名称');
+		assert.equal(modal.titleEl.attrs.id, modal.modalEl.attrs['aria-labelledby']);
+	}
 });

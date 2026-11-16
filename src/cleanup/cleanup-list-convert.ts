@@ -1,6 +1,6 @@
 import { CONVERTIBLE_SOURCE_EXTENSIONS, type CleanupViewContext, type ConvertibleImage, type ImageConversionProgress, type ImageConversionState, type ImageConversionTarget } from './cleanup-types';
 import { formatBytes } from './cleanup-actions';
-import { associateCheckbox } from './cleanup-a11y';
+import { associateCheckbox, createColumnHeader } from './cleanup-a11y';
 import { resetArmedConfirmButtons } from './cleanup-confirm-button';
 
 export const CONVERSION_TAB = 'image-convert';
@@ -315,7 +315,7 @@ function renderRows(host: CleanupViewContext, content: HTMLElement, toolbar: HTM
 	const table = content.createEl('table', { cls: 'orphan-cleanup-table orphan-cleanup-convert-table' });
 	table.createEl('caption', { text: '图片转换候选列表', cls: 'orphan-cleanup-convert-caption' });
 	const header = table.createEl('thead').createEl('tr');
-	for (const text of ['选择', '文件', '尺寸', '大小', '变化', '引用', '状态']) header.createEl('th', { text });
+	for (const text of ['选择', '文件', '尺寸', '大小', '变化', '引用', '状态']) createColumnHeader(header, text);
 	const body = table.createEl('tbody');
 	for (const item of state.items) renderRow(host, body, item);
 

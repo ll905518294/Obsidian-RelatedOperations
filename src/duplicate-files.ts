@@ -1,5 +1,9 @@
 import type { App, TAbstractFile, TFile } from 'obsidian';
-import { errorMessage, hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils.ts';
+import { errorMessage, forEachWithConcurrency, hasHiddenPathSegment, isIgnoredPath, parseIgnoredFolders } from './core-utils.ts';
+
+const HASH_CONCURRENCY = 8;
+
+type HashResult = { ok: true; hash: string } | { ok: false; error: unknown };
 
 export interface DuplicateFileItem {
 	path: string;
@@ -62,17 +66,29 @@ export async function findDuplicateFiles(
 	const hashGroups = new Map<string, DuplicateFileItem[]>();
 	const warnings: Array<{ path: string; reason: string }> = [];
 	const candidates = [...bySize.values()].filter((group) => group.length > 1).flat();
-	for (const [index, file] of candidates.entries()) {
-		onProgress?.({ processed: index + 1, total: candidates.length, currentFile: file.path });
+	// 并发读取哈希，但按原始顺序回收结果与告警，保证输出稳定。
+	const hashes: Array<HashResult | undefined> = new Array<HashResult | undefined>(candidates.length);
+	let processed = 0;
+	await forEachWithConcurrency(candidates, HASH_CONCURRENCY, async (file, index) => {
 		try {
-			const hash = await digestFile(app, file);
-			const key = `${file.stat.size}:${hash}`;
-			const items = hashGroups.get(key) ?? [];
-			items.push({ path: file.path, extension: file.extension, size: file.stat.size, mtime: file.stat.mtime, referenced: referenced.has(file.path), referencingNotes: [...(referencingByPath.get(file.path) ?? [])].sort((a, b) => a.localeCompare(b)) });
-			hashGroups.set(key, items);
+			hashes[index] = { ok: true, hash: await digestFile(app, file) };
 		} catch (error) {
-			warnings.push({ path: file.path, reason: errorMessage(error, '无法读取文件内容') });
+			hashes[index] = { ok: false, error };
 		}
+		processed += 1;
+		onProgress?.({ processed, total: candidates.length, currentFile: file.path });
+	});
+	for (const [index, file] of candidates.entries()) {
+		const result = hashes[index];
+		if (!result) continue;
+		if (!result.ok) {
+			warnings.push({ path: file.path, reason: errorMessage(result.error, '无法读取文件内容') });
+			continue;
+		}
+		const key = `${file.stat.size}:${result.hash}`;
+		const items = hashGroups.get(key) ?? [];
+		items.push({ path: file.path, extension: file.extension, size: file.stat.size, mtime: file.stat.mtime, referenced: referenced.has(file.path), referencingNotes: [...(referencingByPath.get(file.path) ?? [])].sort((a, b) => a.localeCompare(b)) });
+		hashGroups.set(key, items);
 	}
 	return {
 		groups: [...hashGroups.entries()]

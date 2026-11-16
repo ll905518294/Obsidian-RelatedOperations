@@ -197,6 +197,15 @@ test('converts several references to the same target without shifting offsets', 
 	assert.equal(result.content, '[a](<a.md>) | [别名](<a.md#H>) | [a > ^b](<a.md#^b>)');
 });
 
+// A wiki link can carry both a heading and a block id (`[[a#标题^块id]]`).
+// The block id must not overwrite the heading in the URL fragment.
+test('keeps both heading and block id in the URL when both are present', () => {
+	assert.equal(
+		convertWikiNoteLink(link('[[a#标题^块id]]', 'a.md', 0, { heading: '标题', blockId: '块id' })),
+		'[a > 标题](<a.md#标题#^块id>)',
+	);
+});
+
 // Idempotency: markdown links produced by the conversion must never be offered
 // as wiki candidates again on a rescan.
 test('already converted markdown links are not candidates again', () => {

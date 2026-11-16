@@ -21,7 +21,7 @@ export const Platform = {};
 
 const bundle = await build({
 	stdin: {
-		contents: "export { markFilesReferencedByText } from './src/cleanup/cleanup-scan.ts';",
+		contents: "export { markFilesReferencedByText, referencedByCanvas, findCleanupCandidates } from './src/cleanup/cleanup-scan.ts';",
 		resolveDir: process.cwd(),
 	},
 	bundle: true,
@@ -37,7 +37,7 @@ const bundle = await build({
 	}],
 });
 
-const { markFilesReferencedByText } = await import(
+const { markFilesReferencedByText, referencedByCanvas, findCleanupCandidates } = await import(
 	`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`
 );
 
@@ -131,4 +131,37 @@ test('超长无标点英文行不会随词数放大匹配开销', { timeout: 300
 	const elapsed = Date.now() - started;
 	assert.ok(referenced.has('assets/target.png'));
 	assert.ok(elapsed < 1500, `长行匹配耗时 ${elapsed}ms，超过 1500ms`);
+});
+
+test('损坏的 Canvas 返回 null 而不是空数组', async () => {
+	const canvas = { path: 'board.canvas', name: 'board.canvas', extension: 'canvas', stat: { size: 10 } };
+	const app = {
+		vault: { read: async () => '{not json' },
+		metadataCache: { getFirstLinkpathDest: () => null },
+	};
+	assert.equal(await referencedByCanvas(app, canvas), null);
+});
+
+test('损坏的 Canvas 不会把图片标记成未引用候选', async () => {
+	const files = [
+		{ path: 'assets/a.png', name: 'a.png', extension: 'png', stat: { size: 10 } },
+		{ path: 'note.md', name: 'note.md', extension: 'md', stat: { size: 10 } },
+		{ path: 'broken.canvas', name: 'broken.canvas', extension: 'canvas', stat: { size: 10 } },
+	];
+	const app = {
+		vault: {
+			getFiles: () => files,
+			getMarkdownFiles: () => [files[1]],
+			cachedRead: async () => 'nothing',
+			read: async (file) => (file.path === 'broken.canvas' ? '{not json' : ''),
+			getRoot: () => ({ path: '', children: [] }),
+		},
+		metadataCache: {
+			resolvedLinks: {},
+			getFileCache: () => null,
+			getFirstLinkpathDest: () => null,
+		},
+	};
+	const candidates = await findCleanupCandidates(app, 'png', '', undefined, false);
+	assert.deepEqual(candidates.images, []);
 });

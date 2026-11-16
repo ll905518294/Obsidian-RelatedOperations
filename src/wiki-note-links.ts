@@ -52,9 +52,13 @@ export function convertWikiNoteLink(link: WikiNoteLink): string | null {
 	const parsed = parseWiki(link.original);
 	if (!parsed) return null;
 	const target = escapeDestination(link.file.path);
-	let url = `<${target}>`;
-	if (parsed.heading) url = `<${target}#${escapeDestination(parsed.heading)}>`;
-	if (parsed.blockId) url = `<${target}#^${escapeDestination(parsed.blockId)}>`;
+	// A link can carry both a heading and a block id (`[[a#标题^块id]]`); the
+	// block id refines the heading anchor instead of replacing it. Building the
+	// fragment conditionally keeps the heading when both are present.
+	let fragment = '';
+	if (parsed.heading) fragment += `#${escapeDestination(parsed.heading)}`;
+	if (parsed.blockId) fragment += `#^${escapeDestination(parsed.blockId)}`;
+	const url = fragment ? `<${target}${fragment}>` : `<${target}>`;
 	const alias = parsed.alias;
 	let text: string;
 	if (alias) text = alias;

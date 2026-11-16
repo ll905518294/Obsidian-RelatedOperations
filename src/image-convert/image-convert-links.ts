@@ -118,6 +118,77 @@ interface CanvasAnalysis extends CollectedAnalysis {
 	data?: Record<string, unknown>;
 }
 
+interface AttributeRange {
+	value: string;
+	valueStart: number;
+	valueEnd: number;
+}
+
+interface ParsedWikiReference {
+	start: number;
+	end: number;
+	target: string;
+	targetStart: number;
+	targetEnd: number;
+	params: string[];
+	size: boolean;
+	bang: boolean;
+	inFrontmatter: boolean;
+}
+
+interface ParsedMarkdownReference {
+	start: number;
+	end: number;
+	targetRaw: string;
+	targetStart: number;
+	targetEnd: number;
+}
+
+interface ParsedHtmlImage {
+	tagStart: number;
+	tag: string;
+	src: AttributeRange | null;
+	srcset: AttributeRange | null;
+}
+
+interface ParsedHtmlSource {
+	src: AttributeRange | null;
+	srcset: AttributeRange | null;
+}
+
+interface ParsedFrontmatterValue {
+	token: string;
+	tokenStart: number;
+	tokenEnd: number;
+}
+
+interface ParsedCodeMention {
+	kind: 'bare' | 'markdown' | 'wiki';
+	text: string;
+	start: number;
+	end: number;
+}
+
+interface ParsedCodeRange {
+	text: string;
+	mentions: ParsedCodeMention[];
+}
+
+interface ParsedMarkdownContent {
+	code: Range[];
+	htmlTags: Range[];
+	frontmatter: Range | null;
+	cssUrls: string[];
+	htmlSources: ParsedHtmlSource[];
+	wiki: ParsedWikiReference[];
+	markdown: ParsedMarkdownReference[];
+	srcsets: string[];
+	htmlImages: ParsedHtmlImage[];
+	frontmatterValues: ParsedFrontmatterValue[];
+	codeRanges: ParsedCodeRange[];
+	candidateHaystack: string;
+}
+
 const EXTERNAL_LINK_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 const WIKI_PATTERN = /(!?)\[\[([^\]\n]+)\]\]/g;
 const MARKDOWN_LINK_PATTERN = /!?\[[^\x5D\n]*\]\(\s*(<[^>\n]*>|(?:[^()\s]|\([^()\n]*\))+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
@@ -144,56 +215,221 @@ export async function findImageReferences(
 	for (const file of files) {
 		const kind = sourceKind(file.path);
 		if (!kind) continue;
-		const expected = resolvedReferenceCount(
-			app.metadataCache.resolvedLinks?.[file.path],
-			sourcePath,
-			caseSensitive,
-		);
 		const content = await readText(app, file);
-		const resolver = (link: string) => app.metadataCache.getFirstLinkpathDest(link, file.path)?.path ?? null;
-		const collected = kind === 'canvas'
-			? collectCanvasAnalysis(content, sourcePath, file.path, resolver, allPaths, caseSensitive)
-			: collectMarkdownAnalysis(content, sourcePath, file.path, resolver, allPaths, caseSensitive);
-		if (collected.analysis.error) {
-			return { ok: false, reason: 'unsupported-source', reasonText: collected.analysis.error, sourcePath: file.path };
+		const parsed = parseSourceContent(content, kind);
+		if (parsed.kind === 'canvas-error') {
+			return { ok: false, reason: 'unsupported-source', reasonText: parsed.error, sourcePath: file.path };
 		}
-		const blocked = blockedReasonFor(collected.analysis);
-		if (blocked) return { ok: false, ...blocked, sourcePath: file.path };
+		const evaluation = evaluateParsedSourceForTarget(app, file, parsed, content, sourcePath, caseSensitive, allPaths);
+		if (evaluation.kind === 'blocked') return evaluation.result;
+		if (evaluation.kind === 'site') {
+			sites.push(evaluation.site);
+			totalLiveRefs += evaluation.site.liveRefs;
+			totalTextMentions += evaluation.site.textMentions;
+		}
+	}
+	return { ok: true, sites, totalLiveRefs, totalTextMentions };
+}
 
-		let liveRefs = collected.analysis.liveRefs;
-		if (kind === 'markdown' && (liveRefs > 0 || expected > 0)) {
-			const cached = countCachedMarkdownReferences(app, file, sourcePath, content, caseSensitive);
-			if (cached === null) {
-				return { ok: false, reason: 'count-mismatch', reasonText: `${file.path} 的元数据尚未就绪`, sourcePath: file.path };
+/*
+ * 一次遍历、每篇笔记只读取和解析一次，为所有图片目标累积引用结果。
+ * 单图语义（缺失目标、Canvas 解析失败、blocked、count-mismatch 的首个
+ * sourcePath 与 reason）与 findImageReferences 完全一致：一旦某个目标在
+ * 某篇笔记上被阻断或报错，它不再参与后续笔记的评估。
+ */
+export async function findImageReferencesBatch(
+	app: ImageReferenceApp,
+	targets: string[],
+	caseSensitive = isCaseSensitiveFileSystem(),
+): Promise<Map<string, ImageReferenceScanResult>> {
+	const files = app.vault.getFiles();
+	const allPaths = files.map((file) => file.path);
+	const results = new Map<string, ImageReferenceScanResult>();
+	const active = new Set<string>();
+	const siteLists = new Map<string, ImageReferenceSite[]>();
+	const totals = new Map<string, { liveRefs: number; textMentions: number }>();
+	for (const target of targets) {
+		if (!files.some((file) => file.path === target)) {
+			results.set(target, { ok: false, reason: 'unsupported-source', reasonText: '图片文件不存在' });
+			continue;
+		}
+		results.set(target, { ok: true, sites: [], totalLiveRefs: 0, totalTextMentions: 0 });
+		active.add(target);
+		siteLists.set(target, []);
+		totals.set(target, { liveRefs: 0, textMentions: 0 });
+	}
+	for (const file of files) {
+		if (active.size === 0) break;
+		const kind = sourceKind(file.path);
+		if (!kind) continue;
+		const content = await readText(app, file);
+		const parsed = parseSourceContent(content, kind);
+		if (parsed.kind === 'canvas-error') {
+			const errorResult: ImageReferenceScanResult = {
+				ok: false,
+				reason: 'unsupported-source',
+				reasonText: parsed.error,
+				sourcePath: file.path,
+			};
+			for (const target of active) results.set(target, errorResult);
+			active.clear();
+			continue;
+		}
+		let resolvedKeys: Set<string> | null = null;
+		for (const target of [...active]) {
+			// 倒排剪枝：只有笔记内容（含解码形式）可能提到该目标，或
+			// resolvedLinks 索引明确记录了它时，才进入完整分析。
+			const targetStem = targetStemOf(target);
+			if (!parsed.haystack.includes(targetStem)) {
+				if (resolvedKeys === null) resolvedKeys = buildResolvedKeySet(app, file, caseSensitive);
+				if (!resolvedKeys.has(targetKeyOf(target, caseSensitive))) continue;
 			}
-			const expectedLiveRefs = cached + collected.analysis.htmlRefs;
-			if (expectedLiveRefs !== liveRefs) {
-				return {
+			const evaluation = evaluateParsedSourceForTarget(app, file, parsed, content, target, caseSensitive, allPaths);
+			if (evaluation.kind === 'blocked') {
+				results.set(target, evaluation.result);
+				active.delete(target);
+				continue;
+			}
+			if (evaluation.kind === 'site') {
+				siteLists.get(target)!.push(evaluation.site);
+				const total = totals.get(target)!;
+				total.liveRefs += evaluation.site.liveRefs;
+				total.textMentions += evaluation.site.textMentions;
+			}
+		}
+	}
+	for (const target of active) {
+		results.set(target, {
+			ok: true,
+			sites: siteLists.get(target) ?? [],
+			totalLiveRefs: totals.get(target)?.liveRefs ?? 0,
+			totalTextMentions: totals.get(target)?.textMentions ?? 0,
+		});
+	}
+	return results;
+}
+
+type ParsedSource =
+	| { kind: 'markdown'; parsed: ParsedMarkdownContent; haystack: string }
+	| { kind: 'canvas'; parsed: Extract<ParsedCanvas, { ok: true }>; haystack: string };
+
+type CanvasParseFailure = { kind: 'canvas-error'; error: string };
+
+type SourceEvaluation =
+	| { kind: 'blocked'; result: ImageReferenceScanResult }
+	| { kind: 'site'; site: ImageReferenceSite }
+	| { kind: 'none' };
+
+function parseSourceContent(content: string, kind: ImageReferenceSourceKind): ParsedSource | CanvasParseFailure {
+	if (kind === 'canvas') {
+		const parsed = parseCanvasContent(content);
+		if (!parsed.ok) return { kind: 'canvas-error', error: parsed.error };
+		return { kind: 'canvas', parsed, haystack: buildCanvasCandidateHaystack(parsed) };
+	}
+	const md = parseMarkdownContent(content);
+	return { kind: 'markdown', parsed: md, haystack: md.candidateHaystack };
+}
+
+function buildCanvasCandidateHaystack(parsed: Extract<ParsedCanvas, { ok: true }>): string {
+	const parts: string[] = [];
+	for (const node of parsed.nodes) {
+		if (typeof node.file === 'string') parts.push(node.file.toLowerCase());
+		if (node.textParsed) parts.push(node.textParsed.candidateHaystack);
+	}
+	return parts.join('\n');
+}
+
+function targetStemOf(target: string): string {
+	return stripExtension(basename(target.replace(/\\/g, '/'))).toLowerCase();
+}
+
+function targetKeyOf(target: string, caseSensitive: boolean): string {
+	const normalized = target.replace(/\\/g, '/').replace(/^\/+/, '');
+	return caseSensitive ? normalized : normalized.toLowerCase();
+}
+
+function buildResolvedKeySet(app: ImageReferenceApp, file: ImageReferenceSourceFile, caseSensitive: boolean): Set<string> {
+	const record = app.metadataCache.resolvedLinks?.[file.path];
+	const keys = new Set<string>();
+	if (record) {
+		for (const [key, value] of Object.entries(record)) {
+			if (typeof value !== 'number' || value <= 0) continue;
+			keys.add(targetKeyOf(key, caseSensitive));
+		}
+	}
+	return keys;
+}
+
+/*
+ * 对“已解析的某篇笔记 + 某个图片目标”做与单图扫描相同的判定：解析失败、
+ * blocked、markdown 的缓存一致性校验、索引数量校验，以及站点累积。
+ */
+function evaluateParsedSourceForTarget(
+	app: ImageReferenceApp,
+	file: ImageReferenceSourceFile,
+	source: ParsedSource,
+	content: string,
+	targetPath: string,
+	caseSensitive: boolean,
+	allPaths: string[],
+): SourceEvaluation {
+	const expected = resolvedReferenceCount(app.metadataCache.resolvedLinks?.[file.path], targetPath, caseSensitive);
+	const resolver = (link: string) => app.metadataCache.getFirstLinkpathDest(link, file.path)?.path ?? null;
+	const collected = source.kind === 'canvas'
+		? analyzeParsedCanvas(source.parsed, targetPath, file.path, resolver, allPaths, caseSensitive)
+		: analyzeParsedMarkdown(source.parsed, targetPath, file.path, resolver, allPaths, caseSensitive);
+	if (collected.analysis.error) {
+		return {
+			kind: 'blocked',
+			result: { ok: false, reason: 'unsupported-source', reasonText: collected.analysis.error, sourcePath: file.path },
+		};
+	}
+	const blocked = blockedReasonFor(collected.analysis);
+	if (blocked) return { kind: 'blocked', result: { ok: false, ...blocked, sourcePath: file.path } };
+
+	let liveRefs = collected.analysis.liveRefs;
+	if (source.kind === 'markdown' && (liveRefs > 0 || expected > 0)) {
+		const cached = countCachedMarkdownReferences(app, file, targetPath, content, caseSensitive);
+		if (cached === null) {
+			return {
+				kind: 'blocked',
+				result: { ok: false, reason: 'count-mismatch', reasonText: `${file.path} 的元数据尚未就绪`, sourcePath: file.path },
+			};
+		}
+		const expectedLiveRefs = cached + collected.analysis.htmlRefs;
+		if (expectedLiveRefs !== liveRefs) {
+			return {
+				kind: 'blocked',
+				result: {
 					ok: false,
 					reason: 'count-mismatch',
 					reasonText: `${file.path} 的缓存与文本引用数量不一致（缓存 ${expectedLiveRefs}，文本 ${liveRefs}）`,
 					sourcePath: file.path,
-				};
-			}
-			liveRefs = expectedLiveRefs;
+				},
+			};
 		}
-		// Obsidian 不保证 Canvas 的引用进入 resolvedLinks；Canvas 始终以文本
-		// 枚举为准，只有索引明确记录了该图片时才要求两者一致。
-		if ((kind === 'markdown' || expected > 0) && liveRefs !== expected) {
-			return {
+		liveRefs = expectedLiveRefs;
+	}
+	// Obsidian 不保证 Canvas 的引用进入 resolvedLinks；Canvas 始终以文本
+	// 枚举为准，只有索引明确记录了该图片时才要求两者一致。
+	if ((source.kind === 'markdown' || expected > 0) && liveRefs !== expected) {
+		return {
+			kind: 'blocked',
+			result: {
 				ok: false,
 				reason: 'count-mismatch',
 				reasonText: `${file.path} 的引用数量与索引不一致（索引 ${expected}，定位 ${liveRefs}）`,
 				sourcePath: file.path,
-			};
-		}
-		if (liveRefs > 0) {
-			sites.push({ sourcePath: file.path, sourceKind: kind, liveRefs, textMentions: collected.analysis.textMentions });
-			totalLiveRefs += liveRefs;
-			totalTextMentions += collected.analysis.textMentions;
-		}
+			},
+		};
 	}
-	return { ok: true, sites, totalLiveRefs, totalTextMentions };
+	if (liveRefs > 0) {
+		return {
+			kind: 'site',
+			site: { sourcePath: file.path, sourceKind: source.kind, liveRefs, textMentions: collected.analysis.textMentions },
+		};
+	}
+	return { kind: 'none' };
 }
 
 function resolvedReferenceCount(
@@ -326,51 +562,39 @@ function collectMarkdownAnalysis(
 	vaultPaths: string[] | undefined,
 	caseSensitive: boolean,
 ): CollectedAnalysis {
+	return analyzeParsedMarkdown(parseMarkdownContent(content), oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive);
+}
+
+/*
+ * Parsing and target matching are split so a multi-image scan can parse each
+ * note once and then evaluate it against every referenced image. The parser
+ * only extracts content-local facts; resolution against a specific old path
+ * stays in analyzeParsedMarkdown.
+ */
+function parseMarkdownContent(content: string): ParsedMarkdownContent {
 	const code = codeRanges(content);
 	const htmlTags = htmlTagRanges(content, code);
 	const frontmatter = frontmatterRange(content);
-	const occupied: Range[] = [];
-	const spans: ReferenceSpan[] = [];
-	const noExtensionRefs: string[] = [];
-	const analysis: ImageContentAnalysis = {
-		liveRefs: 0,
-		textMentions: 0,
-		htmlRefs: 0,
-		hasSize: false,
-		hasSrcset: false,
-		hasFrontmatterPlainPath: false,
-		hasCanvasTextEmbed: false,
-		hasAmbiguousNoExtension: false,
-		hasUnsupportedHtml: false,
-		hasHtmlSource: false,
-		hasCssUrl: false,
-		hasCodeBlockReference: false,
-	};
+	const cssUrls: string[] = [];
+	const htmlSources: ParsedHtmlSource[] = [];
+	const wiki: ParsedWikiReference[] = [];
+	const markdown: ParsedMarkdownReference[] = [];
+	const srcsets: string[] = [];
+	const htmlImages: ParsedHtmlImage[] = [];
+	const frontmatterValues: ParsedFrontmatterValue[] = [];
 
 	for (const match of content.matchAll(CSS_URL_PATTERN)) {
 		const start = match.index ?? 0;
 		if (insideRanges(start, code)) continue;
 		const value = (match[1] ?? match[2] ?? match[3] ?? '').trim();
-		if (value && resolvePathStyle(value, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive)) {
-			analysis.hasCssUrl = true;
-		}
+		if (value) cssUrls.push(value);
 	}
 	for (const match of content.matchAll(HTML_SOURCE_PATTERN)) {
 		const start = match.index ?? 0;
 		if (insideRanges(start, code)) continue;
 		const tag = match[0];
-		const src = attributeRange(tag, 'src');
-		const srcset = attributeRange(tag, 'srcset');
-		if ((src && resolvePathStyle(src.value, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive))
-			|| (srcset && srcsetMentions(srcset.value, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive))) {
-			analysis.hasHtmlSource = true;
-		}
+		htmlSources.push({ src: attributeRange(tag, 'src'), srcset: attributeRange(tag, 'srcset') });
 	}
-	if (sourcePath.toLowerCase().endsWith('.excalidraw.md')) {
-		analysis.hasCodeBlockReference = code.some((range) =>
-			hasRawImageReference(content.slice(range.start, range.end), oldPath, caseSensitive));
-	}
-
 	for (const match of content.matchAll(WIKI_PATTERN)) {
 		const start = match.index ?? 0;
 		const end = start + match[0].length;
@@ -387,74 +611,41 @@ function collectMarkdownAnalysis(
 		const target = content.slice(targetStart, targetEnd);
 		if (!target) continue;
 		const params = pipe >= 0 ? inner.slice(pipe + 1).split('|').map((part) => part.trim()) : [];
-		const size = params.some(isSizePart);
-		const inFrontmatter = !!frontmatter && targetStart >= frontmatter.start && targetEnd <= frontmatter.end;
-		const resolved = resolvePathStyle(target, oldPath, sourcePath, true, resolveLink, vaultPaths, caseSensitive);
-		if (!resolved) continue;
-		analysis.liveRefs++;
-		if (size) analysis.hasSize = true;
-		if (extensionOf(target) === '' && !target.includes('/')) noExtensionRefs.push(target);
-		spans.push({
-			start: inFrontmatter ? targetStart : start,
-			end: inFrontmatter ? targetEnd : end,
-			kind: inFrontmatter ? 'wiki-frontmatter' : 'wiki-body',
-			rawTarget: target,
-			allowBareName: true,
-			wiki: {
-				alias: params.find((part) => !isSizePart(part)) ?? '',
-				bang,
-				originalTarget: target,
-			},
+		wiki.push({
+			start,
+			end,
+			target,
+			targetStart,
+			targetEnd,
+			params,
+			size: params.some(isSizePart),
+			bang,
+			inFrontmatter: !!frontmatter && targetStart >= frontmatter.start && targetEnd <= frontmatter.end,
 		});
-		occupied.push({ start, end });
 	}
-
 	for (const match of content.matchAll(MARKDOWN_LINK_PATTERN)) {
 		const start = match.index ?? 0;
 		const end = start + match[0].length;
-		if (insideRanges(start, code) || insideRanges(start, htmlTags) || overlaps(start, end, occupied)) continue;
+		if (insideRanges(start, code) || insideRanges(start, htmlTags)) continue;
 		const targetRaw = match[1];
 		if (!targetRaw) continue;
 		const targetStart = start + markdownTargetOffset(match[0]);
 		const targetEnd = targetStart + targetRaw.length;
 		if (targetStart < start || targetEnd > end) continue;
-		const resolved = resolvePathStyle(targetRaw, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive);
-		if (!resolved) continue;
-		analysis.liveRefs++;
-		spans.push({ start: targetStart, end: targetEnd, kind: 'markdown', rawTarget: targetRaw, allowBareName: false });
-		occupied.push({ start, end });
+		markdown.push({ start, end, targetRaw, targetStart, targetEnd });
 	}
-
 	for (const match of content.matchAll(HTML_SRCSET_PATTERN)) {
 		const start = match.index ?? 0;
 		if (insideRanges(start, code)) continue;
 		const value = match[1] ?? match[2] ?? match[3] ?? '';
-		if (srcsetMentions(value, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive)) analysis.hasSrcset = true;
+		if (value) srcsets.push(value);
 	}
 	for (const match of content.matchAll(HTML_IMG_PATTERN)) {
 		const tagStart = match.index ?? 0;
 		const tag = match[0];
-		if (insideRanges(tagStart, code) || overlaps(tagStart, tagStart + tag.length, occupied)) continue;
-		const src = attributeRange(tag, 'src');
-		const srcset = attributeRange(tag, 'srcset');
-		if (srcset && (srcsetMentions(srcset.value, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive)
-			|| (src && resolvePathStyle(src.value, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive)))) {
-			analysis.hasSrcset = true;
-		}
-		if (!src) {
-			if (tag.includes(basename(oldPath))) analysis.hasUnsupportedHtml = true;
-			continue;
-		}
-		const resolved = resolvePathStyle(src.value, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive);
-		if (!resolved) continue;
-		const targetStart = tagStart + src.valueStart;
-		const targetEnd = tagStart + src.valueEnd;
-		analysis.liveRefs++;
-		analysis.htmlRefs++;
-		spans.push({ start: targetStart, end: targetEnd, kind: 'html', rawTarget: src.value, allowBareName: false });
-		occupied.push({ start: tagStart, end: tagStart + tag.length });
+		if (insideRanges(tagStart, code)) continue;
+		htmlImages.push({ tagStart, tag, src: attributeRange(tag, 'src'), srcset: attributeRange(tag, 'srcset') });
 	}
-
 	if (frontmatter) {
 		const body = content.slice(frontmatter.start, frontmatter.end);
 		for (const match of body.matchAll(FRONTMATTER_VALUE_PATTERN)) {
@@ -462,16 +653,190 @@ function collectMarkdownAnalysis(
 			if (!token || token.endsWith(':') || token.includes(':') || token.includes('[[') || token.startsWith('#')) continue;
 			const tokenStart = frontmatter.start + (match.index ?? 0) + match[0].length - token.length - (match[2] !== undefined || match[3] !== undefined ? 1 : 0);
 			const tokenEnd = tokenStart + token.length;
-			if (insideRanges(tokenStart, code) || insideRanges(tokenStart, htmlTags) || overlaps(tokenStart, tokenEnd, occupied)) continue;
-			if (resolvePathStyle(token, oldPath, sourcePath, true, resolveLink, vaultPaths, caseSensitive)) {
-				analysis.hasFrontmatterPlainPath = true;
-				analysis.liveRefs++;
-			}
+			if (insideRanges(tokenStart, code) || insideRanges(tokenStart, htmlTags)) continue;
+			frontmatterValues.push({ token, tokenStart, tokenEnd });
+		}
+	}
+	const parsedCode: ParsedCodeRange[] = [];
+	for (const range of code) {
+		const text = content.slice(range.start, range.end);
+		const mentions: ParsedCodeMention[] = [];
+		for (const match of text.matchAll(WIKI_PATTERN)) {
+			const start = match.index ?? 0;
+			const target = wikiTarget(match);
+			if (target) mentions.push({ kind: 'wiki', text: target, start, end: start + match[0].length });
+		}
+		for (const match of text.matchAll(MARKDOWN_LINK_PATTERN)) {
+			const start = match.index ?? 0;
+			const target = match[1];
+			if (target) mentions.push({ kind: 'markdown', text: target, start, end: start + match[0].length });
+		}
+		for (const match of text.matchAll(/[^\s`"'<>\x5B\x5D()]+/g)) {
+			const start = match.index ?? 0;
+			mentions.push({ kind: 'bare', text: match[0], start, end: start + match[0].length });
+		}
+		parsedCode.push({ text, mentions });
+	}
+	return {
+		code,
+		htmlTags,
+		frontmatter,
+		cssUrls,
+		htmlSources,
+		wiki,
+		markdown,
+		srcsets,
+		htmlImages,
+		frontmatterValues,
+		codeRanges: parsedCode,
+		candidateHaystack: buildCandidateHaystack({
+			cssUrls,
+			htmlSources,
+			wiki,
+			markdown,
+			srcsets,
+			htmlImages,
+			frontmatterValues,
+			codeRanges: parsedCode,
+		}),
+	};
+}
+
+/*
+ * 倒排候选索引：把一篇笔记中所有会被 resolvePathStyle 检查的链接文本
+ * （含解码形式与 HTML 标签原文）拼成一个小 haystack。批量扫描时先用
+ * 目标文件名的主干做子串检查，只有可能命中的目标才进入完整分析，
+ * 避免“每张图都对全库做一遍解析后分析”。
+ */
+function buildCandidateHaystack(parsed: {
+	cssUrls: string[];
+	htmlSources: ParsedHtmlSource[];
+	wiki: ParsedWikiReference[];
+	markdown: ParsedMarkdownReference[];
+	srcsets: string[];
+	htmlImages: ParsedHtmlImage[];
+	frontmatterValues: ParsedFrontmatterValue[];
+	codeRanges: ParsedCodeRange[];
+}): string {
+	const parts: string[] = [];
+	const add = (text: string) => {
+		if (!text) return;
+		parts.push(text.toLowerCase());
+		const decoded = safeDecode(text);
+		if (decoded !== text) parts.push(decoded.toLowerCase());
+	};
+	for (const url of parsed.cssUrls) add(url);
+	for (const source of parsed.htmlSources) {
+		if (source.src) add(source.src.value);
+		if (source.srcset) add(source.srcset.value);
+	}
+	for (const ref of parsed.wiki) add(ref.target);
+	for (const ref of parsed.markdown) add(ref.targetRaw);
+	for (const value of parsed.srcsets) add(value);
+	for (const image of parsed.htmlImages) {
+		add(image.tag);
+		if (image.src) add(image.src.value);
+		if (image.srcset) add(image.srcset.value);
+	}
+	for (const value of parsed.frontmatterValues) add(value.token);
+	for (const range of parsed.codeRanges) {
+		for (const mention of range.mentions) add(mention.text);
+	}
+	return parts.join('\n');
+}
+
+function analyzeParsedMarkdown(
+	parsed: ParsedMarkdownContent,
+	oldPath: string,
+	sourcePath: string,
+	resolveLink: ((linkPath: string) => string | null) | undefined,
+	vaultPaths: string[] | undefined,
+	caseSensitive: boolean,
+): CollectedAnalysis {
+	const occupied: Range[] = [];
+	const spans: ReferenceSpan[] = [];
+	const noExtensionRefs: string[] = [];
+	const analysis = emptyImageContentAnalysis();
+
+	for (const value of parsed.cssUrls) {
+		if (resolvePathStyle(value, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive)) {
+			analysis.hasCssUrl = true;
+		}
+	}
+	for (const source of parsed.htmlSources) {
+		if ((source.src && resolvePathStyle(source.src.value, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive))
+			|| (source.srcset && srcsetMentions(source.srcset.value, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive))) {
+			analysis.hasHtmlSource = true;
+		}
+	}
+	if (sourcePath.toLowerCase().endsWith('.excalidraw.md')) {
+		analysis.hasCodeBlockReference = parsed.codeRanges.some((range) =>
+			hasRawImageReference(range.text, oldPath, caseSensitive));
+	}
+
+	for (const wiki of parsed.wiki) {
+		const resolved = resolvePathStyle(wiki.target, oldPath, sourcePath, true, resolveLink, vaultPaths, caseSensitive);
+		if (!resolved) continue;
+		analysis.liveRefs++;
+		if (wiki.size) analysis.hasSize = true;
+		if (extensionOf(wiki.target) === '' && !wiki.target.includes('/')) noExtensionRefs.push(wiki.target);
+		spans.push({
+			start: wiki.inFrontmatter ? wiki.targetStart : wiki.start,
+			end: wiki.inFrontmatter ? wiki.targetEnd : wiki.end,
+			kind: wiki.inFrontmatter ? 'wiki-frontmatter' : 'wiki-body',
+			rawTarget: wiki.target,
+			allowBareName: true,
+			wiki: {
+				alias: wiki.params.find((part) => !isSizePart(part)) ?? '',
+				bang: wiki.bang,
+				originalTarget: wiki.target,
+			},
+		});
+		occupied.push({ start: wiki.start, end: wiki.end });
+	}
+
+	for (const markdown of parsed.markdown) {
+		if (overlaps(markdown.start, markdown.end, occupied)) continue;
+		const resolved = resolvePathStyle(markdown.targetRaw, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive);
+		if (!resolved) continue;
+		analysis.liveRefs++;
+		spans.push({ start: markdown.targetStart, end: markdown.targetEnd, kind: 'markdown', rawTarget: markdown.targetRaw, allowBareName: false });
+		occupied.push({ start: markdown.start, end: markdown.end });
+	}
+
+	for (const value of parsed.srcsets) {
+		if (srcsetMentions(value, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive)) analysis.hasSrcset = true;
+	}
+	for (const image of parsed.htmlImages) {
+		if (overlaps(image.tagStart, image.tagStart + image.tag.length, occupied)) continue;
+		if (image.srcset && (srcsetMentions(image.srcset.value, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive)
+			|| (image.src && resolvePathStyle(image.src.value, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive)))) {
+			analysis.hasSrcset = true;
+		}
+		if (!image.src) {
+			if (image.tag.includes(basename(oldPath))) analysis.hasUnsupportedHtml = true;
+			continue;
+		}
+		const resolved = resolvePathStyle(image.src.value, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive);
+		if (!resolved) continue;
+		const targetStart = image.tagStart + image.src.valueStart;
+		const targetEnd = image.tagStart + image.src.valueEnd;
+		analysis.liveRefs++;
+		analysis.htmlRefs++;
+		spans.push({ start: targetStart, end: targetEnd, kind: 'html', rawTarget: image.src.value, allowBareName: false });
+		occupied.push({ start: image.tagStart, end: image.tagStart + image.tag.length });
+	}
+
+	for (const value of parsed.frontmatterValues) {
+		if (overlaps(value.tokenStart, value.tokenEnd, occupied)) continue;
+		if (resolvePathStyle(value.token, oldPath, sourcePath, true, resolveLink, vaultPaths, caseSensitive)) {
+			analysis.hasFrontmatterPlainPath = true;
+			analysis.liveRefs++;
 		}
 	}
 
-	for (const range of code) {
-		analysis.textMentions += countMentionsInRange(content.slice(range.start, range.end), oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive);
+	for (const range of parsed.codeRanges) {
+		analysis.textMentions += countParsedMentions(range.mentions, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive);
 	}
 	if (vaultPaths && noExtensionRefs.length) {
 		analysis.hasAmbiguousNoExtension = noExtensionRefs.some((target) => {
@@ -483,6 +848,44 @@ function collectMarkdownAnalysis(
 	return { analysis, spans: dedupeSpans(spans) };
 }
 
+interface ParsedCanvasNode {
+	file?: unknown;
+	text?: unknown;
+	type?: unknown;
+	textParsed?: ParsedMarkdownContent;
+}
+
+type ParsedCanvas =
+	| { ok: true; data: Record<string, unknown>; nodes: ParsedCanvasNode[] }
+	| { ok: false; error: string };
+
+function parseCanvasContent(content: string): ParsedCanvas {
+	let data: Record<string, unknown>;
+	try {
+		data = JSON.parse(content) as Record<string, unknown>;
+	} catch (error) {
+		return { ok: false, error: `Canvas JSON 解析失败：${reasonOf(error)}` };
+	}
+	const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+	const parsedNodes: ParsedCanvasNode[] = [];
+	for (const node of nodes) {
+		if (!node || typeof node !== 'object') {
+			parsedNodes.push({});
+			continue;
+		}
+		const record = node as Record<string, unknown>;
+		parsedNodes.push({
+			file: record.file,
+			text: record.text,
+			type: record.type,
+			textParsed: record.type === 'text' && typeof record.text === 'string'
+				? parseMarkdownContent(record.text)
+				: undefined,
+		});
+	}
+	return { ok: true, data, nodes: parsedNodes };
+}
+
 function collectCanvasAnalysis(
 	content: string,
 	oldPath: string,
@@ -491,36 +894,27 @@ function collectCanvasAnalysis(
 	vaultPaths: string[] | undefined,
 	caseSensitive: boolean,
 ): CanvasAnalysis {
-	const analysis: ImageContentAnalysis = {
-		liveRefs: 0,
-		textMentions: 0,
-		htmlRefs: 0,
-		hasSize: false,
-		hasSrcset: false,
-		hasFrontmatterPlainPath: false,
-		hasCanvasTextEmbed: false,
-		hasAmbiguousNoExtension: false,
-		hasUnsupportedHtml: false,
-		hasHtmlSource: false,
-		hasCssUrl: false,
-		hasCodeBlockReference: false,
-	};
-	let data: Record<string, unknown>;
-	try {
-		data = JSON.parse(content) as Record<string, unknown>;
-	} catch (error) {
-		return { analysis: { ...analysis, error: `Canvas JSON 解析失败：${reasonOf(error)}` }, spans: [] };
-	}
-	const nodes = Array.isArray(data.nodes) ? data.nodes : [];
-	for (const node of nodes) {
-		if (!node || typeof node !== 'object') continue;
-		const record = node as Record<string, unknown>;
-		if (typeof record.file === 'string'
-			&& resolvePathStyle(record.file, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive)) {
+	const parsed = parseCanvasContent(content);
+	if (!parsed.ok) return { analysis: emptyImageContentAnalysis(parsed.error), spans: [] };
+	return analyzeParsedCanvas(parsed, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive);
+}
+
+function analyzeParsedCanvas(
+	parsed: Extract<ParsedCanvas, { ok: true }>,
+	oldPath: string,
+	sourcePath: string,
+	resolveLink: ((linkPath: string) => string | null) | undefined,
+	vaultPaths: string[] | undefined,
+	caseSensitive: boolean,
+): CanvasAnalysis {
+	const analysis = emptyImageContentAnalysis();
+	for (const node of parsed.nodes) {
+		if (typeof node.file === 'string'
+			&& resolvePathStyle(node.file, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive)) {
 			analysis.liveRefs++;
 		}
-		if (record.type === 'text' && typeof record.text === 'string') {
-			const nested = collectMarkdownAnalysis(record.text, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive);
+		if (node.textParsed) {
+			const nested = analyzeParsedMarkdown(node.textParsed, oldPath, sourcePath, resolveLink, vaultPaths, caseSensitive);
 			if (nested.analysis.liveRefs > 0 || nested.analysis.hasSize || nested.analysis.hasSrcset
 				|| nested.analysis.hasFrontmatterPlainPath || nested.analysis.hasUnsupportedHtml) {
 				analysis.hasCanvasTextEmbed = true;
@@ -528,7 +922,7 @@ function collectCanvasAnalysis(
 			analysis.textMentions += nested.analysis.textMentions;
 		}
 	}
-	return { analysis, spans: [], data };
+	return { analysis, spans: [], data: parsed.data };
 }
 
 function rewriteCanvasReferences(
@@ -725,8 +1119,8 @@ function blockedReasonFor(analysis: ImageContentAnalysis): { reason: ImageRefere
 	return null;
 }
 
-function countMentionsInRange(
-	text: string,
+function countParsedMentions(
+	mentions: ParsedCodeMention[],
 	oldPath: string,
 	sourcePath: string,
 	resolveLink: ((linkPath: string) => string | null) | undefined,
@@ -735,35 +1129,24 @@ function countMentionsInRange(
 ): number {
 	let count = 0;
 	const seen: Range[] = [];
-	for (const match of text.matchAll(WIKI_PATTERN)) {
-		const start = match.index ?? 0;
-		const end = start + match[0].length;
-		const target = wikiTarget(match);
-		if (target && resolvePathStyle(target, oldPath, sourcePath, true, resolveLink, vaultPaths, caseSensitive)) {
-			count++;
-			seen.push({ start, end });
+	for (const mention of mentions) {
+		if (mention.kind === 'wiki') {
+			if (resolvePathStyle(mention.text, oldPath, sourcePath, true, resolveLink, vaultPaths, caseSensitive)) {
+				count++;
+				seen.push({ start: mention.start, end: mention.end });
+			}
+			continue;
 		}
-	}
-	for (const match of text.matchAll(MARKDOWN_LINK_PATTERN)) {
-		const start = match.index ?? 0;
-		const end = start + match[0].length;
-		if (overlaps(start, end, seen)) continue;
-		const target = match[1];
-		if (target && resolvePathStyle(target, oldPath, sourcePath, false, resolveLink, vaultPaths, caseSensitive)) {
+		if (overlaps(mention.start, mention.end, seen)) continue;
+		if (resolvePathStyle(mention.text, oldPath, sourcePath, mention.kind === 'bare', resolveLink, vaultPaths, caseSensitive)) {
 			count++;
-			seen.push({ start, end });
+			if (mention.kind === 'markdown') seen.push({ start: mention.start, end: mention.end });
 		}
-	}
-	for (const match of text.matchAll(/[^\s`"'<>\x5B\x5D()]+/g)) {
-		const start = match.index ?? 0;
-		const end = start + match[0].length;
-		if (overlaps(start, end, seen)) continue;
-		if (resolvePathStyle(match[0], oldPath, sourcePath, true, resolveLink, vaultPaths, caseSensitive)) count++;
 	}
 	return count;
 }
 
-function attributeRange(tag: string, name: string): { value: string; valueStart: number; valueEnd: number } | null {
+function attributeRange(tag: string, name: string): AttributeRange | null {
 	const pattern = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\\x60]+))`, 'i');
 	const match = pattern.exec(tag);
 	if (!match) return null;
@@ -771,6 +1154,24 @@ function attributeRange(tag: string, name: string): { value: string; valueStart:
 	const quote = match[1] !== undefined || match[2] !== undefined ? 1 : 0;
 	const tokenStart = (match.index ?? 0) + match[0].length - value.length - quote;
 	return { value, valueStart: tokenStart, valueEnd: tokenStart + value.length };
+}
+
+function emptyImageContentAnalysis(error?: string): ImageContentAnalysis {
+	return {
+		liveRefs: 0,
+		textMentions: 0,
+		htmlRefs: 0,
+		hasSize: false,
+		hasSrcset: false,
+		hasFrontmatterPlainPath: false,
+		hasCanvasTextEmbed: false,
+		hasAmbiguousNoExtension: false,
+		hasUnsupportedHtml: false,
+		hasHtmlSource: false,
+		hasCssUrl: false,
+		hasCodeBlockReference: false,
+		...(error ? { error } : {}),
+	};
 }
 
 function srcsetMentions(

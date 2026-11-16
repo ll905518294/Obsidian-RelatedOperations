@@ -130,7 +130,7 @@ function renderScanError(view: CleanupViewContext, container: HTMLElement) {
 	banner.createSpan({ text: `${error.reason} 请点击「${view.hasScanned ? '重新扫描全部' : '开始扫描'}」重试。` });
 }
 
-export function renderDashboardCategory(view: CleanupViewContext, container: HTMLElement, category: (typeof CLEANUP_CATEGORIES)[number], priority: boolean) {
+function renderDashboardCategory(view: CleanupViewContext, container: HTMLElement, category: (typeof CLEANUP_CATEGORIES)[number], priority: boolean) {
 	const count = categoryCount(view.candidates, category.tab);
 	const scanned = view.scannedTabs.has(category.tab);
 	const scanning = view.scanningTabs.has(category.tab);

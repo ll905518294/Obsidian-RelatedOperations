@@ -12,6 +12,7 @@ import {
 } from './related-notes-model';
 import { renderListToolbar } from './related-notes-list-toolbar';
 import type { RelatedNotesListHost } from './related-notes-list-host';
+import { createColumnHeader } from '../cleanup/cleanup-a11y';
 
 export function syncRowCheckboxes(host: RelatedNotesListHost, group: RelatedNote[]) {
 	const paths = new Set(group.map((note) => note.file.path));
@@ -128,7 +129,7 @@ export function renderList(host: RelatedNotesListHost) {
 	const headers = host.showSourceColumn
 		? ['选择', '源笔记', '关联笔记', '当前路径', '关系', '目标路径预览']
 		: ['选择', '笔记名称', '当前路径', '关系', '目标路径预览'];
-	for (const title of headers) header.createEl('th', { text: title });
+	for (const title of headers) createColumnHeader(header, title);
 	const tbody = table.createEl('tbody');
 	let previousFolder = '';
 	let previousSource = '';
