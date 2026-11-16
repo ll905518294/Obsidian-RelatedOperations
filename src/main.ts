@@ -12,6 +12,7 @@ import { currentUpdateIntro, shouldShowIntro } from './update-intro-content';
 import { UpdateIntroModal } from './update-intro';
 import { decideStartupIntro } from './onboarding-content';
 import { OnboardingModal, type OnboardingAction } from './onboarding';
+import { normalizeImageConversionConfig } from './cleanup/cleanup-types';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
@@ -19,6 +20,9 @@ export default class RelatedOperationsPlugin extends Plugin {
 	async onload() {
 		const rawSettings: unknown = await this.loadData();
 		const loaded = normalizeSettings(DEFAULT_SETTINGS, rawSettings);
+		// Older data.json files predate image conversion; normalize the nested
+		// object without dropping any unrelated setting.
+		loaded.imageConversion = normalizeImageConversionConfig(loaded.imageConversion);
 		if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
 			const persisted = rawSettings as Record<string, unknown>;
 			const legacy = persisted as { groupBySource?: unknown; groupByPath?: unknown };
@@ -30,7 +34,8 @@ export default class RelatedOperationsPlugin extends Plugin {
 			// dropped from data.json on the first load after upgrading.
 			const retiredFieldsSaved = ['enabled', 'autoUpdate', 'incomingProperty', 'outgoingProperty', 'bidirectionalProperty']
 				.some((key) => key in persisted);
-			if (groupingModeMigrated || retiredFieldsSaved) {
+			const conversionNeedsSave = JSON.stringify(persisted.imageConversion) !== JSON.stringify(loaded.imageConversion);
+			if (groupingModeMigrated || retiredFieldsSaved || conversionNeedsSave) {
 				await this.saveData(loaded);
 			}
 		}
@@ -201,7 +206,7 @@ export default class RelatedOperationsPlugin extends Plugin {
 		const openFallbackModal = () => new OrphanCleanupModal(this.app, this.settings, async (cache) => {
 			this.settings.orphanCleanupCache = cache;
 			await this.saveSettings();
-		}).open();
+		}, () => this.saveSettings()).open();
 		if (Platform.isMobile) {
 			openFallbackModal();
 			return;

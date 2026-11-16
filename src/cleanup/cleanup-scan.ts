@@ -1,14 +1,18 @@
 import { App, TFile, TFolder } from 'obsidian';
-import { hasHiddenPathSegment, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens, pathTokenCandidates } from '../core-utils';
+import { hasHiddenPathSegment, isCaseSensitiveFileSystem, isFrontmatterOnly, isIgnoredPath, needsRawTextSearch, parseExtensions, parseIgnoredFolders, pathLikeTokens, pathTokenCandidates } from '../core-utils';
 import { findBrokenImageLinks } from '../broken-image-links';
 import { findBrokenNoteLinks } from '../broken-note-links';
 import { findNativeImageLinks } from '../native-image-links';
 import { findWikiNoteLinks } from '../wiki-note-links';
 import { findDuplicateFiles } from '../duplicate-files';
+import { isWithinPixelLimit, type ImageCodec } from '../image-convert/image-codec';
+import { findImageReferences } from '../image-convert/image-convert-links';
+import { planImageConversions, type ImageConvertPlanItem } from '../image-convert/image-convert-plan';
 import { byPath } from './cleanup-actions';
-import { COMMON_IMAGE_EXTENSIONS, type CleanupCandidates, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
+import { COMMON_IMAGE_EXTENSIONS, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
 
 const READ_CONCURRENCY = 8;
+const CONVERSION_CONCURRENCY = 2;
 
 export async function forEachWithConcurrency<T>(items: T[], concurrency: number, visit: (item: T, index: number) => Promise<void>): Promise<void> {
 	const limit = Math.max(1, Math.min(concurrency, items.length || 1));
@@ -112,6 +116,7 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 		wikiLinks,
 		duplicates: duplicateResult.groups,
 		duplicateWarnings: duplicateResult.warnings,
+		convertibleImages: [],
 	};
 }
 
@@ -180,6 +185,130 @@ export async function markFilesReferencedByText(app: App, images: TFile[], refer
 			if (unresolved.size === 0) return;
 		}
 	}
+}
+
+/*
+ * 图片转换的候选只做格式与可见性筛选，不解码、不估算体积；体积估算由
+ * estimateConversions 在用户手动触发时完成。imageExtensions 是用户在设置里
+ * 声明的“图片”边界，不在其中的扩展名同样不进入转换候选。
+ */
+export function collectConvertibleImages(app: App, config: ImageConversionConfig, imageExtensions: string, ignoredFoldersValue = ''): TFile[] {
+	const normalized = normalizeImageConversionConfig(config);
+	const sources = new Set(normalized.sources);
+	const target = normalized.target;
+	const extensions = parseExtensions(imageExtensions);
+	const ignoredFolders = parseIgnoredFolders(ignoredFoldersValue);
+	return app.vault.getFiles()
+		.filter((file) => {
+			const extension = file.extension.toLowerCase();
+			// 目标格式本身不是候选：PNG→JPG 后新出现的 jpg 不应再次进入列表。
+			if ((extension === 'jpeg' ? 'jpg' : extension) === target) return false;
+			return sources.has(extension) && extensions.has(extension)
+				&& !hasHiddenPathSegment(file.path) && !isIgnoredPath(file.path, ignoredFolders);
+		})
+		.sort(byPath);
+}
+
+/*
+ * 每张图读一次二进制、解码一次、编码一次，用 2 个并发限制内存峰值。
+ * 解码失败、超过 40MP、目标文件已存在的条目保留在结果里并带 blockedReason，
+ * 让界面能说明“为什么不能转”。中止时返回已经完成的条目，不抛错。
+ */
+export async function estimateConversions(
+	app: App,
+	files: TFile[],
+	config: ImageConversionConfig,
+	codec: ImageCodec,
+	onProgress?: (progress: ImageConversionProgress) => void,
+	signal?: AbortSignal,
+): Promise<ConvertibleImage[]> {
+	const normalized = normalizeImageConversionConfig(config);
+	const total = files.length;
+	// plan 统一处理目标冲突、大小写归一化与同格式；结果直接作为预标记。
+	const plan = planImageConversions(
+		files.map((file) => ({ path: file.path, size: file.stat?.size ?? 0 })),
+		normalized.target,
+		{
+			existingPaths: app.vault.getFiles().map((file) => file.path),
+			caseSensitive: isCaseSensitiveFileSystem(),
+		},
+	);
+	const planned = new Map(plan.items.map((item) => [item.path, item]));
+	const planSkipped = new Map(plan.skipped.map((item) => [item.path, item.reason]));
+	const items: ConvertibleImage[] = [];
+	let processed = 0;
+	let next = 0;
+	let stopped = false;
+	onProgress?.({ processed, total });
+	const workers = Array.from({ length: Math.max(1, Math.min(CONVERSION_CONCURRENCY, total || 1)) }, async () => {
+		while (!stopped) {
+			if (signal?.aborted) return;
+			const index = next++;
+			if (index >= total) return;
+			const file = files[index]!;
+			items.push(await estimateOneImage(app, file, normalized, codec, planned.get(file.path), planSkipped.get(file.path)));
+			processed += 1;
+			onProgress?.({ processed, total, currentPath: file.path });
+			// 中止后不再领取新文件，但已开始的编码会自然结束并被计入结果。
+			if (signal?.aborted) stopped = true;
+		}
+	});
+	await Promise.all(workers);
+	// 同格式是“永远不能转”的噪声：即使绕过候选集调用，也不出现在估算结果里。
+	return items.filter((item) => item.blockedReason !== 'same-format').sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function estimateOneImage(app: App, file: TFile, config: ImageConversionConfig, codec: ImageCodec, planned: ImageConvertPlanItem | undefined, planBlockedReason: string | undefined): Promise<ConvertibleImage> {
+	const extension = file.extension.toLowerCase();
+	const base: ConvertibleImage = {
+		path: file.path,
+		extension,
+		width: 0,
+		height: 0,
+		oldBytes: file.stat?.size ?? 0,
+		newBytes: 0,
+		hasAlpha: false,
+		referenceCount: 0,
+	};
+	if ((extension === 'jpeg' ? 'jpg' : extension) === config.target) return { ...base, blockedReason: 'same-format' };
+	// 轻量引用预检：数量即“引用处数”，任何无法安全改写的引用风险直接阻断该图。
+	try {
+		const references = await findImageReferences(app, file.path);
+		if (!references.ok) return { ...base, blockedReason: references.reason };
+		base.referenceCount = references.totalLiveRefs;
+	} catch {
+		return { ...base, blockedReason: 'unsupported-source' };
+	}
+	if (planBlockedReason) return { ...base, blockedReason: planBlockedReason };
+	if (!planned) return { ...base, blockedReason: 'unsupported-source' };
+	let data: ArrayBuffer;
+	try {
+		data = await app.vault.readBinary(file);
+	} catch {
+		return { ...base, blockedReason: '读取文件失败' };
+	}
+	let decoded: Awaited<ReturnType<ImageCodec['decode']>>;
+	try {
+		decoded = await codec.decode(data);
+	} catch {
+		return { ...base, blockedReason: '图片解码失败' };
+	}
+	if (!decoded.ok) return { ...base, blockedReason: decoded.reason };
+	const width = Math.max(0, Math.round(decoded.image.width));
+	const height = Math.max(0, Math.round(decoded.image.height));
+	const sized: ConvertibleImage = { ...base, width, height, hasAlpha: Boolean(decoded.image.hasAlpha) };
+	if (!isWithinPixelLimit(width, height)) return { ...sized, blockedReason: '分辨率超过 40MP' };
+	// “跳过透明图”对所有目标格式一致；选白底时 JPG 恒白底，WebP/PNG 也按白底估算体积。
+	if (config.alpha === 'skip' && sized.hasAlpha) return { ...sized, blockedReason: 'alpha-skip' };
+	const flatten = config.target === 'jpg' || config.alpha === 'flatten';
+	let encoded: Awaited<ReturnType<ImageCodec['encode']>>;
+	try {
+		encoded = await codec.encode(decoded.image, config.target, { quality: config.quality / 100, flatten });
+	} catch {
+		return { ...sized, blockedReason: '图片编码失败' };
+	}
+	if (!encoded.ok) return { ...sized, blockedReason: encoded.reason };
+	return { ...sized, newBytes: encoded.bytes.byteLength };
 }
 
 export async function referencedByCanvas(app: App, canvas: TFile): Promise<string[]> {

@@ -28,14 +28,14 @@ export const normalizePath = p => p;
 export const setIcon = () => {};
 `;
 const bundle = await build({
-	stdin: { contents: "export { OrphanCleanupPanel as Panel } from './src/orphan-cleanup.ts'; export { TFile } from 'obsidian';", resolveDir: process.cwd() },
+	stdin: { contents: "export { OrphanCleanupPanel as Panel } from './src/orphan-cleanup.ts'; export { TFile, Notice } from 'obsidian';", resolveDir: process.cwd() },
 	bundle: true, write: false, format: 'esm', platform: 'node',
 	plugins: [{ name: 'obsidian-stub', setup(b) {
 		b.onResolve({ filter: /^obsidian$/ }, () => ({ path: 'obsidian', namespace: 'stub' }));
 		b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: stub }));
 	} }],
 });
-const { Panel, TFile } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const { Panel, TFile, Notice } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 function events() {
 	const listeners = new Map();
 	return {
@@ -63,7 +63,7 @@ test('panel updates edited source only and repeated current-tab refresh is effec
 	assert.equal(checked.length, 6);
 	panel.dirtyTabs.clear();
 	vault.emit('rename', file, 'old.md');
-	for (const tab of ['images', 'attachments', 'empty-files', 'folders', 'duplicates', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links']) {
+	for (const tab of ['images', 'attachments', 'empty-files', 'folders', 'duplicates', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links', 'image-convert']) {
 		assert.equal(panel.dirtyTabs.has(tab), true, `${tab} must refresh after a file is renamed`);
 	}
 	await panel.activateTab('broken-note-links');
@@ -147,7 +147,7 @@ test('restored cache is treated as stale until each category is refreshed', () =
 	const panel = new Panel({ metadataCache: events(), vault: events() }, {}, { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, { cachedCandidates: cached });
 	panel.renderContents = () => {};
 	panel.restoreFromCache();
-	for (const tab of ['images', 'attachments', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates']) assert.equal(panel.dirtyTabs.has(tab), true);
+	for (const tab of ['images', 'attachments', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates', 'image-convert']) assert.equal(panel.dirtyTabs.has(tab), true);
 });
 
 test('full scan stays on overview and publishes category results before completion', async () => {
@@ -157,12 +157,14 @@ test('full scan stays on overview and publishes category results before completi
 	const panel = new Panel(app, { querySelector: () => null, querySelectorAll: () => [] }, { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, {});
 	const snapshots = [];
 	panel.activeTab = 'attachments';
+	panel.convertSelections.add('photo.png');
 	panel.renderContents = () => snapshots.push({ scanning: panel.scanning, activeTab: panel.activeTab, completed: [...panel.scannedTabs], count: panel.candidates.attachments.length });
 	await panel.scan();
 	assert.equal(snapshots[0].activeTab, 'overview');
 	assert.ok(snapshots.some(s => s.scanning && s.completed.includes('attachments') && !s.completed.includes('duplicates') && s.count === 1));
 	assert.equal(panel.scannedTabs.size, 9);
 	assert.equal(panel.scanning, false);
+	assert.equal(panel.convertSelections.size, 0, '全量扫描必须清空转换选择');
 	delete globalThis.window;
 });
 
@@ -175,6 +177,35 @@ test('dashboard distinguishes waiting, scanning, stale and healthy results', () 
 	assert.equal(panel.categoryStatus(4, true, false, false), '发现 4 项');
 });
 
+test('切换标签、重新估算与全量扫描都会清空转换选择', async () => {
+	globalThis.window = { setTimeout };
+	const panel = new Panel({ metadataCache: events(), vault: events() }, {}, { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, {});
+	panel.renderContents = () => {};
+	panel.updateTabCounts = () => {};
+	panel.scanTab = async () => {};
+	panel.activeTab = 'overview';
+	panel.convertSelections.add('a.png');
+	await panel.activateTab('images');
+	assert.equal(panel.convertSelections.size, 0, '切换标签必须清空转换选择');
+
+	panel.convertSelections.add('b.png');
+	panel.candidates.convertibleImages = [];
+	await panel.estimateConversions();
+	assert.equal(panel.convertSelections.size, 0, '重新估算开始时必须清空转换选择');
+	delete globalThis.window;
+});
+
+test('convertSelected 不接受带 blockedReason 的条目', async () => {
+	const panel = new Panel({ metadataCache: events(), vault: events() }, {}, { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, {});
+	panel.renderContents = () => {};
+	panel.candidates.convertibleImages = [{ path: 'blocked.png', stat: { size: 1 } }];
+	panel.conversion.items = [{ path: 'blocked.png', blockedReason: 'has-size' }];
+	panel.convertSelections.add('blocked.png');
+	Notice.messages.length = 0;
+	await panel.convertSelected();
+	assert.match(Notice.messages.at(-1), /不可转换/);
+});
+
 test('home tab totals all categories and issue tabs lead without changing their relative order', () => {
 	const panel = new Panel({}, {}, { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, {});
 	panel.candidates.attachments = [{ path: 'a.pdf' }, { path: 'b.pdf' }];
@@ -183,7 +214,8 @@ test('home tab totals all categories and issue tabs lead without changing their 
 	let entries = panel.tabEntries();
 	assert.deepEqual(entries[0], ['overview', '体检首页', 9]);
 	assert.deepEqual(entries.slice(1, 4).map(([tab]) => tab), ['attachments', 'native-links', 'duplicates']);
-	assert.equal(entries.length, 10);
+	assert.equal(entries.length, 11);
+	assert.deepEqual(entries.at(-1), ['image-convert', '图片转换', 0]);
 	panel.candidates.attachments = [];
 	entries = panel.tabEntries();
 	assert.equal(entries[0][2], 7);
@@ -194,6 +226,9 @@ test('home tab totals all categories and issue tabs lead without changing their 
 	panel.candidates.nativeLinks = []; panel.candidates.duplicates = [];
 	assert.equal(panel.tabEntries()[0][2], 0);
 	assert.equal(panel.tabEntries()[1][0], 'images');
+	panel.candidates.convertibleImages = [{ path: 'photo.png' }];
+	assert.equal(panel.tabEntries()[0][2], 0, '转换候选不改变首页问题总数');
+	assert.deepEqual(panel.tabEntries().at(-1), ['image-convert', '图片转换', 1]);
 });
 
 test('stale tab paints immediately, shares its scan and does not redraw a newer tab', async () => {

@@ -36,7 +36,10 @@ export function updateScanProgress(view: CleanupViewContext) {
 			: categoryStatus(categoryCount(view.candidates, tab), completed, false, view.dirtyTabs.has(tab)));
 	}
 	const ring = view.contentEl.querySelector<HTMLElement>('.orphan-cleanup-dashboard-progress-ring');
-	if (ring) ring.style.setProperty('--scan-progress', `${view.scanning ? percent : view.scannedTabs.size / CLEANUP_CATEGORIES.length * 100}%`);
+	if (ring) {
+		const scannedCategories = CLEANUP_CATEGORIES.filter((category) => view.scannedTabs.has(category.tab)).length;
+		ring.style.setProperty('--scan-progress', `${view.scanning ? percent : scannedCategories / CLEANUP_CATEGORIES.length * 100}%`);
+	}
 }
 
 function categoryScanStage(tab: ScanCategoryTab): number {
@@ -47,12 +50,14 @@ export function renderOverview(view: CleanupViewContext) {
 	const home = view.contentEl.createDiv({ cls: 'orphan-cleanup-home orphan-cleanup-dashboard' });
 	if (view.scanning) home.addClass('is-scanning');
 	const total = categoryTotal(view.candidates);
-	const scanned = view.scannedTabs.size;
+	// 图片转换不是分类：不参与首页“已扫描分类”和健康度判断。
+	const scanned = CLEANUP_CATEGORIES.filter((category) => view.scannedTabs.has(category.tab)).length;
+	const categoryDirty = CLEANUP_CATEGORIES.some((category) => view.dirtyTabs.has(category.tab));
 	const stale = CLEANUP_CATEGORIES.filter((category) => view.scannedTabs.has(category.tab) && view.dirtyTabs.has(category.tab)).length;
 	const header = home.createDiv({ cls: 'orphan-cleanup-home-header' });
 	const heading = header.createDiv({ cls: 'orphan-cleanup-home-heading' });
 	heading.createDiv({ text: 'Vault 健康概览', cls: 'orphan-cleanup-home-eyebrow' });
-	heading.createEl('h2', { text: view.scanning ? '正在检查资料库' : total ? '需要你的注意' : scanned < CLEANUP_CATEGORIES.length || view.dirtyTabs.size ? '等待检查资料库' : '资料库状态良好' });
+	heading.createEl('h2', { text: view.scanning ? '正在检查资料库' : total ? '需要你的注意' : scanned < CLEANUP_CATEGORIES.length || categoryDirty ? '等待检查资料库' : '资料库状态良好' });
 	heading.createEl('p', { text: view.scanning ? '扫描会在当前页面持续进行，结果将直接显示在对应模块。' : '扫描仅在本地进行，不会修改任何文件。', cls: 'orphan-cleanup-home-subtitle' });
 	const scanAll = header.createEl('button', { text: view.scanning ? '扫描中…' : view.hasScanned ? '重新扫描全部' : '开始扫描', cls: 'mod-cta orphan-cleanup-scan-all' });
 	scanAll.disabled = view.scanning || view.scanningTabs.size > 0;

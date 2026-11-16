@@ -11,6 +11,7 @@ export function categoryCount(candidates: CleanupCandidates, tab: ScanCategoryTa
 		case 'empty-files': return candidates.emptyFiles.length;
 		case 'folders': return candidates.folders.length;
 		case 'duplicates': return candidates.duplicates.length;
+		case 'image-convert': return candidates.convertibleImages.length;
 	}
 }
 
@@ -42,7 +43,11 @@ export function clampPageIndex(current: number, total: number, pageSize: number)
 export function tabEntries(candidates: CleanupCandidates, scanning: boolean): Array<[CleanupTab, string, number]> {
 	const categories = CLEANUP_CATEGORIES.map(({ tab, label }) => ({ tab, label, count: categoryCount(candidates, tab) }));
 	if (!scanning) categories.sort((a, b) => Number(b.count > 0) - Number(a.count > 0));
-	return [['overview', '体检首页', categoryTotal(candidates)], ...categories.map(({ tab, label, count }): [CleanupTab, string, number] => [tab, label, count])];
+	return [
+		['overview', '体检首页', categoryTotal(candidates)],
+		...categories.map(({ tab, label, count }): [CleanupTab, string, number] => [tab, label, count]),
+		['image-convert', '图片转换', candidates.convertibleImages.length],
+	];
 }
 
 export function formatScanDuration(milliseconds: number): string {

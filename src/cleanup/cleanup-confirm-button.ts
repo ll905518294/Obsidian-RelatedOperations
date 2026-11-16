@@ -4,8 +4,22 @@ const ARMED_CLASS = 'is-armed-confirm';
 const CONFIRM_LABEL = '确认删除';
 const CONFIRM_HINT = '再次点击确认删除';
 
+export interface ConfirmButtonLabels {
+	confirm?: string;
+	hint?: string;
+}
+
+export interface ConfirmButtonOptions {
+	timeoutMs?: number;
+	labels?: ConfirmButtonLabels;
+}
+
 export interface ConfirmButtonHandle {
 	reset(): void;
+}
+
+function isConfirmButtonOptions(value: ConfirmButtonOptions | ConfirmButtonLabels): value is ConfirmButtonOptions {
+	return 'labels' in value || 'timeoutMs' in value;
 }
 
 const resetsByButton = new WeakMap<HTMLButtonElement, () => void>();
@@ -33,8 +47,9 @@ function writeAttribute(button: HTMLButtonElement, name: string, value: string |
 /**
  * Two-click confirmation for destructive buttons.
  *
- * The first click only arms the button (text becomes 「确认删除」, warning
- * styling is applied, a screen-reader hint explains the second click). The
+ * The first click only arms the button (text becomes the configured confirm
+ * label, default 「确认删除」; warning styling is applied and a screen-reader
+ * hint explains the second click). The
  * second click within the timeout runs the callback. Arming is reset by the
  * timeout, by moving focus away, or by `resetArmedConfirmButtons` when the
  * selection changes. Rebuilding the button naturally starts unarmed again.
@@ -42,7 +57,7 @@ function writeAttribute(button: HTMLButtonElement, name: string, value: string |
 export function requireSecondClick(
 	button: HTMLButtonElement,
 	onConfirm: () => unknown,
-	options: { timeoutMs?: number } = {},
+	options: ConfirmButtonOptions | ConfirmButtonLabels = {},
 ): ConfirmButtonHandle {
 	// Icon/rich-content buttons keep their SVG (or other) child nodes across
 	// the arming round-trip. Obsidian's setText assigns `textContent`, which
@@ -55,6 +70,11 @@ export function requireSecondClick(
 	const originalAriaDescription = readAttribute(button, 'aria-description');
 	let armed = false;
 	let timer = 0;
+	const optionsShape = isConfirmButtonOptions(options);
+	const labels = optionsShape ? options.labels : options;
+	const timeoutMs = optionsShape ? options.timeoutMs : undefined;
+	const confirmLabel = labels?.confirm ?? CONFIRM_LABEL;
+	const confirmHint = labels?.hint ?? CONFIRM_HINT;
 
 	const restoreContent = () => {
 		if (originalChildNodes.length > 0) {
@@ -92,17 +112,17 @@ export function requireSecondClick(
 			return;
 		}
 		armed = true;
-		button.setText(CONFIRM_LABEL);
+		button.setText(confirmLabel);
 		button.addClass(ARMED_CLASS, 'mod-warning');
 		// Icon-only buttons derive their accessible name from aria-label, so the
 		// text swap alone would leave a screen reader announcing the old label.
 		// Text buttons are named by their text and must not gain an aria-label.
-		if (originalAriaLabel !== null) writeAttribute(button, 'aria-label', CONFIRM_LABEL);
+		if (originalAriaLabel !== null) writeAttribute(button, 'aria-label', confirmLabel);
 		// `title` carries the armed name for the hover tooltip; the second-click
 		// hint lives only in aria-description so it is not announced twice.
-		writeAttribute(button, 'title', CONFIRM_LABEL);
-		writeAttribute(button, 'aria-description', CONFIRM_HINT);
-		timer = window.setTimeout(reset, options.timeoutMs ?? CONFIRM_ARM_TIMEOUT_MS);
+		writeAttribute(button, 'title', confirmLabel);
+		writeAttribute(button, 'aria-description', confirmHint);
+		timer = window.setTimeout(reset, timeoutMs ?? CONFIRM_ARM_TIMEOUT_MS);
 	};
 
 	button.addEventListener('click', onClick);

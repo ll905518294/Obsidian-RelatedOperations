@@ -12,9 +12,10 @@ test('引导包含三步且内容完整', () => {
 	}
 });
 
-test('第一步覆盖 9 类体检与关联笔记整理', () => {
+test('第一步覆盖 9 类体检、图片转换与关联笔记整理', () => {
 	const text = ONBOARDING_STEPS[0].items.map((item) => `${item.text}${item.after ?? ''}`).join('\n');
 	assert.match(text, /9 类问题/);
+	assert.match(text, /图片转换/);
 	assert.match(text, /关联笔记整理/);
 });
 

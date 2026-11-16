@@ -20,6 +20,7 @@ function candidates(overrides = {}) {
 		brokenNoteLinks: [],
 		duplicates: [],
 		duplicateWarnings: [],
+		convertibleImages: [],
 		...overrides,
 	};
 }
@@ -49,6 +50,21 @@ test('干净状态没有不变量问题', () => {
 	assert.deepEqual(checkCleanupInvariants(state()), []);
 	const tabs = new Set(['images', 'folders']);
 	assert.deepEqual(checkCleanupInvariants(state({ scannedTabs: tabs, dirtyTabs: new Set(['folders']) })), []);
+});
+
+test('图片转换标签出现在扫描状态与分页里不算不变量错误', () => {
+	const conversionTabs = new Set(['image-convert']);
+	assert.deepEqual(checkCleanupInvariants(state({
+		scannedTabs: new Set(['images', 'image-convert']),
+		scanningTabs: conversionTabs,
+		dirtyTabs: conversionTabs,
+		activeTab: 'image-convert',
+		pages: new Map([['image-convert', 1]]),
+		candidates: candidates({ convertibleImages: [{ path: 'a.png' }] }),
+	})), []);
+	// 非法分页值仍然要被发现。
+	const issues = checkCleanupInvariants(state({ pages: new Map([['image-convert', -1]]) }));
+	assert.ok(issues.some((issue) => issue.includes('pages[image-convert] 不是非负整数')));
 });
 
 test('分类标签集合不能包含 overview 或未知标签', () => {
@@ -120,9 +136,10 @@ test('选择漂移诊断只报告不在候选中的路径', () => {
 		candidates: candidates({
 			images: [{ path: 'kept.png' }],
 			folders: [{ path: 'kept-folder' }],
+			convertibleImages: [{ path: 'convert.png' }],
 			duplicates: [{ files: [{ path: 'dup-a.png' }, { path: 'dup-b.png' }] }],
 		}),
-		selections: new Set(['kept.png', 'kept-folder', 'gone.png']),
+		selections: new Set(['kept.png', 'kept-folder', 'convert.png', 'gone.png']),
 		duplicateSelections: new Set(['dup-a.png', 'gone-dup.png']),
 	});
 	assert.deepEqual(pathSelectionsOutsideCandidates(value), ['gone.png']);

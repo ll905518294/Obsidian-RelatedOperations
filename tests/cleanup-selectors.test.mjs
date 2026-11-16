@@ -23,6 +23,7 @@ function candidates(overrides = {}) {
 		wikiLinks: [],
 		duplicates: [],
 		duplicateWarnings: [],
+		convertibleImages: [],
 		...overrides,
 	};
 }
@@ -48,12 +49,16 @@ test('categoryCount 按分类返回候选数量', () => {
 	assert.equal(categoryCount(value, 'empty-files'), 1);
 	assert.equal(categoryCount(value, 'folders'), 3);
 	assert.equal(categoryCount(value, 'duplicates'), 1);
+	assert.equal(categoryCount(value, 'image-convert'), 0);
+	assert.equal(categoryCount(candidates({ convertibleImages: [{ path: 'a.png' }, { path: 'b.png' }] }), 'image-convert'), 2);
 });
 
 test('categoryTotal 汇总全部分类', () => {
 	assert.equal(categoryTotal(candidates()), 0);
 	const value = candidates({ images: [{ path: 'a' }], folders: [{ path: 'b' }, { path: 'c' }], duplicates: [{ hash: 'd' }] });
 	assert.equal(categoryTotal(value), 4);
+	// 图片转换不计入体检问题总数。
+	assert.equal(categoryTotal(candidates({ convertibleImages: [{ path: 'a.png' }], images: [{ path: 'b.png' }] })), 1);
 });
 
 test('categoryStatus 覆盖四种状态文案', () => {
@@ -94,16 +99,25 @@ test('tabEntries 首页居首，扫描中不重排，非扫描时按有无问题
 	const scanning = tabEntries(value, true).map(([tab]) => tab);
 	assert.deepEqual(scanning, [
 		'overview', 'images', 'attachments', 'broken-links', 'native-links',
-		'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates',
+		'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates', 'image-convert',
 	]);
 
 	const sorted = tabEntries(value, false);
 	assert.deepEqual(sorted.map(([tab]) => tab), [
 		'overview', 'images', 'broken-links', 'attachments', 'native-links',
-		'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates',
+		'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates', 'image-convert',
 	]);
 	assert.equal(sorted[0][1], '体检首页');
 	assert.equal(sorted[0][2], 3);
+	assert.deepEqual(sorted.at(-1), ['image-convert', '图片转换', 0]);
+});
+
+test('图片转换标签固定在末位，不参与分类排序', () => {
+	const value = candidates({ convertibleImages: [{ path: 'a.png' }, { path: 'b.png' }], images: [{ path: 'c.png' }] });
+	const entries = tabEntries(value, false);
+	assert.deepEqual(entries.at(-1), ['image-convert', '图片转换', 2]);
+	assert.equal(entries[1][0], 'images', '分类仍按有无问题排序，转换标签不插队');
+	assert.equal(entries.length, 11);
 });
 
 test('formatScanDuration 处理秒、分与负数', () => {

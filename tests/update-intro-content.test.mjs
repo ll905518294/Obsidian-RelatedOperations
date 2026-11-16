@@ -66,6 +66,17 @@ test('1.6.3 内置说明存在且覆盖使用引导截图', () => {
 	assert.match(text, /开始扫描/);
 });
 
+test('1.7.0 内置说明存在且覆盖图片转换', () => {
+	const intro = currentUpdateIntro('1.7.0');
+	assert.ok(intro, '1.7.0 必须有更新说明条目');
+	assert.equal(intro.theme, '图片格式转换');
+	const text = intro.sections.map((section) => section.title + section.items.join('\n')).join('\n');
+	assert.match(text, /图片转换/);
+	assert.match(text, /PNG/);
+	assert.match(text, /预计节省/);
+	assert.match(text, /Canvas/);
+});
+
 test('内置说明内容完整可渲染', () => {
 	assert.ok(UPDATE_INTROS.length > 0);
 	const versions = new Set();

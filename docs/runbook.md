@@ -55,6 +55,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - [ ] `npm run build` 通过，项目根生成了最新 `main.js`。
 - [ ] `npm run lint` 通过。
 - [ ] `npm test` 通过（原生测试全部绿）。
+- [ ] 本次包含图片转换时，按第 9 节在演示库完成验证。
 - [ ] `npm run test:deploy` 与 `npm run deploy:check` 通过（两者都不复制文件、不重启 Obsidian）。
 - [ ] 三件套存在：`Get-Item main.js, manifest.json, styles.css`。
 - [ ] tag 与版本一致：`git tag --list $v`（应显示 `$v`），用 `git push origin $v` 推送。
@@ -142,3 +143,29 @@ README 的 9 张截图位于 `docs/images/`。1.4.x 截图状态：
 - **无需更新**：`07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致。
 
 更新截图时保持文件名不变，避免改动 README 引用；不要用真实 Vault 截图（会暴露私有内容），统一使用演示库实拍并保持 9 个分类页签齐全。
+
+1.7.0 新增「图片转换」页签后，`01-dashboard.png`、`02-scan-result.png` 仍是 9 分类旧图，尚未包含该页签；补拍前不要复用旧图冒充 1.7.0 界面，README 的图片转换章节暂以文字说明为准。
+
+## 9. 1.7.0 图片转换验证
+
+1.7.0 的 `manifest.json` 版本为 `1.7.0`，`versions.json` 映射为 `"1.7.0": "1.13.0"`。发布前用演示库 `X:\Obsidian\vault-doctor-demo` 验证图片转换：
+
+1. 准备同一张 PNG 的三处引用：Wiki 嵌入（含别名、不含尺寸参数）、标准 Markdown 图片链接、HTML `<img src>`；确认三篇笔记都指向该 PNG。
+2. 打开 **体检与清理 → 图片转换**，源格式只勾选 PNG，目标格式选 JPG，质量 85，透明图处理选白底。
+3. 记录列表显示的候选数、当前体积、转换后体积与预计节省。
+4. 执行转换，确认三处引用都改为 `.jpg`：Wiki 嵌入保留别名，Markdown 链接保留标题与 URL 编码，HTML 的 `src` 同步更新。
+5. 重新扫描全部 9 类问题，确认失效图片链接与失效笔记链接均为 0，且没有新增失效引用。
+6. 用文件大小核对实际节省：转换后总体积与转换前总体积之差应与第 3 步的「预计节省」一致；不一致时停止发布并记录差异。
+
+### 手工验收清单
+
+| 操作 | 期望 |
+| --- | --- |
+| 在 Canvas 中只通过节点引用一张 PNG，转换该图 | Canvas 节点 `file` 指向新文件，图片仍能显示，复扫无失效链接 |
+| 准备一张含透明通道的 PNG，目标选 WebP，分别用「白底」与「跳过」各转换一次 | 白底输出 WebP 且透明区域变白；跳过时原 PNG 保持不动，并提示已跳过 |
+| 准备无扩展名 Wiki 嵌入 `![[cover]]` 指向 `cover.png`，转换该 PNG | 嵌入仍能解析到 `cover.jpg`，图片正常显示，复扫无失效图片链接 |
+| 在 `A/cover.png` 与 `B/cover.png` 放同名图片，同时转换 | 分别生成 `A/cover.jpg` 与 `B/cover.jpg`，不出现目标冲突跳过 |
+| 分别准备带尺寸参数的 Wiki 嵌入、frontmatter 裸路径、`picture/source`、CSS `url()`、Excalidraw 代码块引用 | 估算阶段均标记跳过，原图与引用保持不变 |
+| 先放一个同名不同内容的 `cover.jpg`，再转换 `cover.png` | 标记目标文件已存在且内容不同，不覆盖、不改引用 |
+| 转换后重新扫描全部 9 类问题 | 失效图片链接与失效笔记链接均为 0，没有新增失效引用 |
+| 记录转换前总体积与转换后总体积 | 实际节省与预估一致；不一致时停止发布并记录差异 |

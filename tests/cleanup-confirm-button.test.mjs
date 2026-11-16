@@ -175,6 +175,20 @@ test('第一次点击只进入待确认状态，不执行删除', () => {
 	assert.equal(pendingTimers().length, 1);
 });
 
+test('自定义两段式文案只影响传入的按钮', () => {
+	const target = button('开始转换', 'mod-cta');
+	let confirmed = 0;
+	requireSecondClick(target, () => { confirmed += 1; }, { confirm: '再次点击开始转换', hint: '再次点击开始转换' });
+	target.dispatch('click');
+	assert.equal(confirmed, 0);
+	assert.equal(target.textContent, '再次点击开始转换');
+	assert.equal(target.getAttribute('title'), '再次点击开始转换');
+	assert.equal(target.getAttribute('aria-description'), '再次点击开始转换');
+	target.dispatch('click');
+	assert.equal(confirmed, 1);
+	assert.equal(target.textContent, '开始转换');
+});
+
 test('第二次点击执行删除并复位按钮', () => {
 	const target = button('移入回收站', 'mod-cta');
 	let confirmed = 0;

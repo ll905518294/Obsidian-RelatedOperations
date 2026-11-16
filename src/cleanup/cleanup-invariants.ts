@@ -1,9 +1,11 @@
-import { CLEANUP_CATEGORIES, CLEANUP_PAGE_SIZE, type CleanupViewContext, type CleanupTab } from './cleanup-types.ts';
+import { CLEANUP_CATEGORIES, CLEANUP_PAGE_SIZE, type CleanupViewContext, type CleanupTab, type ScanCategoryTab } from './cleanup-types.ts';
 import { categoryCount } from './cleanup-selectors.ts';
 
 declare const process: { env: { NODE_ENV?: string } };
 
 const CATEGORY_TABS = new Set<string>(CLEANUP_CATEGORIES.map((category) => category.tab));
+// 非分类但合法的标签：不进入健康度与分类分页，扫描状态里出现时不算不变量错误。
+const NON_CATEGORY_TABS = new Set<string>(['image-convert']);
 
 export function lastPageIndex(total: number, pageSize: number): number {
 	return Math.max(0, Math.ceil(total / pageSize) - 1);
@@ -15,7 +17,7 @@ export function pageIndexInBounds(page: number, total: number, pageSize: number)
 
 function tabSetIssues(name: string, tabs: Set<CleanupTab>): string[] {
 	const issues: string[] = [];
-	for (const tab of tabs) if (!CATEGORY_TABS.has(tab)) issues.push(`${name} 含非分类标签：${tab}`);
+	for (const tab of tabs) if (!CATEGORY_TABS.has(tab) && !NON_CATEGORY_TABS.has(tab)) issues.push(`${name} 含非分类标签：${tab}`);
 	return issues;
 }
 
@@ -41,16 +43,17 @@ function progressIssues(state: CleanupViewContext): string[] {
 function pageIssues(state: CleanupViewContext): string[] {
 	const issues: string[] = [];
 	for (const [tab, page] of state.pages) {
-		if (!CATEGORY_TABS.has(tab)) {
+		if (!CATEGORY_TABS.has(tab) && !NON_CATEGORY_TABS.has(tab)) {
 			issues.push(`pages 含非分类标签：${tab}`);
 			continue;
 		}
 		if (!Number.isInteger(page) || page < 0) issues.push(`pages[${tab}] 不是非负整数：${page}`);
+		if (!CATEGORY_TABS.has(tab)) continue;
 	}
 	const active = state.activeTab;
-	if (active !== 'overview' && state.pages.has(active)) {
+	if (CATEGORY_TABS.has(active) && state.pages.has(active)) {
 		const page = state.pages.get(active)!;
-		const total = categoryCount(state.candidates, active);
+		const total = categoryCount(state.candidates, active as ScanCategoryTab);
 		if (!pageIndexInBounds(page, total, CLEANUP_PAGE_SIZE)) {
 			issues.push(`pages[${active}]=${page} 超出 ${total} 项的页数范围`);
 		}
@@ -102,6 +105,7 @@ export function pathSelectionsOutsideCandidates(state: CleanupViewContext): stri
 		...state.candidates.attachments.map((item) => item.path),
 		...state.candidates.emptyFiles.map((item) => item.path),
 		...state.candidates.folders.map((item) => item.path),
+		...state.candidates.convertibleImages.map((item) => item.path),
 	]);
 	return [...state.selections].filter((path) => !known.has(path));
 }

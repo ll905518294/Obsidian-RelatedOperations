@@ -3,10 +3,11 @@
 **Vault Doctor** is an Obsidian plugin that scans your vault for broken links, unreferenced resources and duplicate files — then helps you fix them safely, not just list them. It runs fully offline and only changes files after you confirm.
 
 - Unused images and attachments, empty files/folders, byte-identical duplicates, broken image and note links.
+- Image format conversion: batch-convert PNG, JPG, WebP, BMP and AVIF to JPG, WebP or PNG with an exact size preview and safe reference rewriting.
 - Related-note organizer by outgoing, incoming and bidirectional links, with folder batch moves.
 - Repo: <https://github.com/ll905518294/obsidian-vault-doctor> · Releases: <https://github.com/ll905518294/obsidian-vault-doctor/releases>
 
-一个为 Obsidian 做的「Vault 体检 + 问题处理」插件：一次性扫描失效链接、未引用资源、重复文件等健康问题，并安全地完成整理，而不是只列清单。
+一个为 Obsidian 做的「Vault 体检 + 问题处理」插件：一次性扫描 9 类健康问题（失效链接、未引用资源、重复文件等），并提供图片格式转换优化工具，安全地完成整理，而不是只列清单。
 
 - 仓库：<https://github.com/ll905518294/obsidian-vault-doctor>
 - 发布：<https://github.com/ll905518294/obsidian-vault-doctor/releases>
@@ -16,6 +17,8 @@
 ![Vault 体检首页](docs/images/01-dashboard.png)
 
 > 截图取自演示库 `vault-doctor-demo`，仅含示例内容。
+>
+> 现有截图为 1.6.x 界面；1.7.0 新增的「图片转换」页签尚未配图，以文字说明为准。
 
 ## 功能总览
 
@@ -23,6 +26,7 @@
 | --- | --- |
 | Vault 体检 | 一键扫描未引用图片、未引用附件、空文件、空文件夹、失效图片链接、失效笔记链接、原生图片链接、Wiki 笔记链接、重复文件 |
 | 清理处理 | 勾选后通过删除按钮两段式确认移入 Obsidian 回收站；失效链接可移除；缺失笔记可创建；`![[图片]]` 可转换为标准 Markdown 语法 |
+| 图片转换 | 在体检面板末尾的「图片转换」标签页，批量把 PNG/JPG/WebP/BMP/AVIF 转为 JPG/WebP/PNG，执行前精确预估空间并安全改写引用 |
 | 关联笔记整理 | 找出当前笔记的出链、入链、双向链接笔记，批量移动到指定文件夹 |
 | 扫描报告 | 支持复制到剪贴板或导出 Markdown 报告，只包含路径与链接信息，不含笔记正文 |
 
@@ -86,6 +90,92 @@
 - 执行清理前会对每个条目**重新复核**引用状态：扫描后被引用、被修改或已被移除的资源自动跳过。
 - 图片清理后如需清理因此变空的文件夹，请先**重新扫描**再操作。
 - Vault 内容发生变化后，旧扫描结果会标记**结果待复核，请重新扫描**，未扫描的分类显示**尚未扫描**。
+
+## 图片格式转换
+
+「图片转换」是体检与清理面板标签条末尾的独立标签页，用于在保持图片可用的前提下缩小体积。它不属于 9 类体检问题，不计入首页总数、健康度或 6 阶段扫描；打开 **体检与清理** 后切换到 **图片转换** 即可使用。
+
+### 可选项
+
+| 选项 | 可选值 | 默认 |
+| --- | --- | --- |
+| 源格式 | PNG、JPG、WebP、BMP、AVIF（可多选） | 只勾选 PNG |
+| 目标格式 | JPG、WebP、PNG | JPG |
+| 质量 | 50–95 | 85 |
+| 透明图处理 | 白底、跳过 | 白底 |
+
+目标格式为 PNG 时质量滑块不可用：PNG 为无损编码，质量参数不生效。超过 4000 万像素的图片会标记跳过。
+
+只处理上述源格式。GIF（转换会丢失动画）、SVG、TIFF、HEIC/HEIF、ICO 不处理；`.obsidian`、隐藏目录和设置中的「忽略目录」会被排除。
+
+### 透明图
+
+- **「透明」标记**：解码后发现至少一个像素的 alpha 小于 255；按像素判断，不看扩展名。
+- **白底**：把透明区域铺成白色再编码，适合 JPG 等不支持透明的目标。
+- **跳过**：目标为 WebP 或 PNG 时，含透明图片标记跳过；JPG 不支持透明，始终按白底输出。
+
+### 会跳过的情况
+
+估算阶段就会标出以下图片，状态列写明「跳过：原因」，汇总条不计入这些项：
+
+- Wiki 嵌入带尺寸参数，如 `![[cover.png|120]]`，整张跳过。
+- frontmatter 里的裸路径；可解析的 Wiki 链接仍可改写。
+- `<picture><source>`、`srcset`、CSS `url()`。
+- 代码块内的引用，包括 Excalidraw 代码块。
+- 引用计数与 Obsidian 缓存不一致；需重新扫描后再试。
+- 目标同名文件已存在且内容不同；不会覆盖。
+- 目标为 WebP/PNG 且选择「跳过」时，含透明通道的图片。
+- 无扩展名引用存在同名文件、超过 4000 万像素，或解码/编码失败。
+
+### 空间预估
+
+候选列表显示**候选数**、**当前体积**、**转换后体积**与**预计节省**。估算阶段会把会跳过的图片标灰并写明原因，汇总条只累计可转换项，跳过项单独显示数量。
+
+预估不是按扩展名或经验系数估算：每张可转换的候选图都会按当前选项真实解码并重编码一次，以实际目标字节数计算，因此结果与执行后的文件大小一致。
+
+如果转换后反而更大，汇总显示**预计增加**，单行显示 `+x%`；这类图片可以不勾选。
+
+### 耗时与中止
+
+- 估算按 **2 个并发**读取、解码与重编码；转换按 **1 个并发**逐张串行。耗时取决于图片数量、分辨率和 CPU。
+- 估算与转换都支持中止；中止在文件之间生效，当前一张会完成，已完成部分保留。单张大图编码时界面可能短暂停顿。
+
+### 安全执行
+
+每张图独立执行一次事务：
+
+1. 重新校验文件仍存在、仍在候选范围内，并记录大小与 mtime。
+2. 校验引用位置可定位，避免改写错位置。
+3. 生成目标格式的新文件。
+4. 改写引用并自校验。
+5. 删除前再次核对源图大小与 mtime，并独立扫描所有 Markdown/Canvas 原文；残留旧路径或源图被改动就回滚，不删原图。
+6. 校验通过后，把原图移入 Obsidian 回收站。
+
+读取后与删除前都会复核源图；同步盘或其它程序改动源图时放弃删除并回滚。引用改写覆盖：
+
+- Wiki 嵌入，保留别名；含尺寸参数的嵌入会跳过。
+- 标准 Markdown 图片链接，兼容尖括号目标、标题与 URL 编码。
+- HTML `<img src>`；`<picture><source>`、`srcset` 会跳过。
+- frontmatter 中的 Wiki 链接；裸路径会跳过。
+- Canvas 节点的 `file` 字段；Canvas 文本节点里的引用会跳过。
+
+转换会修改文件内容与文件本身，和首页「扫描只读」不同；请先确认预估结果再执行。整个过程在本地完成，不引入依赖、不发起网络请求。
+
+### 失败与恢复
+
+- 改写引用失败：尝试恢复原文并删除本次新建文件，原图保留。
+- 回滚时发现笔记被用户改过：保留用户内容，不覆盖，只把该笔记列为「未能回滚」，并保留新文件。
+- 回滚失败（笔记恢复失败或新文件删除失败）：保留新文件，避免出现指向已删除文件的链接。
+- 引用已改好但原图移入回收站失败：保留新文件与现状，原图也保留；再次执行只重试移入回收站，不重新编码。
+- 恢复原图：按 Obsidian 回收站设置从 `.trash/` 或系统回收站还原；引用仍指向新文件，完全回退需手动改回并删除新文件。
+
+### 已知限制
+
+- 转换会丢弃 EXIF/GPS/ICC 与色彩配置文件。
+- 照片方向由浏览器自动扶正，不额外写入方向信息。
+- 不缩放、不裁剪，只改变编码格式与质量。
+- 原图恢复依赖 Obsidian 回收站；清空回收站后无法从插件内恢复。
+- 不处理 GIF、SVG、TIFF、HEIC/HEIF、ICO。
 
 ## 关联笔记整理
 
@@ -157,6 +247,7 @@ npm run deploy    # 构建并部署到当前打开的 Vault（见下）
 
 - 仅支持桌面端（移动端不可用）。
 - 重复检测只识别字节级相同的文件，不识别内容相似。
+- 图片转换会丢弃 EXIF/GPS/ICC 与色彩配置文件，不缩放、不裁剪；原图恢复依赖 Obsidian 回收站。
 - 失效链接移除与原生图片链接、Wiki 笔记链接转换直接编辑 Markdown，依赖 Obsidian 编辑历史撤销，不经过回收站。
 - `npm run deploy` 依赖 Windows PowerShell、Obsidian CLI 与恰好一个打开的 Vault。
 

@@ -1,9 +1,9 @@
 export type CleanupRisk = 'safe' | 'confirm' | 'info';
-export type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'native-links' | 'broken-note-links' | 'empty-files' | 'folders' | 'duplicates';
+export type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'native-links' | 'broken-note-links' | 'empty-files' | 'folders' | 'duplicates' | 'image-convert';
 
 export function riskForCleanupTab(tab: CleanupTab): CleanupRisk {
 	if (tab === 'images' || tab === 'attachments' || tab === 'empty-files' || tab === 'folders') return 'safe';
-	if (tab === 'broken-links' || tab === 'native-links' || tab === 'broken-note-links' || tab === 'duplicates') return 'confirm';
+	if (tab === 'broken-links' || tab === 'native-links' || tab === 'broken-note-links' || tab === 'duplicates' || tab === 'image-convert') return 'confirm';
 	return 'info';
 }
 

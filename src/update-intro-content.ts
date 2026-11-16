@@ -15,6 +15,30 @@ export interface UpdateIntro {
 // Keep newest first and add an entry with each release.
 export const UPDATE_INTROS: UpdateIntro[] = [
 	{
+		version: '1.7.0',
+		theme: '图片格式转换',
+		summary: '体检与清理面板新增「图片转换」标签页：批量转换 PNG、JPG、WebP、BMP、AVIF，执行前精确预估可节省空间，并安全改写引用。',
+		sections: [
+			{
+				title: '新功能',
+				items: [
+					'体检与清理面板新增「图片转换」标签页，位于标签条末尾；不属于 9 类体检问题，也不计入首页总数、健康度与 6 阶段扫描。',
+					'支持 PNG、JPG、WebP、BMP、AVIF 转 JPG、WebP 或 PNG，质量 50–95，透明图可选白底或跳过。',
+					'转换前对每张候选图真实重编码一次，显示候选数、当前体积、转换后体积与预计节省。',
+					'逐张事务执行并安全改写引用：覆盖 Wiki 嵌入（保留别名与尺寸）、标准 Markdown 链接、HTML img、frontmatter 路径与 Canvas 节点；失败回滚并保留原图。',
+				],
+			},
+			{
+				title: '改进',
+				items: [
+					'默认只勾选 PNG、目标格式 JPG、质量 85、透明图白底；`.obsidian`、隐藏目录与设置中的「忽略目录」会被排除。',
+					'不处理 GIF、SVG、TIFF、HEIC/HEIF、ICO。',
+					'转换会丢弃 EXIF/GPS/ICC 与色彩配置文件，照片方向由浏览器自动扶正；不缩放、不裁剪，原图恢复依赖 Obsidian 回收站。',
+				],
+			},
+		],
+	},
+	{
 		version: '1.6.3',
 		theme: '使用引导加入界面截图',
 		summary: '使用引导三步各加入一张界面截图，分别展示扫描结果、重复文件清理与体检首页，更直观。',

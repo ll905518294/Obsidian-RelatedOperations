@@ -21,6 +21,7 @@ export interface CleanupCandidates {
 	wikiLinks: WikiNoteLink[];
 	duplicates: DuplicateFileGroup[];
 	duplicateWarnings: Array<{ path: string; reason: string }>;
+	convertibleImages: TFile[];
 }
 
 export type { BrokenImageLink, BrokenNoteLink, NativeImageLink, WikiNoteLink };
@@ -34,12 +35,109 @@ export interface CleanupResult {
 export interface OrphanImageExtensions {
 	orphanImageExtensions: string;
 	orphanIgnoredFolders: string;
+	imageConversion?: ImageConversionConfig;
 }
 
 export type ScanStage = { label: string; state: 'pending' | 'scanning' | 'done'; elapsedMs: number; startedAt?: number };
 export type ScanProgress = { stage: number; processed: number; total: number; currentFile?: string };
-export type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'native-links' | 'broken-note-links' | 'wiki-links' | 'empty-files' | 'folders' | 'duplicates';
+export type CleanupTab = 'overview' | 'images' | 'attachments' | 'broken-links' | 'native-links' | 'broken-note-links' | 'wiki-links' | 'empty-files' | 'folders' | 'duplicates' | 'image-convert';
 export type ScanCategoryTab = Exclude<CleanupTab, 'overview'>;
+
+export const CONVERTIBLE_SOURCE_EXTENSIONS = ['png', 'jpg', 'webp', 'bmp', 'avif'] as const;
+export type ImageConversionTarget = 'jpg' | 'webp' | 'png';
+export type ImageConversionAlpha = 'flatten' | 'skip';
+
+export interface ImageConversionConfig {
+	sources: string[];
+	target: ImageConversionTarget;
+	quality: number;
+	alpha: ImageConversionAlpha;
+}
+
+export const DEFAULT_IMAGE_CONVERSION: ImageConversionConfig = {
+	sources: ['png'],
+	target: 'jpg',
+	quality: 85,
+	alpha: 'flatten',
+};
+
+export interface ConvertibleImage {
+	path: string;
+	extension: string;
+	width: number;
+	height: number;
+	oldBytes: number;
+	newBytes: number;
+	hasAlpha: boolean;
+	referenceCount: number;
+	blockedReason?: string;
+}
+
+export type ImageConversionProgress = { processed: number; total: number; currentPath?: string };
+
+export interface ImageConversionSkippedItem {
+	path: string;
+	// 01 的英文原因标识；reasonText 是给界面展示的中文说明。
+	reason: string;
+	reasonText?: string;
+}
+
+export interface ImageConversionFailedItem {
+	path: string;
+	reason: string;
+	reasonText?: string;
+}
+
+export interface ImageConversionConvertedItem {
+	path: string;
+	newPath: string;
+	oldBytes: number;
+	newBytes: number;
+}
+
+export interface ImageConversionResult {
+	converted: number;
+	skipped: number;
+	failed: number;
+	savedBytes: number;
+	aborted?: boolean;
+	pendingTrash?: Array<{ path: string; newPath: string }>;
+	convertedItems: ImageConversionConvertedItem[];
+	skippedItems: ImageConversionSkippedItem[];
+	failedItems: ImageConversionFailedItem[];
+}
+
+export interface ImageConversionState extends ImageConversionConfig {
+	// 渲染层读取嵌套 config；与顶层 sources/target/quality/alpha 保持同步。
+	config: ImageConversionConfig;
+	items: ConvertibleImage[];
+	estimating: boolean;
+	converting: boolean;
+	estimateProgress: ImageConversionProgress;
+	lastResult?: ImageConversionResult;
+	abort?: () => void;
+}
+
+/*
+ * data.json 里的旧配置可能缺字段或带非法值；这里只做字段级收敛，
+ * 不信任持久化内容，缺省值始终来自 DEFAULT_IMAGE_CONVERSION。
+ */
+export function normalizeImageConversionConfig(raw: unknown, defaults: ImageConversionConfig = DEFAULT_IMAGE_CONVERSION): ImageConversionConfig {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...defaults, sources: [...defaults.sources] };
+	const value = raw as Record<string, unknown>;
+	const sources = Array.isArray(value.sources)
+		? value.sources
+			.filter((item): item is string => typeof item === 'string')
+			.map((item) => item.trim().toLowerCase().replace(/^\./, ''))
+			.map((item) => (item === 'jpeg' ? 'jpg' : item))
+			.filter((item, index, list) => (CONVERTIBLE_SOURCE_EXTENSIONS as readonly string[]).includes(item) && list.indexOf(item) === index)
+		: [...defaults.sources];
+	const target = value.target === 'webp' || value.target === 'png' || value.target === 'jpg' ? value.target : defaults.target;
+	const qualityValue = typeof value.quality === 'number' && Number.isFinite(value.quality) ? Math.round(value.quality) : defaults.quality;
+	const quality = Math.min(95, Math.max(50, qualityValue));
+	const alpha = value.alpha === 'skip' || value.alpha === 'flatten' ? value.alpha : defaults.alpha;
+	return { sources, target, quality, alpha };
+}
 
 export interface CleanupScanError {
 	reason: string;
@@ -69,6 +167,7 @@ export interface CleanupViewContext {
 	activeTab: CleanupTab;
 	candidates: CleanupCandidates;
 	selections: Set<string>;
+	convertSelections: Set<string>;
 	linkSelections: Set<string>;
 	nativeSelections: Set<string>;
 	noteLinkSelections: Set<string>;
@@ -83,6 +182,7 @@ export interface CleanupViewContext {
 	scannedTabs: Set<CleanupTab>;
 	scanningTabs: Set<CleanupTab>;
 	dirtyTabs: Set<CleanupTab>;
+	conversion: ImageConversionState;
 	imageGrouping: ImageGrouping;
 	attachmentGrouping: ImageGrouping;
 	pages: Map<string, number>;
@@ -100,6 +200,11 @@ export interface CleanupViewContext {
 	trashPreviewImage(file: TFile): Promise<void>;
 	cleanDuplicateLinks(file: DuplicateFileGroup['files'][number]): Promise<void>;
 	deleteDuplicateFile(file: DuplicateFileGroup['files'][number]): Promise<void>;
+	estimateConversions(): Promise<void>;
+	convertSelected(): Promise<void>;
+	setConversionConfig(patch: Partial<ImageConversionConfig>): Promise<void>;
+	abortEstimate?(): void;
+	abortConvert?(): void;
 }
 
 export interface OrphanCleanupOptions {
@@ -109,4 +214,5 @@ export interface OrphanCleanupOptions {
 		orphanIgnoredFolders: string;
 	};
 	saveCache?: (cache: OrphanCleanupCache) => Promise<void>;
+	saveSettings?: () => Promise<void>;
 }

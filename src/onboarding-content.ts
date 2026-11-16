@@ -15,9 +15,10 @@ export interface OnboardingStep {
 export const ONBOARDING_STEPS: OnboardingStep[] = [
 	{
 		title: '它能做什么',
-		summary: '两个核心能力：体检整库资源，以及整理关联笔记。',
+		summary: '三个核心能力：体检整库资源、转换图片格式，以及整理关联笔记。',
 		items: [
 			{ text: '体检 9 类问题：未引用图片与附件、空文件与空文件夹、失效笔记链接与原生图片链接、Wiki 笔记链接、重复文件等。' },
+			{ text: '图片转换：把 PNG、JPG、WebP、BMP、AVIF 批量转为 JPG、WebP 或 PNG，执行前精确预估可节省空间。' },
 			{ text: '关联笔记整理：多选源笔记，按源笔记或路径分组，确认后可直接移动。' },
 		],
 	},

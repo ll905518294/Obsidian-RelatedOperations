@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-vault-doctor",
-	"version": "1.6.3",
+	"version": "1.7.0",
 	"description": "Inspect Vault health, find broken links and unreferenced resources, and organize related notes.",
 	"main": "main.js",
 	"type": "module",

@@ -38,6 +38,9 @@ export class OrphanCleanupView extends ItemView {
 				this.settings.orphanCleanupCache = cache;
 				await this.saveData();
 			},
+			saveSettings: async () => {
+				await this.saveData();
+			},
 		};
 		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.settings, {
 			close: () => this.leaf.detach(),
