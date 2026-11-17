@@ -1036,3 +1036,269 @@ test('批量扫描开始前已中止时跳过全库扫描与解码', async () =>
 	assert.deepEqual(reads, []);
 	assert.equal(codec.calls.decode, 0);
 });
+
+test('转换开始时只建立一次引用内容快照', async () => {
+	const note = '![[img.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache(note, 'img.png') },
+	});
+	const noteReads = [];
+	const read = app.vault.read;
+	let scanning = true;
+	app.vault.read = async (file) => {
+		if (scanning && file.path === 'note.md') noteReads.push(file.path);
+		return read(file);
+	};
+	const codec = createCodec();
+	const decode = codec.decode.bind(codec);
+	codec.decode = async (...args) => {
+		scanning = false;
+		return decode(...args);
+	};
+
+	await runImageConversion(app, codec, [{ path: 'img.png', size: 100, mtime: 1 }], { target: 'webp' });
+
+	assert.deepEqual(noteReads, ['note.md'], '批量扫描与内容快照应共享同一次笔记读取');
+});
+
+test('trash 前残留检查不再读取笔记', async () => {
+	const note = '![[img.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache(note, 'img.png') },
+	});
+	const reads = [];
+	const read = app.vault.read;
+	let converting = false;
+	app.vault.read = async (file) => {
+		if (file.path === 'note.md') reads.push(converting ? 'rewrite' : 'scan');
+		return read(file);
+	};
+	const codec = createCodec();
+	const decode = codec.decode.bind(codec);
+	codec.decode = async (...args) => {
+		converting = true;
+		delete app.metadataCache.resolvedLinks['note.md']['img.png'];
+		return decode(...args);
+	};
+
+	const result = await runImageConversion(app, codec, [{ path: 'img.png', size: 100, mtime: 1 }], { target: 'webp' });
+
+	assert.equal(result.converted.length, 1);
+	assert.deepEqual(reads, ['scan'], '索引无 inbound 时，改写校验与 trash 前检查都从快照读取');
+});
+
+test('改写后快照同步，残留检查能看到已改写内容', async () => {
+	const note = '![[img.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache(note, 'img.png') },
+	});
+	const codec = createCodec();
+
+	const result = await runImageConversion(app, codec, [{ path: 'img.png', size: 100, mtime: 1 }], { target: 'webp' });
+
+	assert.equal(result.converted.length, 1);
+	assert.equal(result.failed.length, 0);
+	assert.equal(app.files.has('img.png'), false, '残留检查应看到已改写内容，允许删除原图');
+	assert.equal(app.files.get('note.md').content, '![](<img.webp>)');
+});
+
+test('回滚后快照恢复，后续残留检查仍准确', async () => {
+	const note = '![[img.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache(note, 'img.png') },
+	});
+	const codec = createCodec({ encodeError: '编码失败' });
+
+	const result = await runImageConversion(app, codec, [{ path: 'img.png', size: 100, mtime: 1 }], { target: 'webp' });
+
+	assert.equal(result.converted.length, 0);
+	assert.equal(app.files.get('note.md').content, note, '编码失败发生在改写前，笔记不得变化');
+	assert.equal(app.files.has('img.png'), true);
+});
+
+test('vaultPaths 枚举次数不随引用站点数增长', async () => {
+	const note = '![[a.png]]\n![[b.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'a.png': 100, 'b.png': 100 },
+		resolvedLinks: { 'note.md': { 'a.png': 1, 'b.png': 1 } },
+		caches: { 'note.md': {
+			embeds: [
+				{ link: 'a.png', original: '![[a.png]]', position: span(note, '![[a.png]]') },
+				{ link: 'b.png', original: '![[b.png]]', position: span(note, '![[b.png]]', note.indexOf('![[b.png]]')) },
+			],
+			links: [],
+		} },
+	});
+	let enumerations = 0;
+	const getFiles = app.vault.getFiles;
+	app.vault.getFiles = () => {
+		enumerations += 1;
+		return getFiles();
+	};
+	const codec = createCodec();
+	const items = ['a.png', 'b.png'].map((path) => ({ path, size: 100, mtime: 1 }));
+
+	const result = await runImageConversion(app, codec, items, { target: 'webp' });
+	const twoSites = enumerations;
+
+	const threeNote = '![[a.png]]\n![[b.png]]\n![[c.png]]';
+	const threeApp = notesApp({
+		notes: { 'note.md': threeNote },
+		images: { 'a.png': 100, 'b.png': 100, 'c.png': 100 },
+		resolvedLinks: { 'note.md': { 'a.png': 1, 'b.png': 1, 'c.png': 1 } },
+		caches: { 'note.md': {
+			embeds: [
+				{ link: 'a.png', original: '![[a.png]]', position: span(threeNote, '![[a.png]]') },
+				{ link: 'b.png', original: '![[b.png]]', position: span(threeNote, '![[b.png]]', threeNote.indexOf('![[b.png]]')) },
+				{ link: 'c.png', original: '![[c.png]]', position: span(threeNote, '![[c.png]]', threeNote.indexOf('![[c.png]]')) },
+			],
+			links: [],
+		} },
+	});
+	let threeEnumerations = 0;
+	const threeGetFiles = threeApp.vault.getFiles;
+	threeApp.vault.getFiles = () => {
+		threeEnumerations += 1;
+		return threeGetFiles();
+	};
+	const threeResult = await runImageConversion(
+		threeApp,
+		createCodec(),
+		['a.png', 'b.png', 'c.png'].map((path) => ({ path, size: 100, mtime: 1 })),
+		{ target: 'webp' },
+	);
+
+	assert.equal(result.converted.length, 2);
+	assert.equal(threeResult.converted.length, 3);
+	assert.ok(threeEnumerations <= twoSites + 1, `站点数增加不应线性增加 getFiles 枚举次数（2 站 ${twoSites}，3 站 ${threeEnumerations}）`);
+});
+
+test('快照建立后外部新增旧图引用时必须阻止删除原图', async () => {
+	const note = '![[a.png]]';
+	const app = notesApp({
+		notes: {
+			'note.md': note,
+			'y.md': ' unrelated note ',
+		},
+		images: { 'a.png': 100 },
+		resolvedLinks: { 'note.md': { 'a.png': 1 }, 'y.md': {} },
+		caches: { 'note.md': wikiCache(note, 'a.png') },
+	});
+	const codec = createCodec();
+	const decode = codec.decode.bind(codec);
+	codec.decode = async (...args) => {
+		const y = app.files.get('y.md');
+		y.content = '外部新增：![[a.png]]';
+		app.metadataCache.resolvedLinks['y.md'] = { 'a.png': 1 };
+		return decode(...args);
+	};
+
+	const result = await runImageConversion(app, codec, [{ path: 'a.png', size: 100, mtime: 1 }], { target: 'webp' });
+
+	assert.equal(result.converted.length, 0, '存在外部新增引用时不得计入转换成功');
+	assert.equal(result.skipped[0]?.reason, 'residual-reference');
+	assert.equal(app.files.has('a.png'), true, '残留引用未清除时必须保留原图');
+	assert.equal(app.files.has('a.webp'), false, '回滚必须删除新建图片');
+	assert.equal(app.files.get('note.md').content, note, '回滚必须恢复被改写的笔记');
+});
+
+test('索引没有 inbound 链接时 trash 前不额外读盘', async () => {
+	const note = '![[a.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note, 'y.md': ' unrelated note ' },
+		images: { 'a.png': 100 },
+		resolvedLinks: { 'note.md': { 'a.png': 1 }, 'y.md': {} },
+		caches: { 'note.md': wikiCache(note, 'a.png') },
+	});
+	const codec = createCodec();
+	const decode = codec.decode.bind(codec);
+	let converting = false;
+	const laterReads = [];
+	const read = app.vault.read;
+	app.vault.read = async (file) => {
+		if (converting) laterReads.push(file.path);
+		return read(file);
+	};
+	codec.decode = async (...args) => {
+		converting = true;
+		delete app.metadataCache.resolvedLinks['note.md']['a.png'];
+		return decode(...args);
+	};
+
+	const result = await runImageConversion(app, codec, [{ path: 'a.png', size: 100, mtime: 1 }], { target: 'webp' });
+
+	assert.equal(result.converted.length, 1);
+	assert.deepEqual(laterReads, [], '索引无 inbound 时不应有额外真读盘');
+	assert.equal(app.files.has('a.png'), false);
+});
+
+test('索引有 inbound 但真读盘确认已改写时仍允许删除', async () => {
+	const note = '![[a.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note, 'y.md': '![[a.webp]]' },
+		images: { 'a.png': 100 },
+		resolvedLinks: { 'note.md': { 'a.png': 1 }, 'y.md': {} },
+		caches: { 'note.md': wikiCache(note, 'a.png') },
+	});
+	const yReads = [];
+	let converting = false;
+	const read = app.vault.read;
+	app.vault.read = async (file) => {
+		if (converting && file.path === 'y.md') yReads.push(file.path);
+		return read(file);
+	};
+	const codec = createCodec();
+	const decode = codec.decode.bind(codec);
+	codec.decode = async (...args) => {
+		converting = true;
+		app.metadataCache.resolvedLinks['y.md'] = { 'a.png': 1 };
+		return decode(...args);
+	};
+
+	const result = await runImageConversion(app, codec, [{ path: 'a.png', size: 100, mtime: 1 }], { target: 'webp' });
+
+	assert.equal(result.converted.length, 1);
+	assert.deepEqual(yReads, ['y.md'], '可疑源笔记必须真读盘复核');
+	assert.equal(app.files.has('a.png'), false, '复核确认无残留后允许删除原图');
+});
+
+test('外部修改 stat 但索引未更新时也要真读盘并阻止删除', async () => {
+	const note = '![[a.png]]';
+	const app = notesApp({
+		notes: {
+			'note.md': note,
+			'y.md': ' unrelated note ',
+		},
+		images: { 'a.png': 100 },
+		resolvedLinks: { 'note.md': { 'a.png': 1 }, 'y.md': {} },
+		caches: { 'note.md': wikiCache(note, 'a.png') },
+	});
+	const codec = createCodec();
+	const decode = codec.decode.bind(codec);
+	codec.decode = async (...args) => {
+		const y = app.files.get('y.md');
+		y.content = 'external edit: ![[a.png]]';
+		y.stat = { size: y.content.length, mtime: 2 };
+		return decode(...args);
+	};
+
+	const result = await runImageConversion(app, codec, [{ path: 'a.png', size: 100, mtime: 1 }], { target: 'webp' });
+
+	assert.equal(result.converted.length, 0, 'stat 变化且真读发现旧引用时必须阻止转换');
+	assert.equal(result.skipped[0]?.reason, 'residual-reference');
+	assert.equal(app.files.has('a.png'), true, '索引滞后但文件变化时也不能误删原图');
+	assert.equal(app.files.has('a.webp'), false, '回滚需删除新建图片');
+});

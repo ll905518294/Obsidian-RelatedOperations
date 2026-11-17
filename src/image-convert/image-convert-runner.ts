@@ -10,7 +10,10 @@ import {
 	findImageReferences,
 	findImageReferencesBatch,
 	findRawImageReferenceSources,
+	hasRawImageReference,
 	rewriteImageReferences,
+	readReferenceContentSnapshot,
+	type ReferenceContentSnapshot,
 	type ImageReferenceSite,
 	type ImageReferenceSourceKind,
 	type ImageReferenceScanResult,
@@ -21,6 +24,42 @@ const MAX_CONVERSION_CONCURRENCY = 8;
 
 interface SourceNoteLock {
 	tail: Promise<void>;
+}
+
+type NoteStatBaseline = Map<string, { size: number; mtime: number }>;
+
+function appWithSnapshot(app: ConversionApp, snapshot: ReferenceContentSnapshot): ConversionApp {
+	return {
+		...app,
+		vault: {
+			...app.vault,
+			read: async (file) => snapshot.get(file.path) ?? app.vault.read(file),
+		},
+	};
+}
+
+function noteStatBaseline(app: ConversionApp, paths: Iterable<string>, caseSensitive: boolean): NoteStatBaseline {
+	const baseline: NoteStatBaseline = new Map();
+	for (const path of paths) {
+		const file = findFile(app, path, caseSensitive);
+		if (file) baseline.set(file.path, { size: file.stat.size, mtime: file.stat.mtime });
+	}
+	return baseline;
+}
+
+function indexedInboundSources(app: ConversionApp, targetPath: string, caseSensitive: boolean): string[] {
+	const targetKey = pathKey(targetPath, caseSensitive);
+	const sources: string[] = [];
+	for (const [sourcePath, links] of Object.entries(app.metadataCache.resolvedLinks ?? {})) {
+		for (const linkPath of Object.keys(links)) {
+			const resolved = app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath)?.path ?? linkPath;
+			if (pathKey(resolved, caseSensitive) === targetKey) {
+				sources.push(sourcePath);
+				break;
+			}
+		}
+	}
+	return sources;
 }
 
 interface ConversionFile {
@@ -171,8 +210,13 @@ async function execute(
 			unrestored: [],
 		};
 	}
-	const referenceResults = await findImageReferencesBatch(app, items.map((item) => item.path), caseSensitive);
+	const referenceSnapshot = await readReferenceContentSnapshot(app);
+	const referencePaths = [...referenceSnapshot.keys()];
+	const statBaseline = noteStatBaseline(app, referencePaths, caseSensitive);
+	const vaultPaths = referencePaths;
+	const referenceResults = await findImageReferencesBatch(appWithSnapshot(app, referenceSnapshot), items.map((item) => item.path), caseSensitive);
 	const sourceLocks = new Map<string, SourceNoteLock>();
+	const suspiciousSources = new Set<string>();
 	const indexed = items.map((item, index) => ({ item, index }));
 	// 与估算一致：解码前按文件体积把大图分到单并发通道，普通图跑满可配置并发。
 	const runLane = async (lane: Array<{ item: ConversionItem; index: number }>, concurrency: number) => {
@@ -185,7 +229,7 @@ async function execute(
 				try {
 					outcomes[index] = colliding.has(item.path)
 						? skip(item.path, 'target-collision', '多张图片会转换为同一目标文件')
-						: await convertOne(app, codec, item, options, caseSensitive, referenceResults.get(item.path), sourceLocks);
+						: await convertOne(app, codec, item, options, caseSensitive, referenceResults.get(item.path), sourceLocks, referenceSnapshot, vaultPaths, suspiciousSources, statBaseline, referencePaths);
 				} catch (error) {
 					outcomes[index] = {
 						failed: {
@@ -205,7 +249,9 @@ async function execute(
 		runLane(indexed.filter((entry) => entry.item.size < LARGE_IMAGE_BYTES), limit),
 		runLane(indexed.filter((entry) => entry.item.size >= LARGE_IMAGE_BYTES), 1),
 	]);
-
+	for (const item of items) {
+		for (const path of indexedInboundSources(app, item.path, caseSensitive)) suspiciousSources.add(path);
+	}
 	const result: ConversionResult = {
 		converted: [],
 		skipped: [],
@@ -266,6 +312,11 @@ async function convertOne(
 	caseSensitive: boolean,
 	referenceResult: ImageReferenceScanResult | undefined,
 	sourceLocks: Map<string, SourceNoteLock>,
+	referenceSnapshot: ReferenceContentSnapshot,
+	vaultPaths: string[],
+	suspiciousSources: Set<string>,
+	statBaseline: NoteStatBaseline,
+	referencePaths: string[],
 ): Promise<Outcome> {
 	const sourceFile = findFile(app, item.path, caseSensitive);
 	if (!sourceFile) {
@@ -333,7 +384,7 @@ async function convertOne(
 			if (!(await sameBytes(existingBytes, encodedBytes))) {
 				return skip(sourceFile.path, 'target-exists', '目标文件已存在且内容不同');
 			}
-			return retryOrSkipExistingTarget(app, sourceFile, sourceStat, targetFile, caseSensitive);
+			return retryOrSkipExistingTarget(app, sourceFile, sourceStat, targetFile, caseSensitive, referenceSnapshot, suspiciousSources, statBaseline, referencePaths);
 		}
 	} finally {
 		// 解码出的画布占 宽×高×4 字节；编码结束立刻还回去，避免两个并发
@@ -359,9 +410,8 @@ async function convertOne(
 	try {
 		for (const site of referenceSites) {
 			await withSourceNoteLock(app, sourceLocks, site.sourcePath, caseSensitive, async (file) => {
-				const before = await app.vault.read(file);
+				const before = referenceSnapshot.get(file.path) ?? await app.vault.read(file);
 				const resolver = makeResolver(app, file.path);
-				const vaultPaths = app.vault.getFiles().map((candidate) => candidate.path);
 				const analysis = analyzeReferenceContent(
 					before,
 					sourceFile.path,
@@ -387,13 +437,15 @@ async function convertOne(
 					if (content !== before) throw new Error('文件在转换期间发生变化');
 					return rewrite.content;
 				});
+				referenceSnapshot.set(file.path, rewrite.content);
 				originals.set(file.path, { before, after: rewrite.content });
-				await verifyRewrite(app, file, sourceFile.path, targetPath, site.sourceKind, analysis.liveRefs, caseSensitive);
+				statBaseline.set(file.path, { size: file.stat.size, mtime: file.stat.mtime });
+				await verifyRewrite(app, file, sourceFile.path, targetPath, site.sourceKind, analysis.liveRefs, caseSensitive, referenceSnapshot);
 			});
 		}
 		for (const site of referenceSites) {
 			await withSourceNoteLock(app, sourceLocks, site.sourcePath, caseSensitive, async (file) => {
-				const content = await app.vault.read(file);
+				const content = referenceSnapshot.get(file.path) ?? await app.vault.read(file);
 				if (countRemainingReferences(content, sourceFile.path, {
 					sourcePath: file.path,
 					sourceKind: site.sourceKind,
@@ -413,6 +465,8 @@ async function convertOne(
 			'write-failed',
 			`改写引用失败：${reasonOf(error)}`,
 			true,
+			referenceSnapshot,
+			statBaseline,
 		);
 	}
 
@@ -424,6 +478,10 @@ async function convertOne(
 		originals,
 		newFile,
 		caseSensitive,
+		referenceSnapshot,
+		suspiciousSources,
+		statBaseline,
+		referencePaths,
 	);
 	if (preTrash) return preTrash;
 
@@ -456,6 +514,10 @@ async function retryOrSkipExistingTarget(
 	sourceStat: { size: number; mtime: number },
 	targetFile: ConversionFile,
 	caseSensitive: boolean,
+	referenceSnapshot: ReferenceContentSnapshot,
+	suspiciousSources: Set<string>,
+	statBaseline: NoteStatBaseline,
+	referencePaths: string[],
 ): Promise<Outcome> {
 	const oldLive = await countLiveReferencesInVault(app, sourceFile.path);
 	if (oldLive !== 0) {
@@ -473,6 +535,10 @@ async function retryOrSkipExistingTarget(
 		new Map(),
 		null,
 		caseSensitive,
+		referenceSnapshot,
+		suspiciousSources,
+		statBaseline,
+		referencePaths,
 	);
 	if (preTrash) return preTrash;
 	try {
@@ -506,8 +572,9 @@ async function verifyRewrite(
 	kind: ImageReferenceSourceKind,
 	expectedNewRefs: number,
 	caseSensitive: boolean,
+	referenceSnapshot: ReferenceContentSnapshot,
 ): Promise<void> {
-	const after = await app.vault.read(file);
+	const after = referenceSnapshot.get(file.path) ?? await app.vault.read(file);
 	const oldRemaining = countRemainingReferences(after, oldPath, {
 		sourcePath: file.path,
 		sourceKind: kind,
@@ -532,6 +599,10 @@ async function validateBeforeTrash(
 	originals: Map<string, OriginalContent>,
 	createdFile: ConversionFile | null,
 	caseSensitive: boolean,
+	referenceSnapshot: ReferenceContentSnapshot,
+	suspiciousSources: Set<string>,
+	statBaseline: NoteStatBaseline,
+	referencePaths: string[],
 ): Promise<Outcome | null> {
 	const current = findFile(app, sourceFile.path, caseSensitive);
 	if (!current
@@ -545,10 +616,29 @@ async function validateBeforeTrash(
 			caseSensitive,
 			'source-changed',
 			'源图在转换期间发生变化，未移入回收站',
+			false,
+			referenceSnapshot,
 		);
 	}
-	const rawSources = await findRawImageReferenceSources(app, oldPath, caseSensitive);
-	if (rawSources.length > 0) {
+	const rawSources = await findRawImageReferenceSources(app, oldPath, caseSensitive, referenceSnapshot);
+	const confirmed = new Set(rawSources);
+	const toCheck = new Set(suspiciousSources);
+	for (const path of indexedInboundSources(app, oldPath, caseSensitive)) toCheck.add(path);
+	for (const path of referencePaths) {
+		const file = findFile(app, path, caseSensitive);
+		if (!file) continue;
+		const baseline = statBaseline.get(file.path);
+		if (!baseline || baseline.size !== file.stat.size || baseline.mtime !== file.stat.mtime) toCheck.add(file.path);
+	}
+	for (const path of toCheck) {
+		const file = findFile(app, path, caseSensitive);
+		if (!file) continue;
+		const content = await app.vault.read(file);
+		referenceSnapshot.set(file.path, content);
+		statBaseline.set(file.path, { size: file.stat.size, mtime: file.stat.mtime });
+		if (hasRawImageReference(content, oldPath, caseSensitive)) confirmed.add(file.path);
+	}
+	if (confirmed.size > 0) {
 		return rollbackOutcome(
 			app,
 			sourceFile.path,
@@ -556,7 +646,10 @@ async function validateBeforeTrash(
 			createdFile,
 			caseSensitive,
 			'residual-reference',
-			`仍可在原始文本中找到旧路径：${rawSources.join('、')}`,
+			`仍可在原始文本中找到旧路径：${[...confirmed].join('、')}`,
+			false,
+			referenceSnapshot,
+			statBaseline,
 		);
 	}
 	return null;
@@ -571,8 +664,10 @@ async function rollbackOutcome(
 	reason: string,
 	reasonText: string,
 	forceFailure = false,
+	referenceSnapshot?: ReferenceContentSnapshot,
+	statBaseline?: NoteStatBaseline,
 ): Promise<Outcome> {
-	const restored = await restoreOriginals(app, originals, caseSensitive);
+	const restored = await restoreOriginals(app, originals, caseSensitive, referenceSnapshot, statBaseline);
 	let deleteFailure = '';
 	let keptNewFilePath: string | undefined;
 	if (createdFile) {
@@ -611,6 +706,8 @@ async function restoreOriginals(
 	app: ConversionApp,
 	originals: Map<string, OriginalContent>,
 	caseSensitive: boolean,
+	referenceSnapshot?: ReferenceContentSnapshot,
+	statBaseline?: NoteStatBaseline,
 ): Promise<RestoreResult> {
 	const failures: string[] = [];
 	const unrestored: string[] = [];
@@ -627,6 +724,8 @@ async function restoreOriginals(
 		}
 		try {
 			await app.vault.process(file, () => original.before);
+			referenceSnapshot?.set(file.path, original.before);
+			statBaseline?.set(file.path, { size: file.stat.size, mtime: file.stat.mtime });
 		} catch (error) {
 			failures.push(`${path}：${reasonOf(error)}`);
 		}

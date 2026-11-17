@@ -32,6 +32,28 @@ import {
 // 扫描编排层：唯一负责读取 vault；解析与分析保持纯函数，便于批量复用。
 const IMAGE_MISSING_REASON_TEXT = '图片文件不存在';
 
+/** 笔记路径 → 当前磁盘内容；转换期间由调用方在改写笔记后同步更新。 */
+export type ReferenceContentSnapshot = Map<string, string>;
+
+/** 路径是否属于需要纳入引用内容快照的笔记类型（md/canvas 等）。 */
+export function isReferenceSourcePath(path: string): boolean {
+	return sourceKind(path) !== null;
+}
+
+/**
+ * 转换开始前一次性真实读盘，建立所有引用源笔记的内容快照。
+ * 之后 findRawImageReferenceSources 用该快照做纯内存残留判断，避免每张图
+ * 都 getFiles + await read 全库笔记。read 优先，老宿主回退 cachedRead。
+ */
+export async function readReferenceContentSnapshot(app: ImageReferenceApp): Promise<ReferenceContentSnapshot> {
+	const snapshot: ReferenceContentSnapshot = new Map();
+	for (const file of app.vault.getFiles()) {
+		if (!isReferenceSourcePath(file.path)) continue;
+		snapshot.set(file.path, await readText(app, file));
+	}
+	return snapshot;
+}
+
 export async function findImageReferences(
 	app: ImageReferenceApp,
 	sourcePath: string,
@@ -292,10 +314,20 @@ export async function findRawImageReferenceSources(
 	app: ImageReferenceApp,
 	targetPath: string,
 	caseSensitive = isCaseSensitiveFileSystem(),
+	snapshot?: ReferenceContentSnapshot,
 ): Promise<string[]> {
 	const sources: string[] = [];
+	if (snapshot) {
+		// 快照模式：纯内存查询，不触碰磁盘。集合与老逻辑一致（仅 sourceKind 笔记，
+		// 快照键即转换开始时 getFiles 里的全部 md/canvas 路径）。
+		for (const [path, content] of snapshot) {
+			if (!isReferenceSourcePath(path)) continue;
+			if (hasRawImageReference(content, targetPath, caseSensitive)) sources.push(path);
+		}
+		return sources;
+	}
 	for (const file of app.vault.getFiles()) {
-		if (!sourceKind(file.path)) continue;
+		if (!isReferenceSourcePath(file.path)) continue;
 		const content = await readText(app, file);
 		if (hasRawImageReference(content, targetPath, caseSensitive)) sources.push(file.path);
 	}

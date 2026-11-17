@@ -9,12 +9,15 @@ export type {
 	ImageReferenceSourceFile,
 	ImageReferenceSourceKind,
 } from './image-reference-types.ts';
+export type { ReferenceContentSnapshot } from './image-reference-scan.ts';
 
 export {
 	countLiveReferencesInVault,
 	findImageReferences,
 	findImageReferencesBatch,
 	findRawImageReferenceSources,
+	isReferenceSourcePath,
+	readReferenceContentSnapshot,
 } from './image-reference-scan.ts';
 export { hasRawImageReference } from './image-reference-path.ts';
 export {

@@ -15,6 +15,25 @@ export interface UpdateIntro {
 // Keep newest first and add an entry with each release.
 export const UPDATE_INTROS: UpdateIntro[] = [
 	{
+		version: '1.9.9',
+		theme: '图片转换执行提速',
+		summary: '转换开始前一次性建立引用内容快照，不再逐张读取全库笔记，全库笔记读取从约 N+1 次降到 1 次，大库批量转换更快，并在删除原图前做安全复核。',
+		sections: [
+			{
+				title: '优化',
+				items: [
+					'转换开始前一次性建立引用内容快照，替代每张图 trash 前全库读取笔记，全库笔记读取从约 N+1 次降到 1 次，大库批量转换更快。',
+				],
+			},
+			{
+				title: '修复',
+				items: [
+					'删除原图前以快照为准，并用 `resolvedLinks` 圈出可疑来源笔记、检测 stat 变化；索引滞后或外部编辑时针对相关笔记真读盘复核，避免误删仍被引用的原图。',
+				],
+			},
+		],
+	},
+	{
 		version: '1.9.8',
 		theme: '图片压缩页交互优化',
 		summary: '图片压缩页新增全部选择/取消选择，质量说明收进 ⓘ 图标，引用列可直接打开来源笔记。',
