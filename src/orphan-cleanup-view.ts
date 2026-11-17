@@ -11,6 +11,7 @@ export class OrphanCleanupView extends ItemView {
 		leaf: WorkspaceLeaf,
 		private readonly settings: RelatedOperationsSettings,
 		private readonly saveData: () => Promise<void>,
+		private readonly openRelatedNotes: () => void = () => {},
 	) {
 		super(leaf);
 	}
@@ -42,6 +43,7 @@ export class OrphanCleanupView extends ItemView {
 			saveSettings: async () => {
 				await this.saveData();
 			},
+			openRelatedNotes: () => this.openRelatedNotes(),
 		};
 		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.settings, {
 			close: () => this.leaf.detach(),

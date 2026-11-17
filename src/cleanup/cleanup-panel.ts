@@ -119,6 +119,11 @@ export class OrphanCleanupPanel extends Component {
 		this.scanController?.abort();
 	}
 
+	openRelatedNotes() {
+		if (this.disposed) return;
+		this.options.openRelatedNotes?.();
+	}
+
 	async scanCategory(tab: ScanCategoryTab) {
 		return runScanCategory(this, tab);
 	}
@@ -432,7 +437,7 @@ export class OrphanCleanupPanel extends Component {
 export class OrphanCleanupModal extends Modal {
 	private panel?: OrphanCleanupPanel;
 
-	constructor(app: App, private readonly settings: RelatedOperationsSettings, private readonly saveCache: (cache: OrphanCleanupCache) => Promise<void>, private readonly saveSettings: () => Promise<void> = async () => {}) {
+	constructor(app: App, private readonly settings: RelatedOperationsSettings, private readonly saveCache: (cache: OrphanCleanupCache) => Promise<void>, private readonly saveSettings: () => Promise<void> = async () => {}, private readonly openRelatedNotes: () => void = () => {}) {
 		super(app);
 	}
 
@@ -445,6 +450,7 @@ export class OrphanCleanupModal extends Modal {
 			cachedSettings: this.settings.orphanCleanupCache?.settingsSnapshot,
 			saveCache: this.saveCache,
 			saveSettings: this.saveSettings,
+			openRelatedNotes: () => this.openRelatedNotes(),
 		};
 		this.panel = new OrphanCleanupPanel(this.app, this.contentEl, this.settings, this, options);
 		this.panel.render();

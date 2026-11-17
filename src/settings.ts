@@ -48,7 +48,7 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 	// Obsidian renders, search-indexes, persists, and validates declarative
 	// settings from these definitions. Simple values bind via control.key
 	// (auto-persisted); settings with side effects use render callbacks.
-	// 图片转换配置是嵌套对象，说明式控件的 key 无法直接映射到顶层属性，
+	// 图片压缩配置是嵌套对象，说明式控件的 key 无法直接映射到顶层属性，
 	// 因此覆盖 getControlValue/setControlValue，把 `imageConversion.xxx` 形式
 	// 的 key 路由进嵌套对象，控件本身仍走声明式语义（标签、描述、自动持久化）。
 	getControlValue(key: string): unknown {
@@ -147,15 +147,15 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 			},
 			{
 				type: 'group',
-				heading: '图片转换默认配置',
+				heading: '图片压缩默认配置',
 				items: [
 					{
 						name: '这些是默认值',
-						desc: '源格式与临时调整在体检面板的「图片转换」页内设置；这里保存的是每次转换的默认目标格式、质量与透明图处理方式。',
+						desc: '源格式与临时调整在体检面板的「图片压缩」页内设置；这里保存的是每次压缩的默认目标格式、质量与透明图处理方式。',
 					},
 					{
 						name: '目标格式',
-						desc: '图片转换页的默认输出格式；进入页面后仍可在页面内临时调整。',
+						desc: '图片压缩页的默认输出格式；进入页面后仍可在页面内临时调整。',
 						control: {
 							type: 'dropdown',
 							key: 'imageConversion.target',

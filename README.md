@@ -1,6 +1,6 @@
 # Vault Doctor
 
-**Vault Doctor** is an Obsidian plugin that scans a vault for nine kinds of health problems, converts images and organizes related notes — then helps you fix them safely, not just list them. It runs fully offline and only changes files after you confirm. Cleanup goes through Obsidian's trash, moves support undo, and image conversion rewrites references with a per-image safety check.
+**Vault Doctor** is an Obsidian plugin that scans a vault for nine kinds of health problems, compresses images and organizes related notes — then helps you fix them safely, not just list them. It runs fully offline and only changes files after you confirm. Cleanup goes through Obsidian's trash, moves support undo, and image compression rewrites references with a per-image safety check.
 
 Vault Doctor is available in the [Obsidian community directory](https://community.obsidian.md/plugins/vault-doctor).
 
@@ -9,7 +9,7 @@ Vault Doctor is available in the [Obsidian community directory](https://communit
 Vault Doctor brings three tools into one workspace panel:
 
 - **Vault health check** — scans 9 categories: unused images, unused attachments, empty files, empty folders, broken image links, broken note links, native image links, wiki note links and byte-identical duplicate files.
-- **Image format conversion** — batch-convert PNG, JPG, WebP, BMP and AVIF to JPG, WebP or PNG. Before converting, it shows an **estimated** output size and savings based on source format, target format and quality; the real size is determined during conversion. Transparency, oversized images and reference rewritability are checked precisely at conversion time. References in Wiki embeds, Markdown links, HTML `img`, frontmatter and Canvas are rewritten safely, and the source image is moved to trash only after verification.
+- **Image compression** — batch-convert PNG, JPG, WebP, BMP and AVIF to JPG, WebP or PNG. Before converting, it shows an **estimated** output size and savings based on source format, target format and quality; the real size is determined during conversion. Transparency, oversized images and reference rewritability are checked precisely at conversion time. References in Wiki embeds, Markdown links, HTML `img`, frontmatter and Canvas are rewritten safely, and the source image is moved to trash only after verification.
 - **Related-note organizer** — find outgoing, incoming and bidirectional links for the current note, then batch-move notes to a target folder. The latest move can be undone.
 
 Everything runs locally: no network requests and no telemetry. Scans never modify files; deletions require two-step confirmation and go through Obsidian's trash, while link edits rely on Obsidian's undo history.
@@ -17,7 +17,7 @@ Everything runs locally: no network requests and no telemetry. Scans never modif
 ## Feature highlights
 
 - 9-category vault health scan with progress, abort and cached "last scan" results.
-- Image conversion with a per-image transaction: revalidate, rewrite references, verify, then trash the source.
+- Image compression with a per-image transaction: revalidate, rewrite references, verify, then trash the source.
 - Estimated size preview marked as approximate; quality scaling is applied for lossy targets and transparency is checked during conversion.
 - Related-note moves with confirmation, skip-existing behavior and undo of the latest batch.
 - Keyboard and screen-reader support, plus respect for reduced motion.
@@ -44,7 +44,7 @@ A ZIP with the same three files is also attached to each release. The ZIP is a c
 
 Chinese documentation follows below. / 中文说明见下方。
 
-一个为 Obsidian 做的「Vault 体检 + 问题处理」插件：一次性扫描 9 类健康问题（失效链接、未引用资源、重复文件等），并提供图片格式转换优化工具，安全地完成整理，而不是只列清单。
+一个为 Obsidian 做的「Vault 体检 + 问题处理」插件：一次性扫描 9 类健康问题（失效链接、未引用资源、重复文件等），并提供图片压缩优化工具，安全地完成整理，而不是只列清单。
 
 - 仓库：<https://github.com/ll905518294/obsidian-vault-doctor>
 - 发布：<https://github.com/ll905518294/obsidian-vault-doctor/releases>
@@ -56,7 +56,7 @@ Chinese documentation follows below. / 中文说明见下方。
 
 > 截图取自演示库 `vault-doctor-demo`，仅含示例内容。
 >
-> 截图仍为 1.8.0 界面，待按 1.9.6 新布局重拍后更新；「图片转换」页签见[图片格式转换](#图片格式转换)。
+> 截图仍为 1.8.0 界面，待按 1.9.7 新界面重拍后更新；「图片压缩」页签见[图片压缩](#图片压缩)。
 
 ## 功能总览
 
@@ -64,10 +64,10 @@ Chinese documentation follows below. / 中文说明见下方。
 | --- | --- |
 | Vault 体检 | 一键扫描未引用图片、未引用附件、空文件、空文件夹、失效图片链接、失效笔记链接、原生图片链接、Wiki 笔记链接、重复文件；扫描可随时中止，已完成的分类结果保留；结果缓存在插件设置里，重开面板显示「上次扫描」时间，设置变化时自动失效 |
 | 清理处理 | 勾选后通过删除按钮两段式确认移入 Obsidian 回收站；失效链接可移除；缺失笔记可创建；`![[图片]]` 可转换为标准 Markdown 语法 |
-| 图片转换 | 首页与标签条末尾都有入口：进入页签先轻量枚举候选，点「扫描并估算」按格式与质量快速预估空间并显示进度（不逐张解码）；批量把 PNG/JPG/WebP/BMP/AVIF 转为 JPG/WebP/PNG，安全改写引用，估算与转换都可以中止 |
+| 图片压缩 | 首页与标签条末尾都有入口：进入页签先轻量枚举候选，点「扫描并估算」按格式与质量快速预估空间并显示进度（不逐张解码）；批量把 PNG/JPG/WebP/BMP/AVIF 转为 JPG/WebP/PNG，安全改写引用，估算与转换都可以中止 |
 | 关联笔记整理 | 找出当前笔记的出链、入链、双向链接笔记，批量移动到指定文件夹 |
 | 扫描报告 | 支持复制到剪贴板或导出 Markdown 报告，只包含路径与链接信息，不含笔记正文 |
-| 性能 | 全部在本地完成：图片转换估算改为纯数学预估，只读文件体积与 Obsidian 引用索引，本机 5615 张约 5.4 秒（不再逐张解码）；重复文件在大小预筛后最多 8 路并发计算 SHA-256（按文件体积预算自动下调，约 8 倍），正文引用匹配只比对文件名尾段 |
+| 性能 | 全部在本地完成：图片压缩估算改为纯数学预估，只读文件体积与 Obsidian 引用索引，本机 5615 张约 5.4 秒（不再逐张解码）；重复文件在大小预筛后最多 8 路并发计算 SHA-256（按文件体积预算自动下调，约 8 倍），正文引用匹配只比对文件名尾段 |
 | 键盘与读屏 | 同组图片预览只占一个 Tab 停靠点，方向键切换、Enter 或空格打开；弹窗关闭后焦点回到触发元素，并声明 `role="dialog"` 与可访问名称；表头带 `scope="col"`；跟随系统「减少动态效果」 |
 
 ## 快速上手
@@ -75,7 +75,7 @@ Chinese documentation follows below. / 中文说明见下方。
 三步用起来：
 
 1. **安装并启用**：在 **设置 → 第三方插件 → 浏览** 中搜索 **Vault Doctor** 安装并启用；也可按下方[安装说明](#安装与卸载)手动放置文件。
-2. **打开体检**：点击左侧栏的 <kbd>+</kbd> 方框图标，或运行命令「打开 vault 体检与清理」。
+2. **打开体检**：点击左侧栏唯一的 <kbd>+</kbd> 方框图标「Vault 体检与清理」，或运行命令「打开 vault 体检与清理」。
 3. **扫描并处理**：点击右上角**开始扫描**，在体检首页按问题数量优先处理；进入分类标签页勾选条目后执行清理。**扫描不会修改任何文件，只有你确认的操作才会执行。**
 
 **首次使用引导**：第一次安装并加载插件时会自动弹出三步引导（它能做什么、安全说明、怎么开始，含界面截图），点「开始使用」可直接打开体检面板。之后可在命令面板搜索「打开使用引导」重看；设置里的「首次显示使用引导」关闭后不再自动弹出。
@@ -84,7 +84,7 @@ Chinese documentation follows below. / 中文说明见下方。
 
 ## Vault 体检与清理
 
-点击左侧栏的**打开 vault 体检与清理**图标，或运行同名命令打开体检工具。工具以工作区标签页打开。点击**开始扫描**后，**体检首页**与各分类标签页并列展示，可随时切回总览。
+点击左侧栏唯一的**打开 vault 体检与清理**图标，或运行同名命令打开体检工具。工具以工作区标签页打开。点击**开始扫描**后，**体检首页**与各分类标签页并列展示，可随时切回总览。
 
 扫描默认不勾选任何条目；确认无误后自行勾选并执行清理。
 
@@ -94,7 +94,7 @@ Chinese documentation follows below. / 中文说明见下方。
 
 扫描结果会缓存在插件设置中：重新打开面板直接显示上次结果，并标注「上次扫描：日期 时间」，点**重新扫描全部**才会更新；修改图片格式或忽略目录后，缓存中保存的设置快照与当前设置不一致时即被丢弃，不再继续显示与当前设置不符的扫描结果，需要重新扫描。
 
-首页同时提供**图片转换**卡片：它不属于 9 类扫描，**开始扫描**只更新 9 类结果，不会为转换候选解码或估算体积；卡片显示「尚未估算 / 正在估算 / N 张图片可转换」等状态，有可转换图片时计入顶部「当前待处理」总数，点卡片或**查看**即可进入图片转换页签。
+首页同时提供**图片压缩**卡片：它不属于 9 类扫描，**开始扫描**只更新 9 类结果，不会为压缩候选解码或估算体积；卡片显示「尚未估算 / 正在估算 / N 张图片可转换」等状态，有可转换图片时计入顶部「当前待处理」总数，点卡片或**查看**即可进入图片压缩页签。
 
 ![体检首页扫描结果](docs/images/02-scan-result.png)
 
@@ -137,11 +137,11 @@ Chinese documentation follows below. / 中文说明见下方。
 - 图片清理后如需清理因此变空的文件夹，请先**重新扫描**再操作。
 - Vault 内容发生变化后，旧扫描结果会标记**结果待复核，请重新扫描**，未扫描的分类显示**尚未扫描**。
 
-## 图片格式转换
+## 图片压缩
 
-「图片转换」是体检与清理面板标签条末尾的独立标签页，用于在保持图片可用的前提下缩小体积。它不属于 9 类体检问题，也不计入健康度或 6 阶段扫描；首页会单独显示一张**图片转换**卡片，有可转换图片时计入顶部「当前待处理」总数。打开 **体检与清理** 后切换到 **图片转换**，或直接点首页卡片即可使用。
+「图片压缩」是体检与清理面板标签条末尾的独立标签页，用于在保持图片可用的前提下缩小体积。它不属于 9 类体检问题，也不计入健康度或 6 阶段扫描；首页会单独显示一张**图片压缩**卡片，有可转换图片时计入顶部「当前待处理」总数。打开 **体检与清理** 后切换到 **图片压缩**，或直接点首页卡片即可使用。
 
-![图片转换页签的候选列表与汇总条](docs/images/09-image-convert.png)
+![图片压缩页签的候选列表与汇总条](docs/images/09-image-convert.png)
 
 首次进入页签时会先做一次轻量枚举：只按源格式、忽略目录与目标格式筛出候选，不读文件、不估算体积；之后切换源格式或目标格式也会重新枚举。点**扫描并估算**后按源格式、目标格式与质量推算每张图的预估体积，同时显示「正在估算 x / y · 当前文件」与进度条；估算不读取图片内容，也不解码。完成后列表列出每张候选图的当前大小、转换后**约**多大与变化幅度；尺寸列在快速预估下显示 `—`，引用处数按 Obsidian 引用索引统计。汇总条只累计可转换项，会跳过的图片单独计数并写明原因。选好条目后点**开始转换**（需连点两次确认），转换期间逐张真实解码与编码并显示同样的进度信息，结束后表格下方的结果摘要与右上角提示会给出成功、跳过、失败数量与实际节省的空间。
 
@@ -234,7 +234,7 @@ Chinese documentation follows below. / 中文说明见下方。
 
 ## 关联笔记整理
 
-从命令面板、左侧栏图标或 Markdown 文件右键菜单打开，支持多选笔记与整个文件夹批量处理；安装 Notebook Navigator 后可接入其多选与文件夹菜单。
+从命令面板的「整理关联笔记」命令（会打开体检面板的关联笔记入口）、体检面板首页「相关功能」卡片，或 Markdown 文件右键菜单打开；支持多选笔记与整个文件夹批量处理。安装 Notebook Navigator 后可接入其多选与文件夹菜单。
 
 ![关联笔记整理面板](docs/images/07-related-notes.png)
 
@@ -257,9 +257,9 @@ Chinese documentation follows below. / 中文说明见下方。
 | 可清理图片格式 | 参与未引用图片扫描的扩展名，默认 PNG、JPG/JPEG、GIF、WEBP、SVG、BMP、AVIF、ICO；可用逗号、空格或中文逗号分隔 |
 | 忽略目录 | 这些目录及其子目录不参与未引用图片、未引用附件与空文件夹扫描；失效链接与原生图片链接检查不受影响 |
 | 首次显示使用引导 | 开启时，首次加载插件自动弹出一次三步引导；关闭后不再自动弹出，仍可通过命令「打开使用引导」重看 |
-| 图片转换：目标格式 | 图片转换页的默认输出格式：JPG（默认）、WebP 或 PNG；在页面内调整会同步保存为新的默认值 |
-| 图片转换：默认质量 | 默认 85，范围 1–100（数字输入框）；越高体积越大、画质越好。目标为 PNG 时质量不生效且输入框禁用 |
-| 图片转换：透明图处理 | 含透明通道图片的默认处理方式：白底（默认）或跳过 |
+| 图片压缩：目标格式 | 图片压缩页的默认输出格式：JPG（默认）、WebP 或 PNG；在页面内调整会同步保存为新的默认值 |
+| 图片压缩：默认质量 | 默认 85，范围 1–100（数字输入框）；越高体积越大、画质越好。目标为 PNG 时质量不生效且输入框禁用 |
+| 图片压缩：透明图处理 | 含透明通道图片的默认处理方式：白底（默认）或跳过 |
 
 > 早期版本的「关联数量属性」功能（`related-operations-in-links` 等三个 frontmatter 属性）已移除。插件不再读写这些属性；笔记中遗留的属性不受影响，相关功能均为按需实时计算。
 
@@ -278,7 +278,7 @@ Chinese documentation follows below. / 中文说明见下方。
 
 1. 打开 **设置 → 第三方插件 → 浏览**，搜索 **Vault Doctor**。
 2. 点 **安装**，再点 **启用**。
-3. 从左侧栏图标或命令面板打开「Vault 体检与清理」。
+3. 从左侧栏唯一的「Vault 体检与清理」图标或命令面板打开。
 
 以下两种为手动安装方式。Obsidian 只认插件目录里的文件，所以需要把文件放进 `<Vault>/.obsidian/plugins/vault-doctor/`。
 
@@ -329,7 +329,7 @@ npm run deploy    # 构建并部署到当前打开的 Vault（见下）
 
 - 仅支持桌面端（移动端不可用）。
 - 重复检测只识别字节级相同的文件，不识别内容相似。
-- 图片转换会丢弃 EXIF/GPS/ICC 与色彩配置文件，不缩放、不裁剪；原图恢复依赖 Obsidian 回收站。
+- 图片压缩会丢弃 EXIF/GPS/ICC 与色彩配置文件，不缩放、不裁剪；原图恢复依赖 Obsidian 回收站。
 - 失效链接移除与原生图片链接、Wiki 笔记链接转换直接编辑 Markdown，依赖 Obsidian 编辑历史撤销，不经过回收站。
 - `npm run deploy` 依赖 Windows PowerShell、Obsidian CLI 与恰好一个打开的 Vault。
 

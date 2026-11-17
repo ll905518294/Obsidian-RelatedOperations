@@ -130,12 +130,24 @@ function addSelectionControls(
 	const selectAllButton = container.createEl('button', { text: '全选全部' });
 	selectAllButton.disabled = totalCount === 0;
 	selectAllButton.addEventListener('click', () => { selectAll(); refreshPage(); });
-	const clearPageButton = container.createEl('button', { text: '取消当前页选择' });
+	const more = moreMenu(container);
+	const clearPageButton = more.createEl('button', { text: '取消当前页选择' });
 	clearPageButton.disabled = pageCountValue === 0;
 	clearPageButton.addEventListener('click', () => { clearPage(); refreshAfterClear(); });
-	const clearAllButton = container.createEl('button', { text: '取消全部选择' });
+	const clearAllButton = more.createEl('button', { text: '取消全部选择' });
 	clearAllButton.disabled = totalCount === 0;
 	clearAllButton.addEventListener('click', () => { clearAll(); refreshAfterClear(); });
+}
+
+/** 顶部工具栏的低频按钮折叠区，用原生 details/summary 保证键盘可达且不依赖额外状态。 */
+export function moreMenu(container: HTMLElement): HTMLElement {
+	let details = container.querySelector<HTMLDetailsElement>('.orphan-cleanup-more');
+	if (!details) {
+		details = container.createEl('details', { cls: 'orphan-cleanup-more' });
+		details.createEl('summary', { text: '更多' });
+		details.createDiv({ cls: 'orphan-cleanup-more-items' });
+	}
+	return details.querySelector<HTMLElement>('.orphan-cleanup-more-items')!;
 }
 
 function renderLinkTab<T>(

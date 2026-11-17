@@ -249,6 +249,7 @@ export interface CleanupViewContext {
 	setConversionConfig(patch: Partial<ImageConversionConfig>): Promise<void>;
 	abortEstimate?(): void;
 	abortConvert?(): void;
+	openRelatedNotes?(): void;
 }
 
 export interface OrphanCleanupOptions {
@@ -262,4 +263,6 @@ export interface OrphanCleanupOptions {
 	};
 	saveCache?: (cache: OrphanCleanupCache) => Promise<void> | void;
 	saveSettings?: () => Promise<void>;
+	// 首页「关联笔记整理」入口由宿主注入；体检面板本身不依赖主插件。
+	openRelatedNotes?: () => void;
 }

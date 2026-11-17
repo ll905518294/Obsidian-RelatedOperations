@@ -16,6 +16,9 @@ import { normalizeImageConversionConfig } from './cleanup/cleanup-types';
 
 export default class RelatedOperationsPlugin extends Plugin {
 	private notebookNavigatorRegistered = false;
+	// 体检页签成为活动视图后 getActiveFile() 会返回 null；记住打开面板前的
+	// 最近一篇 Markdown 笔记，首页入口卡才能以它为源继续整理。
+	private lastActiveMarkdownPath?: string;
 	settings!: RelatedOperationsSettings;
 	async onload() {
 		const rawSettings: unknown = await this.loadData();
@@ -41,21 +44,19 @@ export default class RelatedOperationsPlugin extends Plugin {
 		}
 		this.settings = loaded;
 		this.registerView(RELATED_NOTES_VIEW_TYPE, (leaf) => new RelatedNotesView(leaf, this.settings, () => this.saveSettings()));
-		this.registerView(ORPHAN_CLEANUP_VIEW_TYPE, (leaf) => new OrphanCleanupView(leaf, this.settings, () => this.saveSettings()));
+		this.registerView(ORPHAN_CLEANUP_VIEW_TYPE, (leaf) => new OrphanCleanupView(leaf, this.settings, () => this.saveSettings(), () => this.openRelatedNotesFromCurrent()));
 		this.addSettingTab(new RelatedOperationsSettingTab(this.app, this));
+		this.registerEvent(this.app.workspace.on('file-open', (file) => {
+			if (file && file.extension.toLowerCase() === 'md') this.lastActiveMarkdownPath = file.path;
+		}));
 		this.registerNotebookNavigatorMenus();
 		this.app.workspace.onLayoutReady(() => this.retryNotebookNavigatorRegistration());
 		this.app.workspace.onLayoutReady(() => void this.maybeShowStartupIntro());
 		this.addCommand({
 			id: 'move-related-notes',
 			name: '整理关联笔记',
-			checkCallback: (checking) => {
-				const file = this.app.workspace.getActiveFile();
-				const sourceFiles = this.getPreferredSourceFiles(file);
-				if (sourceFiles.length === 0) return false;
-				if (!checking) void this.openRelatedNotesWindow(sourceFiles);
-				return true;
-			},
+			// 唯一入口改为体检与清理视图；关联笔记整理是首页内的功能卡。
+			callback: () => void this.openOrphanCleanupWindow(),
 		});
 		this.addCommand({
 			id: 'scan-and-clean-orphan-resources',
@@ -73,15 +74,6 @@ export default class RelatedOperationsPlugin extends Plugin {
 			callback: () => this.openOnboarding(),
 		});
 
-		this.addRibbonIcon('move', '整理关联笔记', () => {
-			const file = this.app.workspace.getActiveFile();
-			const sourceFiles = this.getPreferredSourceFiles(file);
-			if (sourceFiles.length === 0) {
-				new Notice('请先打开 Markdown 笔记。');
-				return;
-			}
-			void this.openRelatedNotesWindow(sourceFiles);
-		});
 		this.addRibbonIcon('plus-square', '打开 vault 体检与清理', () => void this.openOrphanCleanupWindow());
 
 		this.registerEvent(
@@ -161,6 +153,24 @@ export default class RelatedOperationsPlugin extends Plugin {
 		await this.saveSettings();
 	}
 
+	private openRelatedNotesFromCurrent() {
+		const active = this.app.workspace.getActiveFile();
+		const fallback = this.lastActiveMarkdownPath
+			? this.app.vault.getAbstractFileByPath(this.lastActiveMarkdownPath)
+			: null;
+		const sourceFile = active instanceof TFile && active.extension.toLowerCase() === 'md'
+			? active
+			: fallback instanceof TFile && fallback.extension.toLowerCase() === 'md'
+				? fallback
+				: null;
+		const sourceFiles = this.getPreferredSourceFiles(sourceFile);
+		if (sourceFiles.length === 0) {
+			new Notice('请先打开 Markdown 笔记。');
+			return;
+		}
+		void this.openRelatedNotesWindow(sourceFiles);
+	}
+
 	private async openRelatedNotesWindow(sourceFiles: TFile[]) {
 		const orderedFiles = this.uniqueFiles(sourceFiles).sort((a, b) => a.path.localeCompare(b.path));
 		if (orderedFiles.length === 0) {
@@ -203,10 +213,14 @@ export default class RelatedOperationsPlugin extends Plugin {
 	}
 
 	private async openOrphanCleanupWindow() {
+		const active = this.app.workspace.getActiveFile();
+		if (active instanceof TFile && active.extension.toLowerCase() === 'md') {
+			this.lastActiveMarkdownPath = active.path;
+		}
 		const openFallbackModal = () => new OrphanCleanupModal(this.app, this.settings, async (cache) => {
 			this.settings.orphanCleanupCache = cache;
 			await this.saveSettings();
-		}, () => this.saveSettings()).open();
+		}, () => this.saveSettings(), () => this.openRelatedNotesFromCurrent()).open();
 		if (Platform.isMobile) {
 			openFallbackModal();
 			return;

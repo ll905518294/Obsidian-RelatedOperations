@@ -15,10 +15,10 @@ export interface OnboardingStep {
 export const ONBOARDING_STEPS: OnboardingStep[] = [
 	{
 		title: '它能做什么',
-		summary: '三个核心能力：体检整库资源、转换图片格式，以及整理关联笔记。',
+		summary: '三个核心能力：体检整库资源、压缩图片体积，以及整理关联笔记。',
 		items: [
 			{ text: '体检 9 类问题：未引用图片与附件、空文件与空文件夹、失效笔记链接与原生图片链接、Wiki 笔记链接、重复文件等。' },
-			{ text: '图片转换：把 PNG、JPG、WebP、BMP、AVIF 批量转为 JPG、WebP 或 PNG，执行前精确预估可节省空间。' },
+			{ text: '图片压缩：把 PNG、JPG、WebP、BMP、AVIF 批量转为 JPG、WebP 或 PNG，执行前精确预估可节省空间。' },
 			{ text: '关联笔记整理：多选源笔记，按源笔记或路径分组，确认后可直接移动。' },
 		],
 	},
@@ -38,7 +38,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
 			{ text: '点击左侧栏的 ', kbd: '+', after: ' 方框图标，或使用命令面板中的「打开 vault 体检与清理」。' },
 			{ text: '进入体检面板后，点击右上角「开始扫描」。' },
 			{ text: '在体检首页按问题数量从多到少优先处理；不确定的项目可以先跳过。' },
-			{ text: '图片转换在体检面板顶部的「图片转换」页签；整理关联笔记则用左侧栏的移动图标或命令面板中的「整理关联笔记」，需先打开一篇笔记。' },
+			{ text: '图片压缩在体检面板顶部的「图片压缩」页签；整理关联笔记在体检面板首页的「相关功能」区，点击「关联笔记整理」卡片进入（需先打开或选择一篇笔记）。' },
 		],
 	},
 ];

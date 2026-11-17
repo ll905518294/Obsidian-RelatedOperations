@@ -176,7 +176,9 @@ function makeApp(files, resolvedLinks = {}) {
 }
 
 function panelFor(relatedNotes, sourceFiles, options = {}) {
-	const { app, renamed, opened } = makeApp(options.files ?? [], options.resolvedLinks ?? {});
+	const { app, renamed, opened } = options.app
+		? { app: options.app, renamed: options.renamed ?? [], opened: options.opened ?? [] }
+		: makeApp(options.files ?? [], options.resolvedLinks ?? {});
 	const el = document.createElement('div');
 	const panel = new RelatedNotesPanel(
 		app, el, sourceFiles[0], sourceFiles, relatedNotes,
@@ -544,6 +546,45 @@ test('view state round-trips the merge preference and saves layout on toggle', a
 	mergeButton.fire('click');
 	assert.equal(view.getState().mergeTargetView, false);
 	assert.equal(saves, 1);
+});
+
+// The related-notes view is reached from the vault health-check entry, so its
+// tab title must name that context instead of looking like a second plugin.
+test('related view title names the vault health-check context', () => {
+	const { app } = makeApp([], {});
+	const view = new RelatedNotesView({ app }, { groupingMode: 'none', hideCompliant: false }, async () => {});
+	assert.equal(view.getDisplayText(), 'Vault 体检与清理：关联笔记整理');
+});
+
+// The health-check entry can run when the active file is not a Markdown note.
+// The view must show a Chinese hint and keep a stable empty panel, not throw.
+test('related view without a markdown source shows a Chinese hint', async () => {
+	const { app } = makeApp([], {});
+	const view = new RelatedNotesView({ app }, { groupingMode: 'none', hideCompliant: false }, async () => {});
+	await view.setState({ sourcePaths: [] }, { history: false });
+	assert.match(view.contentEl.querySelector('.related-operations-empty').textContent, /请先打开或选择 Markdown 笔记/);
+	assert.equal(view.panel, undefined);
+	await view.setState({ sourcePaths: ['missing.md'] }, { history: false });
+	assert.match(view.contentEl.querySelector('.related-operations-empty').textContent, /请先打开或选择 Markdown 笔记/);
+	assert.equal(view.panel, undefined);
+});
+
+// Opening from the health-check card passes the chosen notes as sourcePaths;
+// every valid Markdown path must reach the panel, even when the order differs.
+test('view state passes all health-check source paths into the panel', async () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('dst/t.md');
+	const { app } = makeApp([a, b, t], {
+		'src/a.md': { 'dst/t.md': 1 },
+		'src/b.md': { 'dst/t.md': 1 },
+	});
+	const view = new RelatedNotesView({ app }, { groupingMode: 'none', hideCompliant: false }, async () => {});
+	await view.setState({ sourcePaths: ['src/b.md', 'src/a.md'], mergeTargetView: false }, { history: false });
+	assert.deepEqual(view.panel.sourceFiles.map((item) => item.path), ['src/a.md', 'src/b.md']);
+	assert.equal(view.contentEl.querySelector('.related-operations-selected-sources summary').textContent, '已选择源笔记（2）');
+	assert.equal(view.contentEl.querySelectorAll('tr[data-related-path]').length, 2);
+	assert.deepEqual(view.getState().sourcePaths, ['src/b.md', 'src/a.md']);
 });
 
 // The list display preferences are panel settings, not view state: changing
@@ -1743,6 +1784,50 @@ test('switching source notes keeps the view undo history', async () => {
 	assert.equal(t.path, 'dst/t.md');
 	assert.deepEqual(view.panel.lastMove, []);
 	assert.equal(view.contentEl.querySelector('.related-operations-undo').disabled, true);
+});
+
+// The cleanup entry may recreate the panel when switching tabs. Moves made
+// moments earlier must stay undoable for the same vault session.
+test('recreating the panel for the same vault keeps undo history', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const first = panelFor([{ file: t, relation: 'outgoing', sourceFile: a }], [a], { files: [a, t] });
+	first.panel.selections.set('dst/t.md', true);
+	const input = first.el.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	await moveSelectedConfirmed(first.panel);
+	assert.equal(t.path, 'archive/t.md');
+
+	const second = panelFor([], [a], { app: first.app });
+	assert.equal(second.el.querySelector('.related-operations-undo').disabled, false);
+	await second.panel.undoLastMove();
+	assert.equal(t.path, 'dst/t.md');
+	assert.deepEqual(second.panel.lastMove, []);
+});
+
+// Closing and reopening the view must not lose the moves made in this vault
+// session; only a plugin reload/restart should clear the in-memory record.
+test('reopening the related view keeps undo history for the same vault', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { app } = makeApp([a, t], { 'src/a.md': { 'dst/t.md': 1 } });
+	const settings = { groupingMode: 'none', hideCompliant: false };
+	const first = new RelatedNotesView({ app }, settings, async () => {});
+	await first.setState({ sourcePaths: ['src/a.md'], mergeTargetView: false }, { history: false });
+	first.panel.selections.set('dst/t.md', true);
+	const input = first.contentEl.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	await moveSelectedConfirmed(first.panel);
+	await first.onClose();
+
+	const second = new RelatedNotesView({ app }, settings, async () => {});
+	await second.setState({ sourcePaths: ['src/a.md'], mergeTargetView: false }, { history: false });
+	assert.equal(second.contentEl.querySelector('.related-operations-undo').disabled, false);
+	await second.panel.undoLastMove();
+	assert.equal(t.path, 'dst/t.md');
+	assert.deepEqual(second.panel.lastMove, []);
 });
 
 // A selected note that disappeared before the rename finishes must produce an

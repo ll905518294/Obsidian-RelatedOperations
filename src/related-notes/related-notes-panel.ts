@@ -19,6 +19,12 @@ import { renderList, syncRowCheckboxes, updatePreviews, updateSelectAllState, up
 import { makeNoteLinkActivatable } from './related-notes-a11y';
 import type { RelatedNotesListHost } from './related-notes-list-host';
 
+// Undo belongs to the vault session, not to one panel instance. The cleanup
+// entry may recreate the panel when switching tabs or sources; keeping the
+// records here makes those moves still undoable without persisting stale paths
+// across restarts.
+const sessionLastMove = new WeakMap<object, MoveRecord[]>();
+
 export interface RelatedNotesHost {
 	close(): void;
 }
@@ -50,7 +56,7 @@ export class RelatedNotesPanel {
 		private readonly saveSettings?: () => Promise<void>,
 		initialMerging = false,
 		private readonly onMergingChange?: (merging: boolean) => void,
-		initialLastMove: MoveRecord[] = [],
+		initialLastMove?: MoveRecord[],
 		private readonly onLastMoveChange?: (records: MoveRecord[]) => void,
 	) {
 		this.relatedNotes = [...relatedNotes];
@@ -58,7 +64,7 @@ export class RelatedNotesPanel {
 		this.groupingMode = settings?.groupingMode ?? DEFAULT_SETTINGS.groupingMode;
 		this.hideCompliant = settings?.hideCompliant ?? DEFAULT_SETTINGS.hideCompliant;
 		this.merging = initialMerging;
-		this.lastMove = [...initialLastMove];
+		this.lastMove = [...(initialLastMove ?? sessionLastMove.get(this.app) ?? [])];
 		this.groups = buildRelatedGroups(this.relatedNotes);
 	}
 
@@ -106,6 +112,7 @@ export class RelatedNotesPanel {
 			lastMove: () => this.lastMove,
 			setLastMove: (records) => {
 				this.lastMove = records;
+				sessionLastMove.set(this.app, records);
 				this.onLastMoveChange?.(records);
 			},
 			updateUndoButton: () => this.updateUndoButton(),

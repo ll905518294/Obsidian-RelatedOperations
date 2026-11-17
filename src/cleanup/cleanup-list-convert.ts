@@ -428,7 +428,7 @@ function renderRows(host: CleanupViewContext, content: HTMLElement) {
 	}
 
 	const table = content.createEl('table', { cls: 'orphan-cleanup-table orphan-cleanup-convert-table' });
-	table.createEl('caption', { text: '图片转换候选列表', cls: 'orphan-cleanup-convert-caption' });
+	table.createEl('caption', { text: '图片压缩候选列表', cls: 'orphan-cleanup-convert-caption' });
 	const header = table.createEl('thead').createEl('tr');
 	for (const text of ['选择', '文件', '尺寸', '大小', '变化', '引用', '状态']) createColumnHeader(header, text);
 	const body = table.createEl('tbody');

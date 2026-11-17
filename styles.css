@@ -525,6 +525,49 @@
 	background: var(--background-primary);
 }
 
+/* 低频操作折叠区：summary 是顶部一行里的按钮，展开项浮在工具栏下方，不撑开布局。 */
+.orphan-cleanup-more {
+	position: relative;
+	flex: 0 0 auto;
+}
+
+.orphan-cleanup-more > summary {
+	display: inline-flex;
+	align-items: center;
+	min-height: 32px;
+	padding: 0 0.6rem;
+	border: 1px solid var(--ro-border);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	list-style: none;
+}
+
+.orphan-cleanup-more > summary::-webkit-details-marker {
+	display: none;
+}
+
+.orphan-cleanup-more-items {
+	position: absolute;
+	top: calc(100% + 0.25rem);
+	right: 0;
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 0.25rem;
+	min-width: 10rem;
+	padding: 0.4rem;
+	border: 1px solid var(--ro-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	box-shadow: var(--ro-shadow);
+}
+
+.orphan-cleanup-more-items button {
+	justify-content: flex-start;
+	white-space: nowrap;
+}
+
 .orphan-cleanup-grouping {
 	display: inline-flex;
 	align-items: center;

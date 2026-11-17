@@ -9,7 +9,8 @@ import { requireSecondClick, resetArmedConfirmButtons } from './cleanup-confirm-
 import { reasonFor } from './cleanup-actions';
 
 export function renderActions(host: CleanupViewContext) {
-	const actions = host.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });
+	const toolbar = host.contentEl.querySelector<HTMLElement>('.orphan-cleanup-toolbar');
+	const actions = toolbar ?? host.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });
 	const summary = actions.createSpan({ cls: 'orphan-cleanup-summary' });
 	summary.setAttribute('aria-live', 'polite');
 	updateSelectionSummary(host, summary);

@@ -2,16 +2,12 @@ import { ItemView, TFile, TFolder } from 'obsidian';
 import { getRelatedNotesForFiles } from './related-notes';
 import { RelatedNotesPanel } from './related-notes-modal';
 import { RelatedOperationsSettings } from './settings';
-import type { MoveRecord } from './related-notes/related-notes-model';
 
 export const RELATED_NOTES_VIEW_TYPE = 'related-operations-view';
 
 export class RelatedNotesView extends ItemView {
 	private sourcePaths: string[] = [];
 	private mergeTargetView = false;
-	// Undo belongs to the open view, not to one source note: switching sources
-	// recreates the panel, but the moves made in this view must stay undoable.
-	private lastMove: MoveRecord[] = [];
 	private panel?: RelatedNotesPanel;
 	private refreshTimer?: number;
 
@@ -28,7 +24,7 @@ export class RelatedNotesView extends ItemView {
 	}
 
 	getDisplayText() {
-		return '关联笔记整理';
+		return 'Vault 体检与清理：关联笔记整理';
 	}
 
 	getIcon() {
@@ -127,7 +123,7 @@ export class RelatedNotesView extends ItemView {
 		}, sourceLabel, sourceFiles.length, this.settings, this.saveSettings, this.mergeTargetView, (merging) => {
 			this.mergeTargetView = merging;
 			void this.app.workspace.requestSaveLayout();
-		}, this.lastMove, (records) => { this.lastMove = records; });
+		});
 		this.panel.render();
 	}
 }

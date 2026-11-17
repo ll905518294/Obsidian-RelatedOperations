@@ -172,9 +172,11 @@ test('扫描进行中容器声明 aria-busy 与扫描中状态', () => {
 
 	assert.equal(view.contentEl.querySelector('.orphan-cleanup-home').attrs['aria-busy'], 'true');
 	const statuses = view.contentEl.querySelectorAll('.orphan-cleanup-dashboard-item-status');
-	// 9 个扫描分类 + 图片转换卡片（扫描中归入优先处理区，提示等待估算）。
-	assert.equal(statuses.length, 10, '扫描中仍需渲染全部分类卡片与转换卡片');
-	assert.ok(statuses.every((status) => ['正在扫描…', '等待扫描', '已完成', '等待估算'].some((label) => status.textContent.includes(label))));
+	// 9 个扫描分类 + 图片压缩卡片（扫描中归入优先处理区，提示等待估算）+ 关联笔记入口卡。
+	assert.equal(statuses.length, 11, '扫描中仍需渲染全部分类卡片、压缩卡片与关联笔记入口');
+	const scanStatuses = statuses.filter((status) => status.textContent !== '独立页面 · 不参与资料库扫描');
+	assert.equal(scanStatuses.length, 10);
+	assert.ok(scanStatuses.every((status) => ['正在扫描…', '等待扫描', '已完成', '等待估算'].some((label) => status.textContent.includes(label))));
 });
 
 test('首页大数字在无数据时为 0 而不是留空', () => {
@@ -188,19 +190,48 @@ function conversionCard(view) {
 	return view.contentEl.querySelectorAll('.orphan-cleanup-dashboard-item').find((item) => item.dataset.tab === 'image-convert');
 }
 
-test('有可转换图片时首页出现图片转换卡片且计数正确', () => {
+function relatedNotesCard(view) {
+	return view.contentEl.querySelectorAll('.orphan-cleanup-dashboard-item').find((item) => item.dataset.tool === 'related-notes');
+}
+
+test('首页始终提供关联笔记整理入口卡', () => {
+	const view = makeView();
+	renderOverview(view);
+
+	const card = relatedNotesCard(view);
+	assert.ok(card, '首页应有「关联笔记整理」入口卡');
+	assert.match(card.textContent, /关联笔记整理/);
+	const button = card.querySelector('button');
+	assert.ok(button, '入口卡必须有可点击按钮');
+	assert.equal(button.getAttribute('aria-label'), '关联笔记整理：打开');
+});
+
+test('点击关联笔记整理入口触发回调且不触发页签切换', () => {
+	let opened = 0;
+	const view = makeView({ openRelatedNotes: () => { opened += 1; } });
+	renderOverview(view);
+
+	relatedNotesCard(view).fire('click');
+	assert.equal(opened, 1, '点击卡片应调用 openRelatedNotes');
+
+	relatedNotesCard(view).querySelector('button').fire('click');
+	assert.equal(opened, 2, '点击卡片按钮也应调用 openRelatedNotes');
+	assert.deepEqual(view.__activateTabCalls, [], '关联笔记整理不是扫描页签，不应调用 activateTab');
+});
+
+test('有可压缩图片时首页出现图片压缩卡片且计数正确', () => {
 	const view = makeView({ candidates: { images: [], attachments: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], wikiLinks: [], emptyFiles: [], folders: [], duplicates: [], convertibleImages: ['a.png', 'b.png', 'c.png'] } });
 	renderOverview(view);
 
 	const card = conversionCard(view);
-	assert.ok(card, '首页应有图片转换卡片');
+	assert.ok(card, '首页应有图片压缩卡片');
 	const count = card.querySelector('.orphan-cleanup-dashboard-item-count');
 	assert.equal(count.textContent, '3');
 	// 有候选时归入优先处理组，而不是待检查组。
 	assert.ok(card.parentElement.hasClass('orphan-cleanup-priority-grid'));
 });
 
-test('图片转换卡片点击进入 image-convert 页签', () => {
+test('图片压缩卡片点击进入 image-convert 页签', () => {
 	const view = makeView({ candidates: { images: [], attachments: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], wikiLinks: [], emptyFiles: [], folders: [], duplicates: [], convertibleImages: ['a.png'] } });
 	renderOverview(view);
 
@@ -209,12 +240,12 @@ test('图片转换卡片点击进入 image-convert 页签', () => {
 	assert.deepEqual(view.__activateTabCalls, ['image-convert']);
 });
 
-test('没有可转换图片且未估算时图片转换卡片归入待检查组', () => {
+test('没有可压缩图片且未估算时图片压缩卡片归入待检查组', () => {
 	const view = makeView({ scannedTabs: new Set(['images']) });
 	renderOverview(view);
 
 	const card = conversionCard(view);
-	assert.ok(card, '未估算时首页仍应显示图片转换入口');
+	assert.ok(card, '未估算时首页仍应显示图片压缩入口');
 	assert.ok(card.parentElement.hasClass('orphan-cleanup-healthy-list'), '未估算的转换卡片应出现在待检查/复核组');
 	assert.equal(card.querySelector('.orphan-cleanup-dashboard-item-status').textContent, '尚未估算');
 });

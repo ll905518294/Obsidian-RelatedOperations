@@ -55,13 +55,13 @@ function makeTab() {
 	return { tab, plugin, saved };
 }
 
-test('默认图片转换配置不可被实例修改', () => {
+test('默认图片压缩配置不可被实例修改', () => {
 	assert.equal(Object.isFrozen(DEFAULT_IMAGE_CONVERSION), true);
 	assert.equal(Object.isFrozen(DEFAULT_IMAGE_CONVERSION.sources), true);
 	assert.throws(() => DEFAULT_IMAGE_CONVERSION.sources.push('webp'), TypeError);
 });
 
-test('默认设置复制图片转换模板及其源格式数组', () => {
+test('默认设置复制图片压缩模板及其源格式数组', () => {
 	assert.notEqual(DEFAULT_SETTINGS.imageConversion, DEFAULT_IMAGE_CONVERSION);
 	assert.notEqual(DEFAULT_SETTINGS.imageConversion.sources, DEFAULT_IMAGE_CONVERSION.sources);
 	assert.deepEqual(DEFAULT_SETTINGS.imageConversion, DEFAULT_IMAGE_CONVERSION);
@@ -81,7 +81,7 @@ test('规范化缺省配置时返回独立数组', () => {
 	assert.deepEqual(DEFAULT_IMAGE_CONVERSION.sources, ['png']);
 });
 
-test('设置页把图片转换控件的嵌套键路由进嵌套配置', async () => {
+test('设置页把图片压缩控件的嵌套键路由进嵌套配置', async () => {
 	const { tab, plugin, saved } = makeTab();
 
 	assert.equal(tab.getControlValue('imageConversion.target'), 'jpg');
@@ -96,11 +96,11 @@ test('设置页把图片转换控件的嵌套键路由进嵌套配置', async ()
 	assert.equal(saved.length, 2, '每次修改都应落盘一次');
 });
 
-test('图片转换设置组定义目标格式、质量与透明图处理三项', () => {
+test('图片压缩设置组定义目标格式、质量与透明图处理三项', () => {
 	const { tab } = makeTab();
 	const groups = tab.getSettingDefinitions().filter((item) => item.type === 'group');
-	const conversion = groups.find((item) => item.heading === '图片转换默认配置');
-	assert.ok(conversion, '设置页应有图片转换默认配置组');
+	const conversion = groups.find((item) => item.heading === '图片压缩默认配置');
+	assert.ok(conversion, '设置页应有图片压缩默认配置组');
 
 	const keys = conversion.items
 		.filter((item) => item.control)
@@ -108,10 +108,10 @@ test('图片转换设置组定义目标格式、质量与透明图处理三项',
 	assert.deepEqual(keys.sort(), ['imageConversion.alpha', 'imageConversion.quality', 'imageConversion.target']);
 });
 
-test('图片转换设置组用说明条目交代源格式在页面内设置', () => {
+test('图片压缩设置组用说明条目交代源格式在页面内设置', () => {
 	const { tab } = makeTab();
 	const groups = tab.getSettingDefinitions().filter((item) => item.type === 'group');
-	const conversion = groups.find((item) => item.heading === '图片转换默认配置');
+	const conversion = groups.find((item) => item.heading === '图片压缩默认配置');
 	const note = conversion.items.find((item) => !item.control && /源格式/.test(item.desc ?? ''));
 	assert.ok(note, '应有说明源格式在页面内设置的条目');
 	assert.ok(note.name, '说明条目应有标题');

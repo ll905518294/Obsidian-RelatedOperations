@@ -12,10 +12,17 @@ import { findCleanupCandidates } from './cleanup-scan';
 import { reasonFor, trashSelected } from './cleanup-actions';
 import { ConvertNativeLinksConfirmationModal, ConvertWikiLinksConfirmationModal, CreateNotesConfirmationModal, RemoveBrokenLinksConfirmationModal } from './cleanup-modals';
 export function addReportControls(host: CleanupViewContext, container: HTMLElement): void {
+		let details = container.querySelector<HTMLDetailsElement>('.orphan-cleanup-more');
+		if (!details) {
+			details = container.createEl('details', { cls: 'orphan-cleanup-more' });
+			details.createEl('summary', { text: '更多' });
+			details.createDiv({ cls: 'orphan-cleanup-more-items' });
+		}
+		const items = details.querySelector<HTMLElement>('.orphan-cleanup-more-items')!;
 		const data = buildReportData(host);
-		const copy = container.createEl('button', { text: '复制报告' });
+		const copy = items.createEl('button', { text: '复制报告' });
 		copy.addEventListener('click', () => void copyReport(host));
-		const exportButton = container.createEl('button', { text: '导出报告' });
+		const exportButton = items.createEl('button', { text: '导出报告' });
 		exportButton.addEventListener('click', () => void exportReport(host, buildCleanupReport(data)));
 	}
 

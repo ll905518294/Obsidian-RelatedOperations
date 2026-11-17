@@ -12,10 +12,10 @@ test('引导包含三步且内容完整', () => {
 	}
 });
 
-test('第一步覆盖 9 类体检、图片转换与关联笔记整理', () => {
+test('第一步覆盖 9 类体检、图片压缩与关联笔记整理', () => {
 	const text = ONBOARDING_STEPS[0].items.map((item) => `${item.text}${item.after ?? ''}`).join('\n');
 	assert.match(text, /9 类问题/);
-	assert.match(text, /图片转换/);
+	assert.match(text, /图片压缩/);
 	assert.match(text, /关联笔记整理/);
 });
 
@@ -33,10 +33,10 @@ test('第三步包含 + 图标提示与开始扫描入口', () => {
 	assert.match(text, /开始扫描/);
 });
 
-test('第三步补充图片转换页签与关联笔记整理的入口', () => {
+test('第三步补充图片压缩页签与关联笔记整理的入口', () => {
 	const text = ONBOARDING_STEPS[2].items.map((item) => item.text).join('\n');
-	// 图片转换是体检面板内的页签，关联笔记整理是独立入口（命令/侧栏图标）。
-	assert.match(text, /图片转换/);
+	// 图片压缩是体检面板页签；关联笔记整理是首页「相关功能」区的卡片。
+	assert.match(text, /图片压缩/);
 	assert.match(text, /整理关联笔记/);
 });
 

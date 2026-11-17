@@ -57,7 +57,7 @@ test('categoryTotal 汇总全部分类', () => {
 	assert.equal(categoryTotal(candidates()), 0);
 	const value = candidates({ images: [{ path: 'a' }], folders: [{ path: 'b' }, { path: 'c' }], duplicates: [{ hash: 'd' }] });
 	assert.equal(categoryTotal(value), 4);
-	// 图片转换不计入体检问题总数。
+	// 图片压缩不计入体检问题总数。
 	assert.equal(categoryTotal(candidates({ convertibleImages: [{ path: 'a.png' }], images: [{ path: 'b.png' }] })), 1);
 });
 
@@ -109,13 +109,13 @@ test('tabEntries 首页居首，扫描中不重排，非扫描时按有无问题
 	]);
 	assert.equal(sorted[0][1], '体检首页');
 	assert.equal(sorted[0][2], 3);
-	assert.deepEqual(sorted.at(-1), ['image-convert', '图片转换', 0]);
+	assert.deepEqual(sorted.at(-1), ['image-convert', '图片压缩', 0]);
 });
 
-test('图片转换标签固定在末位，不参与分类排序', () => {
+test('图片压缩标签固定在末位，不参与分类排序', () => {
 	const value = candidates({ convertibleImages: [{ path: 'a.png' }, { path: 'b.png' }], images: [{ path: 'c.png' }] });
 	const entries = tabEntries(value, false);
-	assert.deepEqual(entries.at(-1), ['image-convert', '图片转换', 2]);
+	assert.deepEqual(entries.at(-1), ['image-convert', '图片压缩', 2]);
 	assert.equal(entries[1][0], 'images', '分类仍按有无问题排序，转换标签不插队');
 	assert.equal(entries.length, 11);
 });

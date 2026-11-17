@@ -72,7 +72,7 @@ export interface CleanupScanHost {
  * 避免重复扫描（以及第二次调用被静默丢弃）。
  */
 const activeFullScans = new WeakMap<CleanupScanHost, Promise<void>>();
-const CONVERSION_BUSY_NOTICE = '图片转换进行中，请先完成或中止转换。';
+const CONVERSION_BUSY_NOTICE = '图片压缩进行中，请先完成或中止压缩。';
 
 export function runFullScan(panel: CleanupScanHost, preserveProcessed = false): Promise<void> {
 	const active = activeFullScans.get(panel);
@@ -306,7 +306,7 @@ export async function scanTab(panel: CleanupScanHost, tab: CleanupTab): Promise<
 
 function getTabLabel(tab: CleanupTab): string {
 	if (tab === 'overview') return '体检首页';
-	if (tab === 'image-convert') return '图片转换';
+	if (tab === 'image-convert') return '图片压缩';
 	return CLEANUP_CATEGORIES.find((category) => category.tab === tab)?.label ?? tab;
 }
 

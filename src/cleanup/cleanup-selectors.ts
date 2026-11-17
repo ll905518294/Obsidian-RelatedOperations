@@ -46,7 +46,7 @@ export function tabEntries(candidates: CleanupCandidates, scanning: boolean): Ar
 	return [
 		['overview', '体检首页', categoryTotal(candidates)],
 		...categories.map(({ tab, label, count }): [CleanupTab, string, number] => [tab, label, count]),
-		['image-convert', '图片转换', candidates.convertibleImages.length],
+		['image-convert', '图片压缩', candidates.convertibleImages.length],
 	];
 }
 

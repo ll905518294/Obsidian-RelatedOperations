@@ -744,3 +744,17 @@ test('恢复序列化缓存时按路径解析回 TFile，缺失文件安全丢�
 	assert.equal(panel.candidates.attachments[0], attachment);
 	assert.equal(panel.candidates.folders.length, 0);
 });
+
+test('面板把首页的关联笔记请求转发给注入的回调', () => {
+	let opened = 0;
+	const panel = new Panel(makeApp(), new El('div'), { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, {}, {
+		openRelatedNotes: () => { opened += 1; },
+	});
+
+	panel.openRelatedNotes();
+	assert.equal(opened, 1);
+
+	panel.dispose();
+	panel.openRelatedNotes();
+	assert.equal(opened, 1, '面板销毁后不得再触发关联笔记视图');
+});

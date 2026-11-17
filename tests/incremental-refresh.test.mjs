@@ -218,7 +218,7 @@ test('home tab totals all categories and issue tabs lead without changing their 
 	assert.deepEqual(entries[0], ['overview', '体检首页', 9]);
 	assert.deepEqual(entries.slice(1, 4).map(([tab]) => tab), ['attachments', 'native-links', 'duplicates']);
 	assert.equal(entries.length, 11);
-	assert.deepEqual(entries.at(-1), ['image-convert', '图片转换', 0]);
+	assert.deepEqual(entries.at(-1), ['image-convert', '图片压缩', 0]);
 	panel.candidates.attachments = [];
 	entries = panel.tabEntries();
 	assert.equal(entries[0][2], 7);
@@ -231,7 +231,7 @@ test('home tab totals all categories and issue tabs lead without changing their 
 	assert.equal(panel.tabEntries()[1][0], 'images');
 	panel.candidates.convertibleImages = [{ path: 'photo.png' }];
 	assert.equal(panel.tabEntries()[0][2], 0, '转换候选不改变首页问题总数');
-	assert.deepEqual(panel.tabEntries().at(-1), ['image-convert', '图片转换', 1]);
+	assert.deepEqual(panel.tabEntries().at(-1), ['image-convert', '图片压缩', 1]);
 });
 
 test('stale tab paints immediately, shares its scan and does not redraw a newer tab', async () => {

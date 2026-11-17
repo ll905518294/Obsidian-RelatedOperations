@@ -31,7 +31,7 @@ export function updateScanProgress(view: CleanupViewContext) {
 	for (const item of Array.from(view.contentEl.querySelectorAll<HTMLElement>('.orphan-cleanup-dashboard-item[data-tab]'))) {
 		const tab = item.dataset.tab as ScanCategoryTab;
 		if (tab === 'image-convert') {
-			// 图片转换卡片不走 9 类扫描编排：全量扫描不会刷新它，
+			// 图片压缩卡片不走 9 类扫描编排：全量扫描不会刷新它，
 			// 状态只由估算进度与「是否已枚举候选」决定。
 			item.toggleClass('is-scanning', view.conversion.estimating);
 			setTextIfChanged(item.querySelector<HTMLElement>('.orphan-cleanup-dashboard-item-status'), conversionStatus(view, view.candidates.convertibleImages.length));
@@ -67,7 +67,7 @@ export function renderOverview(view: CleanupViewContext) {
 	if (view.scanning) home.addClass('is-scanning');
 	// 扫描进行中给容器加 aria-busy，屏幕阅读器与辅助技术据此跳过对未稳定内容的逐条读取。
 	if (view.scanning) home.setAttribute('aria-busy', 'true');
-	// 图片转换是独立功能 tab：它不属于 9 类扫描分类（不驱动扫描编排），
+	// 图片压缩是独立功能 tab：它不属于 9 类扫描分类（不驱动扫描编排），
 	// 但「有候选」时是可处理项，需要并入首页待处理总数，让用户在首页就能看到它。
 	const convertCount = view.candidates.convertibleImages.length;
 	const total = categoryTotal(view.candidates) + convertCount;
@@ -94,7 +94,7 @@ export function renderOverview(view: CleanupViewContext) {
 	heroCopy.createDiv({ text: view.scanning ? '扫描中的现有结果' : '当前待处理', cls: 'orphan-cleanup-dashboard-label' });
 	heroCopy.createDiv({ text: String(total), cls: 'orphan-cleanup-dashboard-total' });
 	heroCopy.createDiv({
-		text: `${scanned} / ${CLEANUP_CATEGORIES.length} 个分类已扫描${stale ? ` · ${stale} 类待复核` : ''}${!view.scanning && convertCount > 0 ? ` · ${convertCount} 张图片待转换` : ''}`,
+		text: `${scanned} / ${CLEANUP_CATEGORIES.length} 个分类已扫描${stale ? ` · ${stale} 类待复核` : ''}${!view.scanning && convertCount > 0 ? ` · ${convertCount} 张图片待压缩` : ''}`,
 		cls: 'orphan-cleanup-dashboard-meta',
 	});
 	if (view.scanning) {
@@ -118,7 +118,7 @@ export function renderOverview(view: CleanupViewContext) {
 		.sort((a, b) => view.scanning
 			? categoryScanStage(a.tab) - categoryScanStage(b.tab)
 			: categoryCount(view.candidates, b.tab) - categoryCount(view.candidates, a.tab));
-	// 图片转换卡片与扫描分类同区展示：有候选时归入优先处理，无候选且已估算归入已检查，
+	// 图片压缩卡片与扫描分类同区展示：有候选时归入优先处理，无候选且已估算归入已检查，
 	// 未估算/结果过期归入待检查。
 	const conversionScanned = view.scannedTabs.has(CONVERSION_TAB);
 	const conversionDirty = view.dirtyTabs.has(CONVERSION_TAB);
@@ -161,10 +161,17 @@ export function renderOverview(view: CleanupViewContext) {
 		for (const category of pending) renderDashboardCategory(view, pendingList, category, false);
 		if (conversionInPending) renderConversionCard(view, pendingList, 'pending');
 	}
+	// 关联笔记整理是独立视图，不参与 9 类扫描；作为体检首页的固定入口，
+	// 用户无需再记一个侧栏图标或独立命令。
+	const relatedSection = home.createDiv({ cls: 'orphan-cleanup-dashboard-section' });
+	const relatedHeading = relatedSection.createDiv({ cls: 'orphan-cleanup-dashboard-section-heading' });
+	relatedHeading.createEl('h3', { text: '相关功能' });
+	relatedHeading.createSpan({ text: '不参与资料库扫描' });
+	renderRelatedNotesCard(view, relatedSection.createDiv({ cls: 'orphan-cleanup-priority-grid' }));
 	updateScanProgress(view);
 }
 
-/** 图片转换卡片：功能入口在首页可见，行为与其它分类卡片一致（进入 image-convert 页签）。 */
+/** 图片压缩卡片：功能入口在首页可见，行为与其它分类卡片一致（进入 image-convert 页签）。 */
 function renderConversionCard(view: CleanupViewContext, container: HTMLElement, group: 'priority' | 'pending' | 'healthy') {
 	const count = view.candidates.convertibleImages.length;
 	const scanned = view.scannedTabs.has(CONVERSION_TAB);
@@ -181,14 +188,14 @@ function renderConversionCard(view: CleanupViewContext, container: HTMLElement, 
 	setIcon(icon, 'image-plus');
 	const body = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-body' });
 	const title = body.createDiv({ cls: 'orphan-cleanup-dashboard-item-title' });
-	title.createEl('strong', { text: '图片转换' });
+	title.createEl('strong', { text: '图片压缩' });
 	if (group === 'priority') title.createSpan({ text: count > 0 ? String(count) : '—', cls: count > 0 ? 'orphan-cleanup-dashboard-item-count' : 'orphan-cleanup-dashboard-item-count is-zero' });
 	body.createDiv({ text: '把图片转成 JPG / WebP 并改写全部引用', cls: 'orphan-cleanup-dashboard-item-desc' });
 	body.createDiv({ text: conversionStatus(view, count), cls: 'orphan-cleanup-dashboard-item-status' });
 
 	const actions = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-actions' });
 	const viewButton = actions.createEl('button', { text: '查看' });
-	viewButton.setAttribute('aria-label', '图片转换：查看');
+	viewButton.setAttribute('aria-label', '图片压缩：查看');
 	viewButton.disabled = view.scanning;
 	viewButton.addEventListener('click', (event) => { event.stopPropagation(); void view.activateTab(CONVERSION_TAB); });
 	card.addEventListener('click', () => { if (!view.scanning) void view.activateTab(CONVERSION_TAB); });
@@ -199,7 +206,29 @@ function conversionStatus(view: CleanupViewContext, count: number): string {
 	if (view.scanning) return '等待估算（全量扫描不含此项）';
 	if (!view.scannedTabs.has(CONVERSION_TAB)) return '尚未估算';
 	if (view.dirtyTabs.has(CONVERSION_TAB)) return '结果待复核，请重新估算';
-	return count > 0 ? `${count} 张图片可转换` : '没有可转换的图片';
+	return count > 0 ? `${count} 张图片可压缩` : '没有可压缩的图片';
+}
+
+/** 关联笔记整理入口：打开独立视图，使用当前活动/所选笔记作为源。 */
+function renderRelatedNotesCard(view: CleanupViewContext, container: HTMLElement) {
+	const card = container.createDiv({ cls: 'orphan-cleanup-dashboard-item' });
+	card.dataset.tool = 'related-notes';
+
+	const icon = card.createDiv({ cls: 'orphan-cleanup-dashboard-icon' });
+	setIcon(icon, 'move');
+	const body = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-body' });
+	const title = body.createDiv({ cls: 'orphan-cleanup-dashboard-item-title' });
+	title.createEl('strong', { text: '关联笔记整理' });
+	body.createDiv({ text: '以当前笔记或所选笔记为源，整理关联笔记', cls: 'orphan-cleanup-dashboard-item-desc' });
+	body.createDiv({ text: '独立页面 · 不参与资料库扫描', cls: 'orphan-cleanup-dashboard-item-status' });
+
+	const actions = card.createDiv({ cls: 'orphan-cleanup-dashboard-item-actions' });
+	const open = () => { if (!view.scanning) view.openRelatedNotes?.(); };
+	const openButton = actions.createEl('button', { text: '打开' });
+	openButton.setAttribute('aria-label', '关联笔记整理：打开');
+	openButton.disabled = view.scanning;
+	openButton.addEventListener('click', (event) => { event.stopPropagation(); open(); });
+	card.addEventListener('click', open);
 }
 
 function overviewSubtitle(view: CleanupViewContext): string {
