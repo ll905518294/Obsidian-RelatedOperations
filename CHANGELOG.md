@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## [1.9.2] — 2026-11-17：社区审核告警清理
+
+- **[修复]** 跟随 Obsidian 社区目录审核清理告警：消除 `cleanup-scan` 与 `image-reference` 相关代码的 ESLint `no-unsafe` 类型告警；去掉硬编码 `.obsidian`，文案改为「Obsidian 配置目录」；CSS `!important` 收敛到「减少动态效果」这一必要例外。本版本不改变功能行为。
+
 ## [1.9.1] — 2026-11-17：社区审核样式修正
 
 - **[修复]** 跟随 Obsidian 社区目录审核，修正样式兼容：`clip-path` 改用兼容写法，收敛 `!important` 的使用，避免在部分 WebView 或主题下样式失效或被覆写。本版本不改变功能行为。
