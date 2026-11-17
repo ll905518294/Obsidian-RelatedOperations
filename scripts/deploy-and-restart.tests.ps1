@@ -55,6 +55,49 @@ try {
 	'{"1.2.3":"1.13.0"}' | Set-Content (Join-Path $versionRoot 'versions.json')
 	'{"id":"vault-doctor","version":"v1.2.3","minAppVersion":"1.13.0"}' | Set-Content (Join-Path $versionRoot 'manifest.json')
 	try { Assert-ReleaseVersionConsistency $versionRoot; throw 'v-prefixed version accepted' } catch { if ($_.Exception.Message -notmatch 'SemVer') { throw } }
+
+	$windowed = [PSCustomObject]@{ Id = 11; MainWindowHandle = 12345 }
+	$windowless = [PSCustomObject]@{ Id = 12; MainWindowHandle = 0 }
+	$plan = Resolve-ObsidianRestartPlan -MainProcesses @($windowed) -AllProcesses @($windowed, $windowless)
+	if ($plan.Action -ne 'cli') { throw 'main-window instance should use the CLI restart' }
+	$plan = Resolve-ObsidianRestartPlan -MainProcesses @() -AllProcesses @($windowless)
+	if ($plan.Action -ne 'force') { throw 'windowless residual instance should force a restart' }
+	$plan = Resolve-ObsidianRestartPlan -MainProcesses @() -AllProcesses @()
+	if ($plan.Action -ne 'start') { throw 'no Obsidian process should start a new instance' }
+
+	$script:restartCalls = @()
+	$script:restartProcesses = @($windowed, $windowless)
+	$script:forceStable = $true
+	function Get-ObsidianAllProcesses { return @($script:restartProcesses) }
+	function Stop-AllObsidianProcesses { $script:restartCalls += 'stop'; $script:restartProcesses = @() }
+	function Wait-ForObsidianExit { param([int]$TimeoutSeconds) return $true }
+	function Start-ObsidianExecutable { param([string]$ExePath, [string]$VaultPath) $script:restartCalls += "start:$VaultPath" }
+	function Wait-ForObsidianRestart { param([int[]]$PreviousProcessIds, [int]$TimeoutSeconds, [int]$StableSeconds = 3) return $script:forceStable }
+	$fakeCli = Join-Path $root 'obsidian-fail.cmd'
+	"@echo off`r`necho Error: restart blocked`r`nexit /b 1" | Set-Content -LiteralPath $fakeCli -Encoding ASCII
+
+	$script:restartCalls = @()
+	$script:restartProcesses = @($windowed, $windowless)
+	$script:forceStable = $true
+	Invoke-ObsidianRestart $fakeCli $vault
+	if (-not ($script:restartCalls -contains 'stop') -or -not ($script:restartCalls -contains "start:$vault")) {
+		throw 'CLI failure did not fall back to a force restart'
+	}
+
+	$script:restartCalls = @()
+	$script:restartProcesses = @($windowed, $windowless)
+	$script:forceStable = $false
+	try { Invoke-ObsidianRestart $fakeCli $vault; throw 'failed force restart accepted' } catch {
+		if ($_.Exception.Message -notmatch 'force restart also failed') { throw }
+	}
+
+	$script:restartCalls = @()
+	$script:restartProcesses = @($windowless)
+	$script:forceStable = $true
+	Invoke-ObsidianRestart $fakeCli $vault
+	if (-not ($script:restartCalls -contains 'stop')) { throw 'windowless instance did not force a restart' }
+	if (-not ($script:restartCalls -contains "start:$vault")) { throw 'windowless force restart did not relaunch Obsidian' }
+
 	Write-Host 'PASS: deploy script helper tests'
 } finally {
 	if (Test-Path $root) { Remove-Item $root -Recurse -Force }

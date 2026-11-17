@@ -99,10 +99,31 @@ function Copy-DeploymentArtifacts([string[]]$Artifacts, [string]$Destination) {
         Write-Host ("Verified {0}: {1}" -f (Split-Path $artifact -Leaf), (Get-FileSha256 $target))
     }
 }
-function Get-ObsidianMainProcesses {
+function Get-ObsidianAllProcesses {
     return @(Get-Process -Name 'Obsidian' -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowHandle -ne 0 } |
-        ForEach-Object { [PSCustomObject]@{ Id = $_.Id; StartTime = $_.StartTime } })
+        ForEach-Object {
+            $mainWindowHandle = 0L
+            try { $mainWindowHandle = [int64]$_.MainWindowHandle } catch { $mainWindowHandle = 0L }
+            $startTime = $null
+            try { $startTime = $_.StartTime } catch { $startTime = $null }
+            [PSCustomObject]@{ Id = $_.Id; StartTime = $startTime; MainWindowHandle = $mainWindowHandle }
+        })
+}
+function Get-ObsidianMainProcesses {
+    return @(Get-ObsidianAllProcesses | Where-Object { $_.MainWindowHandle -ne 0 })
+}
+function Resolve-ObsidianRestartPlan {
+    param(
+        [AllowEmptyCollection()][object[]]$MainProcesses = @(),
+        [AllowEmptyCollection()][object[]]$AllProcesses = @()
+    )
+    if (@($MainProcesses).Count -gt 0) {
+        return [PSCustomObject]@{ Action = 'cli'; Reason = 'main-window-instance' }
+    }
+    if (@($AllProcesses).Count -gt 0) {
+        return [PSCustomObject]@{ Action = 'force'; Reason = 'windowless-instance' }
+    }
+    return [PSCustomObject]@{ Action = 'start'; Reason = 'not-running' }
 }
 function Assert-ObsidianRestartAcknowledged([string]$Output, [Nullable[int]]$ExitCode) {
     if ($null -ne $ExitCode -and $ExitCode -ne 0) { throw "Obsidian restart command failed with exit code ${ExitCode}: $Output" }
@@ -129,24 +150,69 @@ function Wait-ForObsidianRestart([int[]]$PreviousProcessIds, [int]$TimeoutSecond
     } while ((Get-Date) -lt $deadline)
     return $false
 }
+function Start-ObsidianExecutable([string]$ExePath, [string]$VaultPath) {
+    if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) { throw "Obsidian executable was not found: $ExePath" }
+    [void](Start-Process -FilePath $ExePath -ArgumentList @($VaultPath) -WorkingDirectory (Split-Path -Parent $ExePath))
+}
+function Stop-AllObsidianProcesses {
+    foreach ($process in @(Get-ObsidianAllProcesses)) {
+        try { Stop-Process -Id $process.Id -Force -ErrorAction Stop } catch { }
+    }
+}
+function Wait-ForObsidianExit([int]$TimeoutSeconds) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        if (@(Get-ObsidianAllProcesses).Count -eq 0) { return $true }
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $deadline)
+    return @(Get-ObsidianAllProcesses).Count -eq 0
+}
+function Invoke-ObsidianForceRestart([string]$ExePath, [string]$VaultPath, [int]$StartupTimeoutSeconds, [int]$StopTimeoutSeconds = 4) {
+    Write-Host '[restart] forcing Obsidian restart'
+    Stop-AllObsidianProcesses
+    if (-not (Wait-ForObsidianExit $StopTimeoutSeconds)) {
+        throw "Obsidian processes did not stop after force restart: $VaultPath"
+    }
+    Start-ObsidianExecutable $ExePath $VaultPath
+    if (-not (Wait-ForObsidianRestart @() $StartupTimeoutSeconds)) {
+        throw "Obsidian did not start stably after force restart: $VaultPath"
+    }
+    Write-Host '[restart] force restart stable'
+}
 function Invoke-ObsidianRestart([string]$CliPath, [string]$VaultPath) {
-    $previousProcesses = @(Get-ObsidianMainProcesses)
-    if ($previousProcesses.Count -eq 0) {
-        $exePath = Join-Path (Split-Path -Parent $CliPath) 'Obsidian.exe'
-        if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { throw "Obsidian is not running and executable was not found: $exePath" }
-        [void](Start-Process -FilePath $exePath -ArgumentList @($VaultPath) -WorkingDirectory (Split-Path -Parent $exePath))
+    $exePath = Join-Path (Split-Path -Parent $CliPath) 'Obsidian.exe'
+    $allProcesses = @(Get-ObsidianAllProcesses)
+    $mainProcesses = @($allProcesses | Where-Object { $_.MainWindowHandle -ne 0 })
+    $plan = Resolve-ObsidianRestartPlan -MainProcesses $mainProcesses -AllProcesses $allProcesses
+    if ($plan.Action -eq 'start') {
+        Start-ObsidianExecutable $exePath $VaultPath
         if (-not (Wait-ForObsidianRestart @() $StartupTimeoutSeconds)) { throw "Obsidian did not start stably: $VaultPath" }
         return
     }
+    if ($plan.Action -eq 'force') {
+        Write-Host '[restart] windowless Obsidian instance detected, forcing restart'
+        Invoke-ObsidianForceRestart $exePath $VaultPath $StartupTimeoutSeconds
+        return
+    }
+    $previousProcessIds = @($mainProcesses | ForEach-Object { [int]$_.Id })
     $vaultName = Split-Path -Leaf ([IO.Path]::GetFullPath($VaultPath).TrimEnd('\'))
     try {
         $outputLines = @(& $CliPath "vault=$vaultName" 'restart' 2>&1)
         $exitCode = if ($null -eq $LASTEXITCODE) { $null } else { [int]$LASTEXITCODE }
         $output = $outputLines -join [Environment]::NewLine
         Assert-ObsidianRestartAcknowledged $output $exitCode
-    } catch { throw "Obsidian restart failed: $($_.Exception.Message)" }
-    if (-not (Wait-ForObsidianRestart @($previousProcesses | ForEach-Object { [int]$_.Id }) $StartupTimeoutSeconds)) {
-        throw "Obsidian did not complete a stable restart: $VaultPath"
+        if (-not (Wait-ForObsidianRestart $previousProcessIds $StartupTimeoutSeconds)) {
+            throw "Obsidian did not complete a stable restart: $VaultPath"
+        }
+        return
+    } catch {
+        $cliError = $_
+        Write-Warning '[restart] CLI restart failed, falling back to force restart'
+        try {
+            Invoke-ObsidianForceRestart $exePath $VaultPath $StartupTimeoutSeconds
+        } catch {
+            throw "Obsidian restart failed: $($cliError.Exception.Message); force restart also failed: $($_.Exception.Message)"
+        }
     }
 }
 function Get-DeploymentBackupPath([string]$PluginDir) {
