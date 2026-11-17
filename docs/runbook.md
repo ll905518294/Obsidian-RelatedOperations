@@ -11,6 +11,7 @@
 - 静态检查：`npm run lint`
 - 打包安装包：`npm run package`（产出 `dist/vault-doctor-<版本号>.zip`）
 - 打包预检：`npm run package:check`（只校验输入与打包规则，不写文件）
+- 发布说明预检：`node scripts/release-notes.mjs --check`（校验 `CHANGELOG.md` 存在当前版本条目）
 - 部署脚本测试：`npm run test:deploy`
 - 部署预检：`npm run deploy:check`（只构建和检查，不复制、不重启）
 - 部署并重启：`npm run deploy`（失败时默认恢复到备份；加 `-NoRollbackOnFail` 可保留新文件用于排查）
@@ -58,15 +59,16 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - [ ] `npm run build` 通过，项目根生成了最新 `main.js`。
 - [ ] `npm run lint` 通过。
 - [ ] `npm test` 通过（原生测试全部绿）。
+- [ ] `node scripts/release-notes.mjs --check` 通过（release 正文将从 `CHANGELOG.md` 的当前版本条目自动生成；条目缺失或为空会阻止发布）。
 - [ ] 本次包含图片转换时，按第 9 节在演示库完成验证。
 - [ ] `npm run test:deploy` 与 `npm run deploy:check` 通过（两者都不复制文件、不重启 Obsidian；部署脚本会在构建前校验 `manifest.json`、`package.json`、`versions.json` 的版本一致性）。
 - [ ] 三件套存在：`Get-Item main.js, manifest.json, styles.css`。
-- [ ] **必须**在打 tag 前执行 `npm run package`：脚本会交叉校验 `manifest.json`、`package.json` 与 `versions.json`，任一版本或映射不一致就失败；`dist/vault-doctor-$v.zip` 存在（文件名取自 manifest 的 id 与 version），且包内 `manifest.json` 的 `version` 与仓库根 `manifest.json` 完全一致（读取 ZIP 内文件比对，不能只看文件名）。连续打包两次的 SHA-256 应相同；ZIP 内三个条目要与仓库根的三件套逐字节一致。
+- [ ] **必须**在打 tag 前执行 `npm run package`：脚本会交叉校验 `manifest.json`、`package.json` 与 `versions.json`，任一版本或映射不一致就失败；`dist/<id>-$v.zip` 存在（文件名取自 manifest 的 id 与 version），且包内 `manifest.json` 的 `version` 与仓库根 `manifest.json` 完全一致（读取 ZIP 内文件比对，不能只看文件名）。连续打包两次的 SHA-256 应相同；ZIP 内三个条目要与仓库根的三件套逐字节一致。
 - [ ] tag 与版本一致：`git tag --list $v`（应显示 `$v`），用 `git push origin $v` 推送。
 - [ ] 发布后核对：`gh release view $v --json tagName,name,body,assets`，确认 `assets` 包含 `main.js`、`manifest.json`、`styles.css`（若存在）与 `<id>-$v.zip`。
-- [ ] 可选：`Get-FileHash main.js, manifest.json, styles.css, dist/vault-doctor-$v.zip -Algorithm SHA256`，与 release 正文中的 SHA-256 对照。
+- [ ] 可选：`Get-FileHash main.js, manifest.json, styles.css, dist/<id>-$v.zip -Algorithm SHA256`，与 release 正文中的 SHA-256 对照。
 
-发布后 release workflow 会再次校验 tag、`manifest.json`、`package.json` 与 `versions.json` 的版本一致性，运行 `npm run lint`、`npm test` 与 `npm run package`，并复检 ZIP 内 `manifest.json` 的版本；通过后把 ZIP 与三件套一起附到 release。任一步失败、版本不匹配或 `versions.json` 映射不一致都会阻止发布。
+发布后 release workflow 会再次校验 tag、`manifest.json`、`package.json` 与 `versions.json` 的版本一致性，运行 `npm run lint`、`npm test` 与 `npm run package`，并复检 ZIP 内 `manifest.json` 的版本；release 正文由 `scripts/release-notes.mjs` 从 `CHANGELOG.md` 提取当前版本条目，再追加版本、最低 Obsidian 版本与资产 SHA-256。通过后把 ZIP 与三件套一起附到 release。任一步失败、版本不匹配、`versions.json` 映射不一致或 CHANGELOG 缺少当前版本条目都会阻止发布。
 
 ## 5a. 发布后回退预案
 

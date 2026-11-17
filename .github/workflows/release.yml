@@ -102,10 +102,14 @@ jobs:
 
             - name: Generate release notes
               run: |
+                  node scripts/release-notes.mjs > release-notes.md
                   version="$(jq -r .version manifest.json)"
                   min_app="$(jq -r .minAppVersion manifest.json)"
                   zip="${PACKAGE_ZIP:-}"
                   {
+                    echo ""
+                    echo "---"
+                    echo ""
                     echo "Version: $version"
                     echo "Minimum Obsidian: $min_app"
                     echo ""
@@ -113,7 +117,7 @@ jobs:
                     for file in main.js manifest.json styles.css "$zip"; do
                       if [ -n "$file" ] && [ -f "$file" ]; then sha256sum "$file"; fi
                     done
-                  } > release-notes.md
+                  } >> release-notes.md
                   cat release-notes.md
 
             - name: Create release
