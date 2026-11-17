@@ -1,11 +1,45 @@
 # Vault Doctor
 
-**Vault Doctor** is an Obsidian plugin that scans your vault for broken links, unreferenced resources and duplicate files — then helps you fix them safely, not just list them. It runs fully offline and only changes files after you confirm.
+**Vault Doctor** is an Obsidian plugin that scans a vault for nine kinds of health problems, converts images and organizes related notes — then helps you fix them safely, not just list them. It runs fully offline and only changes files after you confirm. Cleanup goes through Obsidian's trash, moves support undo, and image conversion rewrites references with a per-image safety check.
 
-- Unused images and attachments, empty files/folders, byte-identical duplicates, broken image and note links.
-- Image format conversion: batch-convert PNG, JPG, WebP, BMP and AVIF to JPG, WebP or PNG with an exact size preview and safe reference rewriting.
-- Related-note organizer by outgoing, incoming and bidirectional links, with folder batch moves.
-- Repo: <https://github.com/ll905518294/obsidian-vault-doctor> · Releases: <https://github.com/ll905518294/obsidian-vault-doctor/releases>
+## What it does
+
+Vault Doctor brings three tools into one workspace panel:
+
+- **Vault health check** — scans 9 categories: unused images, unused attachments, empty files, empty folders, broken image links, broken note links, native image links, wiki note links and byte-identical duplicate files.
+- **Image format conversion** — batch-convert PNG, JPG, WebP, BMP and AVIF to JPG, WebP or PNG. Before converting, it shows an **estimated** output size and savings based on source format, target format and quality; the real size is determined during conversion. Transparency, oversized images and reference rewritability are checked precisely at conversion time. References in Wiki embeds, Markdown links, HTML `img`, frontmatter and Canvas are rewritten safely, and the source image is moved to trash only after verification.
+- **Related-note organizer** — find outgoing, incoming and bidirectional links for the current note, then batch-move notes to a target folder. The latest move can be undone.
+
+Everything runs locally: no network requests and no telemetry. Scans never modify files; deletions require two-step confirmation and go through Obsidian's trash, while link edits rely on Obsidian's undo history.
+
+## Feature highlights
+
+- 9-category vault health scan with progress, abort and cached "last scan" results.
+- Image conversion with a per-image transaction: revalidate, rewrite references, verify, then trash the source.
+- Estimated size preview marked as approximate; quality scaling is applied for lossy targets and transparency is checked during conversion.
+- Related-note moves with confirmation, skip-existing behavior and undo of the latest batch.
+- Keyboard and screen-reader support, plus respect for reduced motion.
+- Markdown scan reports that contain paths and links only, never note body text.
+
+## Quick start
+
+1. Download `main.js`, `manifest.json` and (if present) `styles.css` from the [latest release](https://github.com/ll905518294/obsidian-vault-doctor/releases).
+2. Put the files in `<Vault>/.obsidian/plugins/vault-doctor/`.
+3. Enable **Vault Doctor** in **Settings → Community plugins**.
+4. Open the **Vault 体检与清理** panel from the ribbon icon or the command palette.
+
+A ZIP with the same three files is also attached to each release. The ZIP is a convenience bundle, not a Windows installer.
+
+## Requirements
+
+- Obsidian **1.13.0** or newer.
+- Desktop only (Windows, macOS, Linux); mobile is not supported.
+
+## License
+
+0-BSD.
+
+Chinese documentation follows below. / 中文说明见下方。
 
 一个为 Obsidian 做的「Vault 体检 + 问题处理」插件：一次性扫描 9 类健康问题（失效链接、未引用资源、重复文件等），并提供图片格式转换优化工具，安全地完成整理，而不是只列清单。
 
