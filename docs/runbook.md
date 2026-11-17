@@ -90,9 +90,9 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - 部署脚本：`scripts/deploy-and-restart.ps1`
 - 构建配置：`esbuild.config.mjs`
 
-## 7. 社区目录提交（当前 1.8.0）
+## 7. 社区目录状态与维护（当前 1.9.3）
 
-提交入口为 <https://community.obsidian.md/> 网页表单（`obsidianmd/obsidian-releases` 的 Issue/PR 通道已关闭）。本节事实均于 2026-11-15 用 `gh` 拉取官方文档与 `community-plugins.json` 核实。
+插件已于 2026-11-17 上架 Obsidian 社区市场：<https://community.obsidian.md/plugins/vault-doctor>。首次提交通过 <https://community.obsidian.md/> 网页表单完成（`obsidianmd/obsidian-releases` 的 Issue/PR 通道已关闭）；7.1 与 7.2 是提交时的核对记录，保留供后续审核参考。
 
 ### 7.1 插件现值（`manifest.json`）
 
@@ -111,7 +111,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 | README 描述用途与使用方法（Submit guide） | README 首屏“用途”+「快速上手」「检查项说明」覆盖 | 满足 |
 | 根目录有 LICENSE 并注明协议（Developer policies） | `LICENSE`（0-BSD），README 末尾注明 | 满足 |
 | 根目录有 `manifest.json`（Submit guide） | 存在，`id` 唯一 | 满足 |
-| `id` 全目录唯一且不含 `obsidian`（Submit guide） | 最新 `community-plugins.json` 未出现 `vault-doctor`；id 不含 `obsidian` | 满足 |
+| `id` 全目录唯一且不含 `obsidian`（Submit guide） | 已收录于社区目录；id 不含 `obsidian` | 满足 |
 | description ≤ 250、句号结尾、无 emoji（Submission requirements） | 见 7.1 | 满足 |
 | `minAppVersion` 为实际最低兼容版本（Submission requirements） | `1.13.0` | 满足 |
 | `fundingUrl` 仅用于赞助链接（Submission requirements） | 未设置 | 满足 |
@@ -122,16 +122,16 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 | 网络使用需在 README 披露（Developer policies） | 无网络请求，README 已声明 | 满足 |
 | 不访问 Vault 之外文件，除非披露（Developer policies） | 仅访问当前 Vault；「在资源管理器中显示」只定位文件，README 已说明 | 满足 |
 | 遵守 Obsidian 商标（Developer policies） | 名称与 README 未暗示官方第一方 | 满足 |
-| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | `manifest.json` 已升到 `1.8.0`，但最新正式 release 仍是 `1.7.0`（2026-11-17 用 `gh release view 1.7.0` 核实）；需发布 tag=1.8.0 的正式 release 后才满足 | 待发布 1.8.0 |
+| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | 已上架；最新正式 release 为 `1.9.3`，tag 与 `manifest.json` 一致 | 满足 |
 
-### 7.3 提交操作步骤（用户本人完成）
+### 7.3 后续版本维护
 
-1. 浏览器打开 <https://community.obsidian.md/>，用 Obsidian 账号登录。
-2. 在 Profile 中把 GitHub 账号 **Connect** 到该账号（用于验证仓库归属）。
-3. 进入 **Plugins → New plugin**，填写仓库 URL：`https://github.com/ll905518294/obsidian-vault-doctor`。
-4. 目录会读取默认分支 HEAD 的 `manifest.json`，因此提交前先提交并推送 `manifest.json`。
-5. 提交后由自动审核给出反馈；需修正时更新仓库并发布**递增版本**的新 release（版本号必须与 tag 完全一致）。
-6. 通过后可在论坛 Share & showcase 与 Discord `#updates` 公告。
+首次提交已完成，后续版本不需要重新提交「New plugin」：
+
+1. 按第 4 节升版本、写 CHANGELOG、补内置更新说明，并发布与 tag 完全一致的正式 release。
+2. 社区目录会在镜像时读取默认分支 HEAD 的 `manifest.json` 与对应 tag；release 必须存在且 tag 与版本一致。
+3. 若市场审核要求修正，递增版本重新发布，不要改写已发布 tag 的版本号。
+4. 需要公告时可在 Obsidian 论坛 Share & showcase 与 Discord `#updates` 发帖。
 
 ## 8. 截图与 README 一致性维护
 

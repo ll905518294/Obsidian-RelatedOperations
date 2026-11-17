@@ -2,6 +2,8 @@
 
 **Vault Doctor** is an Obsidian plugin that scans a vault for nine kinds of health problems, converts images and organizes related notes — then helps you fix them safely, not just list them. It runs fully offline and only changes files after you confirm. Cleanup goes through Obsidian's trash, moves support undo, and image conversion rewrites references with a per-image safety check.
 
+Vault Doctor is available in the [Obsidian community directory](https://community.obsidian.md/plugins/vault-doctor).
+
 ## What it does
 
 Vault Doctor brings three tools into one workspace panel:
@@ -23,10 +25,11 @@ Everything runs locally: no network requests and no telemetry. Scans never modif
 
 ## Quick start
 
-1. Download `main.js`, `manifest.json` and (if present) `styles.css` from the [latest release](https://github.com/ll905518294/obsidian-vault-doctor/releases).
-2. Put the files in `<Vault>/.obsidian/plugins/vault-doctor/`.
-3. Enable **Vault Doctor** in **Settings → Community plugins**.
-4. Open the **Vault 体检与清理** panel from the ribbon icon or the command palette.
+1. In Obsidian, open **Settings → Community plugins → Browse** and search for **Vault Doctor**.
+2. Install and enable the plugin.
+3. Open the **Vault 体检与清理** panel from the ribbon icon or the command palette.
+
+To install manually, download `main.js`, `manifest.json` and (if present) `styles.css` from the [latest release](https://github.com/ll905518294/obsidian-vault-doctor/releases), put them in `<Vault>/.obsidian/plugins/vault-doctor/`, then enable the plugin in **Settings → Community plugins**.
 
 A ZIP with the same three files is also attached to each release. The ZIP is a convenience bundle, not a Windows installer.
 
@@ -45,6 +48,7 @@ Chinese documentation follows below. / 中文说明见下方。
 
 - 仓库：<https://github.com/ll905518294/obsidian-vault-doctor>
 - 发布：<https://github.com/ll905518294/obsidian-vault-doctor/releases>
+- 社区市场：<https://community.obsidian.md/plugins/vault-doctor>
 - 系统要求：Obsidian 1.13.0 及以上，仅支持桌面端（Windows / macOS / Linux）
 - 许可证：0-BSD
 
@@ -70,7 +74,7 @@ Chinese documentation follows below. / 中文说明见下方。
 
 三步用起来：
 
-1. **安装并启用**：按下方[安装说明](#安装与卸载)放好文件，在 **设置 → 第三方插件** 中启用 **Vault Doctor**。
+1. **安装并启用**：在 **设置 → 第三方插件 → 浏览** 中搜索 **Vault Doctor** 安装并启用；也可按下方[安装说明](#安装与卸载)手动放置文件。
 2. **打开体检**：点击左侧栏的 <kbd>+</kbd> 方框图标，或运行命令「打开 vault 体检与清理」。
 3. **扫描并处理**：点击右上角**开始扫描**，在体检首页按问题数量优先处理；进入分类标签页勾选条目后执行清理。**扫描不会修改任何文件，只有你确认的操作才会执行。**
 
@@ -268,21 +272,29 @@ Chinese documentation follows below. / 中文说明见下方。
 
 ## 安装与卸载
 
-插件尚未上架 Obsidian 社区市场（提交通过 <https://community.obsidian.md/> 网页完成，需 Obsidian 账号并绑定 GitHub），上架前可手动安装。Obsidian 只认插件目录里的文件，所以两种方式都要把文件放进 `<Vault>/.obsidian/plugins/vault-doctor/`。
+插件已上架 Obsidian 社区市场（[市场页](https://community.obsidian.md/plugins/vault-doctor)），推荐直接在 Obsidian 内安装。
 
-**方式 A：下载 ZIP（省事，推荐）**
+**方式 A：社区市场（推荐）**
+
+1. 打开 **设置 → 第三方插件 → 浏览**，搜索 **Vault Doctor**。
+2. 点 **安装**，再点 **启用**。
+3. 从左侧栏图标或命令面板打开「Vault 体检与清理」。
+
+以下两种为手动安装方式。Obsidian 只认插件目录里的文件，所以需要把文件放进 `<Vault>/.obsidian/plugins/vault-doctor/`。
+
+**方式 B：下载 ZIP（省事）**
 
 1. 从 [Releases](https://github.com/ll905518294/obsidian-vault-doctor/releases) 下载 `vault-doctor-<版本号>.zip`。
 2. 把 ZIP 里的内容**解压到** `<Vault>/.obsidian/plugins/vault-doctor/`（ZIP 内文件就在根层，不要先解出一层文件夹再套一层）。
 3. 在 **设置 → 第三方插件** 中启用 **Vault Doctor**。
 
-**方式 B：下载三件套（Obsidian 官方分发格式）**
+**方式 C：下载三件套（Obsidian 官方分发格式）**
 
 1. 从 [Releases](https://github.com/ll905518294/obsidian-vault-doctor/releases) 下载最新版 `main.js`、`manifest.json`、`styles.css`。
 2. 将三个文件放入 `<Vault>/.obsidian/plugins/vault-doctor/`。
 3. 在 **设置 → 第三方插件** 中启用 **Vault Doctor**。
 
-两种方式的文件完全相同：ZIP 只是把三件套打成一个包，方便下载和搬运，不是 Windows 安装程序，也不会自动写系统路径。社区目录按 Obsidian 的三件套格式审核，所以 Releases 会同时保留三件套与 ZIP。
+两种手动方式的文件完全相同：ZIP 只是把三件套打成一个包，方便下载和搬运，不是 Windows 安装程序，也不会自动写系统路径。社区目录按 Obsidian 的三件套格式审核，所以 Releases 会同时保留三件套与 ZIP。
 
 启用后在 **设置 → 第三方插件 → 已安装插件** 可以看到它；点右侧 **⋯ → 设置** 打开配置页，**⋯ → 在系统资源管理器中显示** 可直接定位安装目录。
 
