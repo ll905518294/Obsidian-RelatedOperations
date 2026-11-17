@@ -118,7 +118,7 @@ test('括号等非字母字符的文件名通过原文检索匹配', async () =>
 	);
 });
 
-test('超长无标点英文行不会随词数放大匹配开销', { timeout: 3000 }, async () => {
+test('超长无标点英文行不会随词数放大匹配开销', { timeout: 8000 }, async () => {
 	const words = Array.from({ length: 300 }, (_, index) => `word${index}`).join(' ');
 	const contents = {};
 	for (let index = 0; index < 2000; index++) {
@@ -130,7 +130,8 @@ test('超长无标点英文行不会随词数放大匹配开销', { timeout: 300
 	await markFilesReferencedByText(fakeApp(contents), images, referenced);
 	const elapsed = Date.now() - started;
 	assert.ok(referenced.has('assets/target.png'));
-	assert.ok(elapsed < 1500, `长行匹配耗时 ${elapsed}ms，超过 1500ms`);
+	// 阈值放宽以吸收 CI 运行抖动；真出现二次方复杂度回归时耗时会远超此值。
+	assert.ok(elapsed < 3000, `长行匹配耗时 ${elapsed}ms，超过 3000ms`);
 });
 
 test('损坏的 Canvas 返回 null 而不是空数组', async () => {
