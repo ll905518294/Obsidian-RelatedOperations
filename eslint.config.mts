@@ -6,8 +6,10 @@ export default defineConfig(
 	globalIgnores([
 		'node_modules',
 		'dist',
+		'docs/marketing',
 		'esbuild.config.mjs',
 		'scripts/package-plugin.mjs',
+		'scripts/release-check.mjs',
 		'scripts/release-notes.mjs',
 		'version-bump.mjs',
 		'versions.json',

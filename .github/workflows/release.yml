@@ -29,35 +29,7 @@ jobs:
             - name: Validate release version
               env:
                   RELEASE_TAG: ${{ github.ref_name }}
-              run: |
-                  node --input-type=module -e '
-                  import { readFileSync } from "node:fs";
-
-                  const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
-                  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
-                  const versions = JSON.parse(readFileSync("versions.json", "utf8"));
-                  const tag = process.env.RELEASE_TAG;
-                  const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-
-                  if (!semver.test(manifest.version)) {
-                      throw new Error(`manifest.json version must be a SemVer value without a v prefix: ${manifest.version}`);
-                  }
-                  if (typeof manifest.id !== "string" || !/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?$/.test(manifest.id)) {
-                      throw new Error(`manifest.json id must be a valid Obsidian plugin id: ${JSON.stringify(manifest.id)}`);
-                  }
-                  if (typeof manifest.minAppVersion !== "string" || !semver.test(manifest.minAppVersion)) {
-                      throw new Error(`manifest.json minAppVersion must be a SemVer value: ${JSON.stringify(manifest.minAppVersion)}`);
-                  }
-                  if (pkg.version !== manifest.version) {
-                      throw new Error(`package.json version ${pkg.version} must match manifest.json version ${manifest.version}`);
-                  }
-                  if (tag !== manifest.version) {
-                      throw new Error(`Release tag ${tag} must exactly match manifest.json version ${manifest.version}`);
-                  }
-                  if (versions[manifest.version] !== manifest.minAppVersion) {
-                      throw new Error(`versions.json must map ${manifest.version} to ${manifest.minAppVersion}`);
-                  }
-                  '
+              run: node scripts/release-check.mjs "$RELEASE_TAG"
 
             - name: Build plugin
               run: |
@@ -120,7 +92,7 @@ jobs:
                   } >> release-notes.md
                   cat release-notes.md
 
-            - name: Create release
+            - name: Create or update release
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
@@ -130,17 +102,34 @@ jobs:
                     echo "::error::PACKAGE_ZIP is empty, the packaging step did not run"; exit 1
                   fi
 
-                  gh release create "$tag" --verify-tag \
-                    --title="$tag" \
-                    --notes-file release-notes.md \
-                    main.js manifest.json ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }} \
-                    "${PACKAGE_ZIP}"
+                  assets=(main.js manifest.json "$PACKAGE_ZIP")
+                  if [ -f styles.css ]; then
+                    assets=(main.js manifest.json styles.css "$PACKAGE_ZIP")
+                  fi
+
+                  if gh release view "$tag" >/dev/null 2>&1; then
+                    echo "Release $tag already exists; updating notes and assets"
+                    gh release edit "$tag" --title="$tag" --notes-file release-notes.md
+                    gh release upload "$tag" "${assets[@]}" --clobber
+                  else
+                    gh release create "$tag" --verify-tag \
+                      --title="$tag" \
+                      --notes-file release-notes.md \
+                      "${assets[@]}"
+                  fi
 
             - name: Verify release assets
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   tag="${GITHUB_REF#refs/tags/}"
+                  body="$(gh release view "$tag" --json body --jq .body)"
+                  [ -n "$body" ] \
+                    || { echo "::error::release $tag has an empty body"; exit 1; }
+                  echo "$body" | grep -q '^## 更新说明' \
+                    || { echo "::error::release $tag body is missing the release-notes heading"; exit 1; }
+                  echo "Release notes (first 12 lines):"
+                  echo "$body" | sed -n '1,12p'
                   names="$(gh release view "$tag" --json assets --jq '.assets[].name')"
                   for file in main.js manifest.json styles.css; do
                     [ -f "$file" ] || continue
