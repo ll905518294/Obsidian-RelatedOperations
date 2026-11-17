@@ -12,6 +12,7 @@ export interface ConfirmButtonLabels {
 export interface ConfirmButtonOptions {
 	timeoutMs?: number;
 	labels?: ConfirmButtonLabels;
+	onError?: (error: unknown) => void;
 }
 
 export interface ConfirmButtonHandle {
@@ -19,7 +20,7 @@ export interface ConfirmButtonHandle {
 }
 
 function isConfirmButtonOptions(value: ConfirmButtonOptions | ConfirmButtonLabels): value is ConfirmButtonOptions {
-	return 'labels' in value || 'timeoutMs' in value;
+	return 'labels' in value || 'timeoutMs' in value || 'onError' in value;
 }
 
 const resetsByButton = new WeakMap<HTMLButtonElement, () => void>();
@@ -75,6 +76,11 @@ export function requireSecondClick(
 	const timeoutMs = optionsShape ? options.timeoutMs : undefined;
 	const confirmLabel = labels?.confirm ?? CONFIRM_LABEL;
 	const confirmHint = labels?.hint ?? CONFIRM_HINT;
+	const onError = optionsShape ? options.onError : undefined;
+	const reportError = (error: unknown) => {
+		if (onError) onError(error);
+		else console.error('[vault-doctor] 二次确认操作失败', error);
+	};
 
 	const restoreContent = () => {
 		if (originalChildNodes.length > 0) {
@@ -108,7 +114,14 @@ export function requireSecondClick(
 	const onClick = () => {
 		if (armed) {
 			reset();
-			void onConfirm();
+			try {
+				const result: unknown = onConfirm();
+				if (result && typeof (result as Promise<void>).then === 'function') {
+					void (result as Promise<void>).catch(reportError);
+				}
+			} catch (error) {
+				reportError(error);
+			}
 			return;
 		}
 		armed = true;

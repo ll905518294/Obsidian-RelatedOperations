@@ -73,6 +73,7 @@ export function createConversionState(config: ReadonlyImageConversionConfig): Im
  */
 export interface CleanupConversionHost extends CleanupViewContext {
 	options: OrphanCleanupOptions;
+	disposed?: boolean;
 	estimateController?: AbortController;
 	convertController?: AbortController;
 	conversionSaveTimer: number;
@@ -83,6 +84,7 @@ export interface CleanupConversionHost extends CleanupViewContext {
 export async function estimateConversions(panel: CleanupConversionHost): Promise<void> {
 	clearConversionSelections(panel);
 	if (panel.conversion.estimating) return;
+	if (panel.disposed) return;
 	const files = panel.candidates.convertibleImages;
 	if (files.length === 0) { new Notice('没有符合条件的图片；请先扫描候选。'); return; }
 	const controller = new AbortController();
@@ -101,13 +103,21 @@ export async function estimateConversions(panel: CleanupConversionHost): Promise
 			lastPaint = now;
 			paintProgress(panel, 'estimate', paintFallback);
 		}, controller.signal);
+		if (panel.disposed) return;
+		// 中止时扫描只返回已处理的部分；不能用它覆盖上一次的完整估算结果。
+		if (controller.signal.aborted) {
+			new Notice('已中止估算：保留上一次结果。');
+			return;
+		}
 		panel.conversion.items = items;
 	} catch (error) {
-		new Notice(`估算失败：${reasonFor(error)}`);
+		if (panel.disposed) return;
+		if (controller.signal.aborted) new Notice('已中止估算：保留上一次结果。');
+		else new Notice(`估算失败：${reasonFor(error)}`);
 	} finally {
 		panel.conversion.estimating = false;
 		if (panel.estimateController === controller) panel.estimateController = undefined;
-		panel.renderContents();
+		if (!panel.disposed) panel.renderContents();
 	}
 }
 
@@ -120,6 +130,7 @@ export function abortConvert(panel: CleanupConversionHost): void {
 }
 
 export async function convertSelected(panel: CleanupConversionHost): Promise<void> {
+	if (panel.disposed) return;
 	const selected = panel.candidates.convertibleImages.filter((file) => panel.convertSelections.has(file.path));
 	if (selected.length === 0) { new Notice('请先选择要转换的图片。'); return; }
 	const blocked = new Set(panel.conversion.items.filter((item) => item.blockedReason).map((item) => item.path));
@@ -137,7 +148,7 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 		const config = panel.conversionConfig();
 		const result: ConversionResult = { converted: [], skipped: [], failed: [], pendingTrash: [], savedBytes: 0, aborted: false, unrestored: [] };
 		for (let index = 0; index < files.length; index += CONVERSION_BATCH_SIZE) {
-			if (controller.signal.aborted) { result.aborted = true; break; }
+			if (panel.disposed || controller.signal.aborted) { result.aborted = true; break; }
 			const batch = files.slice(index, index + CONVERSION_BATCH_SIZE);
 			panel.conversion.convertProgress = { processed: index, total: files.length, currentPath: batch[0]?.path };
 			// 大批量时避免每张都重建整页 DOM；进度条就地推进。
@@ -154,6 +165,7 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 				batch.map((file) => ({ path: file.path, size: file.stat.size, mtime: file.stat.mtime })),
 				{ target: config.target, quality: config.quality / 100, alpha: config.alpha, signal: controller.signal },
 			);
+			if (panel.disposed) { result.aborted = true; break; }
 			if (partial.blockedReason) {
 				new Notice(partial.reasonText ?? `转换未开始：${partial.blockedReason}`);
 				return;
@@ -171,6 +183,7 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 			}
 			if (partial.aborted) break;
 		}
+		if (panel.disposed) return;
 		// index 只在循环内可见；用已处理（成功+跳过+失败）的累计数更稳妥。
 		panel.conversion.convertProgress = {
 			processed: result.converted.length + result.skipped.length + result.failed.length,
@@ -222,11 +235,11 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 		panel.conversion.items = panel.conversion.items.filter((item) => remaining.has(item.path));
 		panel.renderContents();
 	} catch (error) {
-		new Notice(`转换失败：${reasonFor(error)}`);
+		if (!panel.disposed) new Notice(`转换失败：${reasonFor(error)}`);
 	} finally {
 		panel.conversion.converting = false;
 		if (panel.convertController === controller) panel.convertController = undefined;
-		panel.renderContents();
+		if (!panel.disposed) panel.renderContents();
 	}
 }
 

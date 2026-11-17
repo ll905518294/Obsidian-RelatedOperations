@@ -50,7 +50,7 @@ function findBrokenImageLinksInCache(
 }
 
 export function removeBrokenImageLinks(content: string, links: BrokenImageLink[]): RemoveBrokenLinksResult {
-	return removeCachedLinkRanges(content, links, matchesCachedReference);
+	return removeCachedLinkRanges(content, links, (actual, original) => actual === original);
 }
 
 export function findBrokenLinkOffset(
@@ -114,10 +114,6 @@ export async function removeSelectedBrokenLinks(
 		}
 	}
 	return result;
-}
-
-function matchesCachedReference(actual: string, original: string) {
-	return actual === original || actual === `!${original}` || `!${actual}` === original;
 }
 
 function targetPath(link: string) {

@@ -489,3 +489,49 @@ test('按钮重绘后待确认状态不复用，单击新按钮不会删除', as
 	await waitFor(() => trashed.length >= 2);
 	assert.deepEqual(trashed.sort(), ['whole/a.png', 'whole/b.png']);
 });
+
+test('异步操作拒绝时交给 onError 而不是未处理拒绝', async () => {
+	const target = button('删除选中文件', 'mod-cta');
+	const errors = [];
+	requireSecondClick(target, async () => { throw new Error('引用清理失败'); }, {
+		onError: (error) => errors.push(error.message),
+	});
+
+	target.dispatch('click');
+	target.dispatch('click');
+	await new Promise((resolve) => setTimeout(resolve, 0));
+
+	assert.deepEqual(errors, ['引用清理失败']);
+	assert.equal(target.textContent, '删除选中文件');
+});
+
+test('同步抛错也交给 onError', () => {
+	const target = button('删除选中文件', 'mod-cta');
+	const errors = [];
+	requireSecondClick(target, () => { throw new Error('同步失败'); }, {
+		onError: (error) => errors.push(error.message),
+	});
+
+	target.dispatch('click');
+	target.dispatch('click');
+
+	assert.deepEqual(errors, ['同步失败']);
+});
+
+test('未提供 onError 时只记录到 console.error', async () => {
+	const target = button('删除选中文件', 'mod-cta');
+	const logged = [];
+	const originalError = console.error;
+	console.error = (...args) => logged.push(args);
+	try {
+		requireSecondClick(target, async () => { throw new Error('底层失败'); });
+		target.dispatch('click');
+		target.dispatch('click');
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	} finally {
+		console.error = originalError;
+	}
+
+	assert.equal(logged.length, 1);
+	assert.equal(logged[0][1].message, '底层失败');
+});

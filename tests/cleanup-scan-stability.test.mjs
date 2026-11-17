@@ -21,7 +21,7 @@ export const Platform = {};
 
 const bundle = await build({
 	stdin: {
-		contents: "export { findCleanupCandidates } from './src/cleanup/cleanup-scan.ts';",
+		contents: "export { findCleanupCandidates } from './src/cleanup/cleanup-scan.ts'; export { TFolder } from 'obsidian';",
 		resolveDir: process.cwd(),
 	},
 	bundle: true,
@@ -37,7 +37,7 @@ const bundle = await build({
 	}],
 });
 
-const { findCleanupCandidates } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const { findCleanupCandidates, TFolder } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 function makeFile(path, content = '') {
 	return {
@@ -223,6 +223,32 @@ test('索引缺失时存在性校验不会对每个候选全量遍历文件列�
 
 	assert.equal(result.images.length, 600);
 	assert.ok(getFilesCalls <= 6, `getFiles 调用次数过高：${getFilesCalls}`);
+});
+
+test('索引缺失时仍存在的空文件夹由加载文件集合兜底', async () => {
+	const note = makeFile('note.md', '# title');
+	const folder = new TFolder();
+	folder.path = 'empty';
+	folder.children = [];
+	const root = new TFolder();
+	root.path = '';
+	root.children = [folder];
+	const app = {
+		vault: {
+			getFiles: () => [note],
+			getMarkdownFiles: () => [note],
+			// Simulate a host index miss for the folder. getFiles() only returns
+			// files, so the fallback must use getAllLoadedFiles() to keep it.
+			getAbstractFileByPath: (path) => (path === note.path ? note : null),
+			getAllLoadedFiles: () => [root, folder, note],
+			getRoot: () => root,
+			cachedRead: async (file) => file.__content,
+			read: async (file) => file.__content,
+		},
+		metadataCache: { resolvedLinks: {}, getFileCache: () => null, getFirstLinkpathDest: () => null },
+	};
+	const result = await findCleanupCandidates(app, 'png', '', undefined, false);
+	assert.deepEqual(result.folders.map((item) => item.path), ['empty']);
 });
 
 test('大规模资料库中每篇笔记读取次数有界，未引用集合判定正确', { timeout: 120000 }, async () => {

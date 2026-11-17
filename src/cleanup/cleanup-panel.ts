@@ -1,5 +1,5 @@
 import { App, Component, Modal, Notice, TFile } from 'obsidian';
-import { parseIgnoredFolders } from '../core-utils';
+import { parseExtensions, parseIgnoredFolders } from '../core-utils';
 import { removeFileReferencesForFiles, removeImageReferencesForFile, type DuplicateFileGroup } from '../duplicate-files';
 import type { RelatedOperationsSettings } from '../settings';
 import { CLEANUP_CATEGORIES, cloneImageConversionConfig, normalizeImageConversionConfig, type CleanupCandidates, type CleanupScanError, type CleanupTab, type ImageConversionConfig, type ImageConversionState, type ImageGrouping, type OrphanCleanupHost, type OrphanCleanupOptions, type OrphanImageExtensions, type ScanCategoryTab, type ScanProgress, type ScanStage } from './cleanup-types';
@@ -18,7 +18,7 @@ import { createConversionState, estimateConversions as runEstimateConversions, a
 import { linkResultsKey, markContentDependentTabsDirty, refreshSourceLinks, runFullScan, scanCategory as runScanCategory, scanTab as runScanTab } from './cleanup-scan-controller';
 
 export class OrphanCleanupPanel extends Component {
-	candidates: CleanupCandidates = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], wikiLinks: [], duplicates: [], duplicateWarnings: [], convertibleImages: [] };
+	candidates: CleanupCandidates = emptyCleanupCandidates();
 	selections = new Set<string>();
 	convertSelections = new Set<string>();
 	linkSelections = new Set<string>();
@@ -31,6 +31,7 @@ export class OrphanCleanupPanel extends Component {
 	imageGrouping: ImageGrouping = 'none';
 	attachmentGrouping: ImageGrouping = 'none';
 	scanning = false;
+	disposed = false;
 	hasScanned = false;
 	scanStages: ScanStage[] = [];
 	scanProgress: ScanProgress = { stage: 0, processed: 0, total: 0 };
@@ -137,6 +138,22 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	private restoreFromCache() {
+		// 缓存只对生成它时的扫描口径有效；设置改过后继续展示会让用户
+		// 以为旧计数仍适用于当前配置。
+		if (!this.options.cachedSettings || !sameCleanupSettings(this.options.cachedSettings, this.settings)) {
+			this.candidates = emptyCleanupCandidates();
+			this.hasScanned = false;
+			this.showingCachedResult = false;
+			this.lastScannedAt = undefined;
+			this.processed = undefined;
+			this.pages.clear();
+			this.scannedTabs.clear();
+			this.dirtyTabs.clear();
+			this.dirtyVersions.clear();
+			new Notice('清理设置已变化，上次扫描结果已失效，请重新扫描。');
+			this.renderContents();
+			return;
+		}
 		// 缓存里只有路径；文件已删除或改名时按路径解析失败会安全丢弃。
 		this.candidates = restoreCleanupCandidates(this.app, this.options.cachedCandidates);
 		this.hasScanned = true;
@@ -189,6 +206,8 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	dispose() {
+		if (this.disposed) return;
+		this.disposed = true;
 		this.unload();
 		this.scanGeneration++;
 		this.scanning = false;
@@ -201,11 +220,13 @@ export class OrphanCleanupPanel extends Component {
 		if (this.conversionSaveTimer) {
 			window.clearTimeout(this.conversionSaveTimer);
 			this.conversionSaveTimer = 0;
-			void this.options.saveSettings?.();
+			const pending = this.options.saveSettings?.();
+			if (pending) void pending.catch((error) => console.warn(`[vault-doctor] 保存设置失败：${reasonFor(error)}`));
 		}
 	}
 
 	renderContents() {
+		if (this.disposed) return;
 		const snapshot = captureViewSnapshot(this.contentEl);
 		const view = this.renderedViewKey();
 		const sameView = this.lastRenderedView === view;
@@ -230,11 +251,15 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	async cleanDuplicateLinks(file: DuplicateFileGroup['files'][number]) {
-		const result = await removeImageReferencesForFile(this.app, file.path);
-		new Notice(`已清理 ${result.removed} 条图片链接${result.failed.length ? `，失败 ${result.failed.length} 个文件` : ''}。`);
-		if (result.removed) {
-			this.saveCacheToSettings();
-			this.renderContents();
+		try {
+			const result = await removeImageReferencesForFile(this.app, file.path);
+			new Notice(`已清理 ${result.removed} 条图片链接${result.failed.length ? `，失败 ${result.failed.length} 个文件` : ''}。`);
+			if (result.removed) {
+				this.saveCacheToSettings();
+				this.renderContents();
+			}
+		} catch (error) {
+			new Notice(`清理链接失败：${reasonFor(error)}`);
 		}
 	}
 
@@ -334,6 +359,7 @@ export class OrphanCleanupPanel extends Component {
 	}
 
 	updateTabCounts() {
+		if (this.disposed) return;
 		const tabs = this.contentEl.querySelector<HTMLElement>('.orphan-cleanup-tabs');
 		if (!tabs) return;
 		const focused = tabs.ownerDocument.activeElement;
@@ -395,7 +421,10 @@ export class OrphanCleanupPanel extends Component {
 		if (isConversionTab(this.activeTab)) renderConversionActions(this);
 		else renderActions(this);
 	}
-	updateSelectionSummary(summary?: HTMLElement) { updateSelectionSummary(this, summary); }
+	updateSelectionSummary(summary?: HTMLElement) {
+		if (this.disposed) return;
+		updateSelectionSummary(this, summary);
+	}
 	private categoryStatus(count: number, scanned: boolean, scanning: boolean, dirty: boolean): string { return categoryStatus(count, scanned, scanning, dirty); }
 	private tabEntries(): Array<[CleanupTab, string, number]> { return tabEntries(this.candidates, this.scanning); }
 }
@@ -433,4 +462,31 @@ function isPromiseLike(value: unknown): value is Promise<void> {
 	return (typeof value === 'object' || typeof value === 'function')
 		&& value !== null
 		&& typeof (value as { then?: unknown }).then === 'function';
+}
+
+function emptyCleanupCandidates(): CleanupCandidates {
+	return { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], wikiLinks: [], duplicates: [], duplicateWarnings: [], convertibleImages: [] };
+}
+
+/*
+ * 设置字符串的比较口径必须与扫描一致：仅调整逗号、空格或顺序不应
+ * 让整份缓存失效，但增删格式或忽略目录必须失效。
+ */
+function sameCleanupSettings(
+	cached: unknown,
+	current: { orphanImageExtensions: string; orphanIgnoredFolders: string },
+): boolean {
+	// 快照来自 data.json，可能是旧格式或被手工改坏的值；先校验再解析。
+	if (!isCleanupSettingsSnapshot(cached)) return false;
+	const key = (settings: { orphanImageExtensions: string; orphanIgnoredFolders: string }) => JSON.stringify([
+		[...parseExtensions(settings.orphanImageExtensions)].sort(),
+		[...parseIgnoredFolders(settings.orphanIgnoredFolders)].sort(),
+	]);
+	return key(cached) === key(current);
+}
+
+function isCleanupSettingsSnapshot(value: unknown): value is { orphanImageExtensions: string; orphanIgnoredFolders: string } {
+	if (typeof value !== 'object' || value === null) return false;
+	const snapshot = value as { orphanImageExtensions?: unknown; orphanIgnoredFolders?: unknown };
+	return typeof snapshot.orphanImageExtensions === 'string' && typeof snapshot.orphanIgnoredFolders === 'string';
 }

@@ -50,12 +50,15 @@ export class RelatedNotesPanel {
 		private readonly saveSettings?: () => Promise<void>,
 		initialMerging = false,
 		private readonly onMergingChange?: (merging: boolean) => void,
+		initialLastMove: MoveRecord[] = [],
+		private readonly onLastMoveChange?: (records: MoveRecord[]) => void,
 	) {
 		this.relatedNotes = [...relatedNotes];
 		this.showSourceColumn = sourceCount > 1;
 		this.groupingMode = settings?.groupingMode ?? DEFAULT_SETTINGS.groupingMode;
 		this.hideCompliant = settings?.hideCompliant ?? DEFAULT_SETTINGS.hideCompliant;
 		this.merging = initialMerging;
+		this.lastMove = [...initialLastMove];
 		this.groups = buildRelatedGroups(this.relatedNotes);
 	}
 
@@ -101,7 +104,10 @@ export class RelatedNotesPanel {
 			selections: () => this.selectedPaths,
 			targetFolder: () => this.targetFolder,
 			lastMove: () => this.lastMove,
-			setLastMove: (records) => { this.lastMove = records; },
+			setLastMove: (records) => {
+				this.lastMove = records;
+				this.onLastMoveChange?.(records);
+			},
 			updateUndoButton: () => this.updateUndoButton(),
 			pruneMovedNotes: (moved) => this.pruneMovedNotes(moved),
 			recomputeRelatedNotes: () => this.recomputeRelatedNotes(),

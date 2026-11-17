@@ -8,6 +8,7 @@ const HASH_CONCURRENCY = 8;
 const HASH_BYTE_BUDGET = 64 * 1024 * 1024;
 
 type HashResult = { ok: true; hash: string } | { ok: false; error: unknown };
+type DeletionCheckResult = { ok: true; size: number; digest: string } | { ok: false; reason: string };
 
 export interface DuplicateFileItem {
 	path: string;
@@ -254,18 +255,28 @@ export async function planDuplicateDeletion(
 			for (const file of candidates) skipped.push({ path: file.path, reason: keepers.length ? `无法读取保留文件：${errorMessage(error)}` : `无法读取参照文件：${errorMessage(error)}` });
 			continue;
 		}
-		for (const file of candidates) {
+		const results: Array<DeletionCheckResult | undefined> = candidates.map(() => undefined);
+		await forEachWithConcurrency(candidates, byteBudgetConcurrency([keeperSize, ...candidates.map((file) => file.size)]), async (file, index) => {
 			try {
 				const bytes = await app.vault.readBinary(resolveFile(app, file.path));
 				const digest = await digestBytes(bytes);
 				if (bytes.byteLength !== keeperSize || digest !== keeperHash) {
-					skipped.push({ path: file.path, reason: '文件内容已变化，请重新扫描' });
-					continue;
+					results[index] = { ok: false, reason: '文件内容已变化，请重新扫描' };
+					return;
 				}
-				deletable.push(file);
-				verified.push({ path: file.path, size: bytes.byteLength, digest });
+				results[index] = { ok: true, size: bytes.byteLength, digest };
 			} catch (error) {
-				skipped.push({ path: file.path, reason: errorMessage(error) });
+				results[index] = { ok: false, reason: errorMessage(error) };
+			}
+		});
+		for (const [index, result] of results.entries()) {
+			const file = candidates[index]!;
+			if (!result) continue;
+			if (result.ok) {
+				deletable.push(file);
+				verified.push({ path: file.path, size: result.size, digest: result.digest });
+			} else {
+				skipped.push({ path: file.path, reason: result.reason });
 			}
 		}
 	}

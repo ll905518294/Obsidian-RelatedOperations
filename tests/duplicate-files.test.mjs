@@ -300,6 +300,32 @@ test('reports the reason when the selected file cannot be read', async () => {
 	assert.match(plan.skipped[0].reason, /无法读取文件/);
 });
 
+test('重复删除计划按字节预算并发读取候选文件', async () => {
+	const files = Array.from({ length: 6 }, (_, index) => ({
+		path: `f${index}.bin`,
+		extension: 'bin',
+		stat: { size: 3, mtime: index + 1 },
+	}));
+	let active = 0;
+	let peak = 0;
+	const app = {
+		vault: {
+			getAbstractFileByPath: (path) => files.find((file) => file.path === path) ?? null,
+			readBinary: async () => {
+				active += 1;
+				peak = Math.max(peak, active);
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				active -= 1;
+				return new Uint8Array([1, 2, 3]).buffer;
+			},
+		},
+	};
+	const plan = await planDuplicateDeletion(app, [duplicateGroup(files)], files.map((file) => file.path));
+	assert.deepEqual(plan.deletable.map((file) => file.path), files.map((file) => file.path));
+	assert.ok(peak > 1, `峰值并发 ${peak}，疑似仍为串行`);
+	assert.ok(peak <= 8, `峰值并发 ${peak}，超过上限 8`);
+});
+
 test('并发哈希受上限约束，不会串行读取', async () => {
 	let active = 0;
 	let peak = 0;

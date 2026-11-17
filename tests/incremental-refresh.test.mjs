@@ -144,7 +144,10 @@ test('events during a full scan are retained as dirty state', () => {
 
 test('restored cache is treated as stale until each category is refreshed', () => {
 	const cached = { images: [], attachments: [], emptyFiles: [], folders: [], brokenLinks: [], nativeLinks: [], brokenNoteLinks: [], duplicates: [], duplicateWarnings: [] };
-	const panel = new Panel({ metadataCache: events(), vault: events() }, {}, { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, { cachedCandidates: cached });
+	const panel = new Panel({ metadataCache: events(), vault: events() }, {}, { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, {}, {
+		cachedCandidates: cached,
+		cachedSettings: { orphanImageExtensions: 'png', orphanIgnoredFolders: '' },
+	});
 	panel.renderContents = () => {};
 	panel.restoreFromCache();
 	for (const tab of ['images', 'attachments', 'broken-links', 'native-links', 'broken-note-links', 'wiki-links', 'empty-files', 'folders', 'duplicates', 'image-convert']) assert.equal(panel.dirtyTabs.has(tab), true);

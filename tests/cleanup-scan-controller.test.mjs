@@ -173,3 +173,17 @@ test('等待分类刷新期间关闭面板则不再启动全量扫描', async ()
 	assert.equal(panel.scanning, false);
 	assert.equal(panel.hasScanned, false);
 });
+
+test('图片转换进行中拒绝启动全量扫描', async () => {
+	globalThis.__scanCalls.length = 0;
+	globalThis.__notices.length = 0;
+	globalThis.__scanGate = undefined;
+	const panel = makePanel();
+	panel.conversion = { converting: true };
+
+	await runFullScan(panel);
+
+	assert.equal(globalThis.__scanCalls.length, 0, '转换期间不得启动全量扫描');
+	assert.equal(panel.scanning, false);
+	assert.ok(globalThis.__notices.includes('图片转换进行中，请先完成或中止转换。'));
+});

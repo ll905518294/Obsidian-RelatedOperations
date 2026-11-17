@@ -65,12 +65,20 @@ jobs:
               run: |
                   [ -f styles.css ] && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
 
+            - name: Collect attest subjects
+              id: attest
+              run: |
+                  {
+                    echo 'subject-path<<EOF'
+                    printf '%s\n' "main.js"
+                    if [ "${{ steps.styles.outputs.exists }}" = "true" ]; then printf '%s\n' "styles.css"; fi
+                    echo 'EOF'
+                  } >> "$GITHUB_OUTPUT"
+
             - name: Attest build provenance
               uses: actions/attest@v4
               with:
-                  subject-path: |
-                      main.js
-                      ${{ steps.styles.outputs.exists == 'true' && 'styles.css' || '' }}
+                  subject-path: ${{ steps.attest.outputs.subject-path }}
 
             - name: Generate release notes
               run: |

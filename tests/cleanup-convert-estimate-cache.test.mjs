@@ -46,6 +46,7 @@ const { createConversionState, estimateConversions } = await import(
 );
 
 globalThis.__notices = [];
+globalThis.window ??= globalThis;
 
 const config = { sources: ['png'], target: 'jpg', quality: 85, alpha: 'flatten' };
 
@@ -114,4 +115,28 @@ test('源文件体积变化后按新体积重新预估', async () => {
 	const after = host.conversion.items.find((item) => item.path === 'a.png').newBytes;
 
 	assert.ok(after > before, `体积变大后预估应变大：${before} -> ${after}`);
+});
+
+test('大批量估算会让出主线程并可被中止，不会写入部分结果', async () => {
+	globalThis.__notices = [];
+	const files = Array.from({ length: 1000 }, (_, index) => makeFile(`img-${index}.png`, 100));
+	const host = makeHost(files);
+	const originalSetTimeout = globalThis.setTimeout;
+	let aborted = false;
+	globalThis.setTimeout = (callback, delay, ...args) => {
+		if (!aborted && delay === 0) {
+			aborted = true;
+			host.estimateController.abort();
+		}
+		return originalSetTimeout(callback, delay, ...args);
+	};
+	try {
+		await estimateConversions(host);
+	} finally {
+		globalThis.setTimeout = originalSetTimeout;
+	}
+
+	assert.equal(host.conversion.items.length, 0, '中止后不得写入部分估算结果');
+	assert.ok(host.conversion.estimateProgress.processed < files.length, '应在大批量处理完成前中止');
+	assert.ok(globalThis.__notices.some((message) => message.includes('已中止估算')));
 });

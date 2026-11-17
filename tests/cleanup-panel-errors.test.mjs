@@ -263,6 +263,50 @@ test('同页重建恢复滚动位置，翻页后不沿用旧滚动位置', () =>
 	assert.equal(panel.contentEl.querySelector('.orphan-cleanup-scroll').scrollTop, 0, '翻页属于新视图，不应沿用旧滚动位置');
 });
 
+test('面板销毁后不再重建 DOM', () => {
+	const panel = makePanel();
+	panel.renderContents();
+	assert.ok(panel.contentEl.children.length > 0, '正常渲染应产生节点');
+
+	panel.contentEl.empty();
+	panel.dispose();
+	panel.renderContents();
+	panel.updateTabCounts();
+
+	assert.equal(panel.contentEl.children.length, 0, '销毁后不得再创建节点');
+});
+
+test('销毁时保存设置失败不会产生未处理的 Promise 拒绝', async () => {
+	const warnings = [];
+	const originalWarn = console.warn;
+	console.warn = (...args) => warnings.push(args.join(' '));
+	try {
+		const panel = new Panel(makeApp(), new El('div'), { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, {}, {
+			saveSettings: async () => { throw new Error('磁盘只读'); },
+		});
+		panel.conversionSaveTimer = 1;
+		panel.dispose();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		assert.ok(warnings.some((line) => line.includes('保存设置失败') && line.includes('磁盘只读')));
+	} finally {
+		console.warn = originalWarn;
+	}
+});
+
+test('清理重复文件图片链接失败时给出提示而不是未捕获拒绝', async () => {
+	Notice.messages = [];
+	const panel = makePanel(makeApp({
+		vault: {
+			getMarkdownFiles: () => { throw new Error('读取笔记列表失败'); },
+		},
+	}));
+
+	await panel.cleanDuplicateLinks(makeFile('dup/a.png'));
+
+	assert.ok(Notice.messages.includes('清理链接失败：读取笔记列表失败'));
+});
+
 test('重复文件与三类链接的复选框关联路径和链接原文', () => {
 	const duplicatePanel = makePanel();
 	duplicatePanel.activeTab = 'duplicates';
@@ -307,6 +351,8 @@ test('中止全量扫描后保留已完成分类并把未完成分类标为待�
 	Notice.messages = [];
 	const attachment = makeFile('orphan.pdf', 'pdf', 20);
 	const panel = makePanel(makeApp({ vault: { getFiles: () => [attachment] } }));
+	let saved;
+	panel.options.saveCache = async (cache) => { saved = cache; };
 	const realRender = panel.renderContents.bind(panel);
 	let aborted = false;
 	panel.renderContents = () => {
@@ -331,6 +377,9 @@ test('中止全量扫描后保留已完成分类并把未完成分类标为待�
 		assert.equal(panel.dirtyTabs.has(tab), true, `${tab} 必须进入待复核状态`);
 	}
 	assert.ok(Notice.messages.includes('已中止扫描：已完成的分类结果已保留。'));
+	assert.ok(saved, '中止后应保存已完成分类的缓存');
+	assert.deepEqual(saved.candidates.attachments, [{ path: 'orphan.pdf', size: 20, mtime: 0 }]);
+	assert.deepEqual(saved.candidates.images, []);
 	const banner = byClass(panel.contentEl, 'orphan-cleanup-scan-error').find((el) => el.hasClass('is-aborted'));
 	assert.ok(banner, '概览区应渲染中止横幅');
 	assert.equal(banner.attrs.role, 'status');
@@ -449,6 +498,30 @@ test('首次扫描即中止时提示开始扫描而不是重新扫描', async ()
 	assert.doesNotMatch(banner.textContent, /重新扫描全部/);
 });
 
+test('首次扫描没有完成任何分类时中止，不写入空缓存覆盖旧结果', async () => {
+	Notice.messages = [];
+	const saved = [];
+	const panel = new Panel(makeApp(), new El('div'), { orphanImageExtensions: 'png', orphanIgnoredFolders: '' }, {}, {
+		saveCache: async (cache) => { saved.push(cache); },
+	});
+	const realRender = panel.renderContents.bind(panel);
+	let aborted = false;
+	panel.renderContents = () => {
+		realRender();
+		if (!aborted && panel.scanning) {
+			aborted = true;
+			panel.abortScan();
+		}
+	};
+
+	await panel.scan();
+
+	assert.equal(panel.hasScanned, false);
+	assert.equal(panel.scannedTabs.size, 0);
+	assert.equal(saved.length, 0, '没有任何分类完成时不应写入空缓存覆盖旧结果');
+	assert.ok(Notice.messages.includes('已中止扫描：尚未完成任何分类，请重新开始扫描。'));
+});
+
 test('恢复缓存时展示上次扫描时间与重新扫描入口且不会自动扫描', () => {
 	const cached = {
 		images: [],
@@ -467,6 +540,7 @@ test('恢复缓存时展示上次扫描时间与重新扫描入口且不会自�
 	const panel = makePanel(makeApp());
 	panel.options.cachedCandidates = cached;
 	panel.options.cachedAt = iso;
+	panel.options.cachedSettings = { orphanImageExtensions: 'png', orphanIgnoredFolders: '' };
 	let scans = 0;
 	panel.scan = async () => { scans += 1; };
 
@@ -499,12 +573,97 @@ test('无效的缓存时间不会显示 Invalid Date', () => {
 	const panel = makePanel(makeApp());
 	panel.options.cachedCandidates = cached;
 	panel.options.cachedAt = 'not-a-date';
+	panel.options.cachedSettings = { orphanImageExtensions: 'png', orphanIgnoredFolders: '' };
 
 	panel.render();
 
 	assert.match(panel.contentEl.textContent, /显示上次扫描结果/);
 	assert.doesNotMatch(panel.contentEl.textContent, /Invalid Date/);
 	assert.doesNotMatch(panel.contentEl.textContent, /上次扫描：/);
+});
+
+test('扫描设置变化后丢弃缓存并要求重新扫描', () => {
+	Notice.messages = [];
+	const cached = {
+		images: [],
+		attachments: [],
+		emptyFiles: [],
+		folders: [],
+		brokenLinks: [],
+		nativeLinks: [],
+		brokenNoteLinks: [],
+		wikiLinks: [],
+		duplicates: [],
+		duplicateWarnings: [],
+	};
+	const panel = makePanel(makeApp());
+	panel.options.cachedCandidates = cached;
+	panel.options.cachedAt = '2026-11-16T03:04:05.000Z';
+	panel.options.cachedSettings = { orphanImageExtensions: 'jpg', orphanIgnoredFolders: '' };
+
+	panel.render();
+
+	assert.equal(panel.hasScanned, false, '设置变化后旧缓存不得标记为已扫描');
+	assert.equal(panel.showingCachedResult, false);
+	assert.equal(panel.lastScannedAt, undefined);
+	assert.equal(panel.scannedTabs.size, 0);
+	assert.equal(panel.candidates.images.length, 0);
+	assert.ok(Notice.messages.includes('清理设置已变化，上次扫描结果已失效，请重新扫描。'));
+	assert.doesNotMatch(panel.contentEl.textContent, /显示上次扫描结果/);
+});
+
+test('仅调整分隔符或顺序时仍复用缓存', () => {
+	const cached = {
+		images: [],
+		attachments: [],
+		emptyFiles: [],
+		folders: [],
+		brokenLinks: [],
+		nativeLinks: [],
+		brokenNoteLinks: [],
+		wikiLinks: [],
+		duplicates: [],
+		duplicateWarnings: [],
+	};
+	const panel = makePanel(makeApp());
+	panel.settings.orphanImageExtensions = 'jpg png';
+	panel.settings.orphanIgnoredFolders = 'archive,tmp';
+	panel.options.cachedCandidates = cached;
+	panel.options.cachedAt = '2026-11-16T03:04:05.000Z';
+	panel.options.cachedSettings = { orphanImageExtensions: 'png, jpg', orphanIgnoredFolders: 'tmp,archive' };
+
+	panel.render();
+
+	assert.equal(panel.hasScanned, true);
+	assert.equal(panel.showingCachedResult, true);
+	assert.equal(panel.scannedTabs.size, 9);
+	assert.match(panel.contentEl.textContent, /显示上次扫描结果/);
+});
+
+test('缓存设置快照损坏时丢弃缓存而不是让面板崩溃', () => {
+	Notice.messages = [];
+	const cached = {
+		images: [],
+		attachments: [],
+		emptyFiles: [],
+		folders: [],
+		brokenLinks: [],
+		nativeLinks: [],
+		brokenNoteLinks: [],
+		wikiLinks: [],
+		duplicates: [],
+		duplicateWarnings: [],
+	};
+	const panel = makePanel(makeApp());
+	panel.options.cachedCandidates = cached;
+	panel.options.cachedAt = '2026-11-16T03:04:05.000Z';
+	panel.options.cachedSettings = { orphanImageExtensions: 42, orphanIgnoredFolders: null };
+
+	assert.doesNotThrow(() => panel.render());
+	assert.equal(panel.hasScanned, false);
+	assert.equal(panel.showingCachedResult, false);
+	assert.equal(panel.scannedTabs.size, 0);
+	assert.ok(Notice.messages.includes('清理设置已变化，上次扫描结果已失效，请重新扫描。'));
 });
 
 test('全量扫描成功后写入缓存时间并在首页展示', async () => {
@@ -577,6 +736,7 @@ test('恢复序列化缓存时按路径解析回 TFile，缺失文件安全丢�
 		convertibleImages: [],
 	};
 	panel.options.cachedAt = '2026-11-17T03:04:05.000Z';
+	panel.options.cachedSettings = { orphanImageExtensions: 'png', orphanIgnoredFolders: '' };
 
 	panel.render();
 

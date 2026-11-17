@@ -184,6 +184,7 @@ function panelFor(relatedNotes, sourceFiles, options = {}) {
 		undefined, undefined,
 		options.settings, options.saveSettings,
 		options.initialMerging ?? false, options.onMergingChange,
+		options.initialLastMove, options.onLastMoveChange,
 	);
 	panel.render();
 	return { panel, el, renamed, opened, app };
@@ -1713,4 +1714,52 @@ test('select-all toggles off and clear selection resets counters', () => {
 	el.querySelectorAll('.related-operations-list-toolbar button').find((button) => button.textContent === '清空选择').fire('click');
 	assert.deepEqual(boxes().map((box) => box.checked), [false, false]);
 	assert.equal(summary(), '已选 0 篇（跨标签页）');
+});
+
+// Switching the source note recreates the panel inside the same view. Undo
+// must stay available for moves made moments earlier in that view instead of
+// being silently dropped with the old panel.
+test('switching source notes keeps the view undo history', async () => {
+	const a = file('src/a.md');
+	const b = file('src/b.md');
+	const t = file('dst/t.md');
+	const { app } = makeApp([a, b, t], { 'src/a.md': { 'dst/t.md': 1 } });
+	const view = new RelatedNotesView({ app }, { groupingMode: 'none', hideCompliant: false }, async () => {});
+	await view.setState({ sourcePaths: ['src/a.md'], mergeTargetView: false }, { history: false });
+	const firstPanel = view.panel;
+	firstPanel.selections.set('dst/t.md', true);
+	const input = view.contentEl.querySelector('.related-operations-target-folder');
+	input.value = 'archive';
+	input.fire('input');
+	await moveSelectedConfirmed(firstPanel);
+	assert.equal(t.path, 'archive/t.md');
+	assert.deepEqual(view.panel.lastMove, [{ from: 'dst/t.md', to: 'archive/t.md' }]);
+
+	await view.setState({ sourcePaths: ['src/b.md'], mergeTargetView: false }, { history: false });
+	assert.equal(view.contentEl.querySelector('tr[data-related-path]'), null);
+	assert.deepEqual(view.panel.lastMove, [{ from: 'dst/t.md', to: 'archive/t.md' }]);
+	assert.equal(view.contentEl.querySelector('.related-operations-undo').disabled, false);
+	await view.panel.undoLastMove();
+	assert.equal(t.path, 'dst/t.md');
+	assert.deepEqual(view.panel.lastMove, []);
+	assert.equal(view.contentEl.querySelector('.related-operations-undo').disabled, true);
+});
+
+// A selected note that disappeared before the rename finishes must produce an
+// actionable message instead of leaking a raw filesystem error into the UI.
+test('moveFiles explains a note deleted before the move instead of showing a raw error', async () => {
+	const a = file('src/a.md');
+	const t = file('dst/t.md');
+	const { panel } = panelFor([], [a], { files: [a, t] });
+	panel.app.fileManager.renameFile = async () => {
+		throw new Error('ENOENT: no such file or directory');
+	};
+	const result = await panel.moveFiles('archive', [t]);
+	assert.deepEqual(result.failed, [{
+		path: 'dst/t.md',
+		reason: '笔记已不存在或已被移动',
+		kind: 'other',
+		nextStep: '请刷新关联笔记后重试。',
+	}]);
+	assert.deepEqual(panel.lastMove, []);
 });

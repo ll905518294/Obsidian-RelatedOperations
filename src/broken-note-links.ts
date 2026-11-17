@@ -1,5 +1,5 @@
 import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
-import { errorMessage, isExternalLink, isInsideIgnoredRange, parseExtensions, removeCachedLinkRanges } from './core-utils.ts';
+import { errorMessage, isCaseSensitiveFileSystem, isExternalLink, isInsideIgnoredRange, parseExtensions, removeCachedLinkRanges } from './core-utils.ts';
 
 export interface BrokenNoteLink {
 	sourcePath: string;
@@ -54,7 +54,7 @@ export async function removeSelectedBrokenNoteLinks(app: App, links: BrokenNoteL
 	}
 	for (const [path, selected] of grouped) {
 		const file = app.vault.getFileByPath(path);
-		if (!file) { result.failed.push({ path, reason: `${selected.length} 条链接：源笔记不存在` }); continue; }
+		if (!file || file.extension.toLowerCase() !== 'md') { result.failed.push({ path, reason: `${selected.length} 条链接：源笔记不存在或不是 Markdown` }); continue; }
 		try { await app.vault.process(file, (content) => { const changed = removeBrokenNoteLinks(content, selected); result.removed += changed.removed; result.skipped += changed.skipped; return changed.content; }); }
 		catch (error) { result.failed.push({ path, reason: `${selected.length} 条链接：${errorMessage(error)}` }); }
 	}
@@ -67,11 +67,15 @@ export interface CreateMissingNotesResult {
 	failed: Array<{ path: string; reason: string }>;
 }
 
-export async function createMissingNotes(app: App, links: BrokenNoteLink[]): Promise<CreateMissingNotesResult> {
+export async function createMissingNotes(
+	app: App,
+	links: BrokenNoteLink[],
+	caseSensitive = isCaseSensitiveFileSystem(),
+): Promise<CreateMissingNotesResult> {
 	const result: CreateMissingNotesResult = { created: [], skipped: [], failed: [] };
 	const targets = new Map<string, BrokenNoteLink[]>();
 	const sourceReads = new Map<string, Promise<string>>();
-	const knownPaths = createPathIndex(app);
+	const knownPaths = createPathIndex(app, caseSensitive);
 	for (const link of links) {
 		const path = missingNotePath(link);
 		if (!path) result.skipped.push({ path: link.linkPath, reason: '目标路径无效' });
@@ -130,22 +134,29 @@ async function isCurrentMissingNoteLink(app: App, link: BrokenNoteLink, sourceRe
 		content = app.vault.read(source);
 		sourceReads.set(link.sourcePath, content);
 	}
-	return findBrokenNoteLinkOffset(await content, link) !== null;
+	try {
+		return findBrokenNoteLinkOffset(await content, link) !== null;
+	} catch {
+		// The source may disappear between the index lookup and the read. Treat
+		// it like a changed link so one unreadable note cannot reject the batch.
+		return false;
+	}
 }
 
-function createPathIndex(app: App) {
+function createPathIndex(app: App, caseSensitive: boolean) {
 	const paths = new Set<string>();
+	const normalize = (path: string) => caseSensitive ? path : path.toLowerCase();
 	let loaded = false;
 	return {
 		has(path: string) {
 			if (!loaded) {
 				loaded = true;
-				for (const file of app.vault.getAllLoadedFiles()) paths.add(file.path.toLowerCase());
+				for (const file of app.vault.getAllLoadedFiles()) paths.add(normalize(file.path));
 			}
-			return paths.has(path.toLowerCase());
+			return paths.has(normalize(path));
 		},
 		add(path: string) {
-			paths.add(path.toLowerCase());
+			paths.add(normalize(path));
 		},
 	};
 }

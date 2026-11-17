@@ -8,6 +8,7 @@ import { byPath } from './cleanup-actions';
 import { CleanupScanAbortedError, COMMON_IMAGE_EXTENSIONS, IMAGE_CONVERSION_DEFAULT_QUALITY, IMAGE_CONVERSION_MAX_QUALITY, IMAGE_CONVERSION_MIN_QUALITY, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
 
 const READ_CONCURRENCY = 8;
+const ESTIMATE_YIELD_EVERY = 200;
 
 export interface CleanupFileSets {
 	extensions: Set<string>;
@@ -242,8 +243,19 @@ function throwIfAborted(signal?: AbortSignal): void {
 function createPresence(app: App) {
 	const supported = typeof app.vault.getAbstractFileByPath === 'function';
 	const at = (path: string): TAbstractFile | null | undefined => (supported ? app.vault.getAbstractFileByPath(path) : undefined);
-	// 索引偶发缺失时退回 getFiles 判定。候选与链接可能上千条，逐条全量
-	// 遍历会退化成平方级；按当前列表惰性建一次集合，整轮扫描复用。
+	// 索引偶发缺失时退回当前加载文件列表判定。候选与链接可能上千条，
+	// 逐条全量遍历会退化成平方级；按当前列表惰性建一次集合，整轮扫描复用。
+	let listedItems: TAbstractFile[] | undefined;
+	const listLoaded = () => {
+		if (listedItems === undefined) {
+			// getFiles() 只含文件；pruneStillPresent 也会校验空文件夹，索引
+			// 短暂缺失时文件夹必须能从加载文件集合里兜底保留。
+			listedItems = typeof app.vault.getAllLoadedFiles === 'function'
+				? app.vault.getAllLoadedFiles()
+				: app.vault.getFiles();
+		}
+		return listedItems;
+	};
 	let listedFiles: Set<TAbstractFile> | undefined;
 	let listedPaths: Set<string> | undefined;
 	return {
@@ -251,14 +263,14 @@ function createPresence(app: App) {
 			const current = at(item.path);
 			if (current === undefined || current === item) return true;
 			if (current) return false;
-			listedFiles ??= new Set(app.vault.getFiles());
+			listedFiles ??= new Set(listLoaded());
 			return listedFiles.has(item);
 		},
 		path(path: string): boolean {
 			const current = at(path);
 			if (current === undefined) return true;
 			if (current) return true;
-			listedPaths ??= new Set(app.vault.getFiles().map((file) => file.path));
+			listedPaths ??= new Set(listLoaded().map((file) => file.path));
 			return listedPaths.has(path);
 		},
 		at,
@@ -405,6 +417,11 @@ export async function estimateConversions(
 	onProgress?.({ processed, total });
 	for (const file of files) {
 		if (signal?.aborted) break;
+		// 估算不读文件，但大库仍会占满主线程；定期让出才能刷新进度并响应中止。
+		if (processed > 0 && processed % ESTIMATE_YIELD_EVERY === 0) {
+			await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+			if (signal?.aborted) break;
+		}
 		const extension = file.extension.toLowerCase();
 		const source = extension === 'jpeg' ? 'jpg' : extension;
 		const base: ConvertibleImage = {

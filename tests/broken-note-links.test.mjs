@@ -331,3 +331,90 @@ test('scans loaded files once when creating many missing notes', async () => {
 	assert.equal(result.created.length, 30, JSON.stringify(result));
 	assert.equal(scans, 1);
 });
+
+// On a case-sensitive filesystem (`notes/a.md` vs `Notes/a.md`) the path index
+// must not report the target as existing just because lowercased paths match.
+test('creates a case-differing note on a case-sensitive filesystem', async () => {
+	const source = { path: 'note.md', extension: 'md' };
+	const existing = { path: 'Notes/a.md', extension: 'md' };
+	const created = [];
+	const result = await createMissingNotes({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: {
+			getAllLoadedFiles: () => [source, existing],
+			getFileByPath: (path) => (path === source.path ? source : null),
+			read: async () => '[[notes/a]]',
+			createFolder: async () => {},
+			create: async (path) => { created.push(path); },
+		},
+	}, [{
+		sourcePath: source.path,
+		original: '[[notes/a]]',
+		linkPath: 'notes/a',
+		position: { start: { offset: 0 }, end: { offset: '[[notes/a]]'.length } },
+		syntax: 'wiki',
+	}], true);
+	assert.deepEqual(result.created, ['notes/a.md']);
+	assert.deepEqual(created, ['notes/a.md']);
+	assert.deepEqual(result.skipped, []);
+});
+
+test('still treats case-differing paths as the same on a case-insensitive filesystem', async () => {
+	const source = { path: 'note.md', extension: 'md' };
+	const existing = { path: 'Notes/a.md', extension: 'md' };
+	let created = false;
+	const result = await createMissingNotes({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: {
+			getAllLoadedFiles: () => [source, existing],
+			getFileByPath: (path) => (path === source.path ? source : null),
+			read: async () => '[[notes/a]]',
+			create: async () => { created = true; },
+		},
+	}, [{
+		sourcePath: source.path,
+		original: '[[notes/a]]',
+		linkPath: 'notes/a',
+		position: { start: { offset: 0 }, end: { offset: '[[notes/a]]'.length } },
+		syntax: 'wiki',
+	}], false);
+	assert.equal(created, false);
+	assert.deepEqual(result.skipped, [{ path: 'notes/a.md', reason: '目标已存在' }]);
+});
+
+// One unreadable source note must not reject the whole batch and hide the
+// per-target result. The link is reported as skipped, matching the stale-link
+// path used when the link itself changed.
+test('skips a target when its source note cannot be read', async () => {
+	let created = false;
+	const result = await createMissingNotes({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: {
+			getAllLoadedFiles: () => [{ path: 'note.md', extension: 'md' }],
+			getFileByPath: () => ({ path: 'note.md', extension: 'md' }),
+			read: async () => { throw new Error('deleted while creating'); },
+			create: async () => { created = true; },
+		},
+	}, [link]);
+	assert.equal(created, false);
+	assert.deepEqual(result.created, []);
+	assert.deepEqual(result.skipped, [{ path: 'missing.md', reason: '链接已变化或目标已恢复' }]);
+	assert.deepEqual(result.failed, []);
+});
+
+// The source path can be reused by a non-Markdown file after the scan. Writing
+// link text into it would corrupt that file, so removal must refuse it.
+test('does not remove note links from a non-Markdown file that replaced the source', async () => {
+	let processed = false;
+	const result = await removeSelectedBrokenNoteLinks({
+		metadataCache: { getFirstLinkpathDest: () => null },
+		vault: {
+			getFileByPath: () => ({ path: 'note.md', extension: 'canvas' }),
+			process: async () => { processed = true; },
+		},
+	}, [{ ...link, sourcePath: 'note.md' }]);
+	assert.equal(processed, false);
+	assert.equal(result.removed, 0);
+	assert.equal(result.failed.length, 1);
+	assert.match(result.failed[0].reason, /源笔记不存在或不是 Markdown/);
+});

@@ -1157,6 +1157,7 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	border-radius: var(--radius-m);
 	background: var(--background-primary);
 	transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+	cursor: pointer;
 }
 
 .orphan-cleanup-dashboard-item.is-priority {
@@ -1271,6 +1272,7 @@ button.is-armed-confirm.mod-warning:focus-visible {
 .orphan-cleanup-dashboard-item.is-scanning {
 	border: 2px solid var(--interactive-accent);
 	background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+	cursor: default;
 }
 
 .orphan-cleanup-dashboard-progress-ring {
@@ -1725,6 +1727,7 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	border-radius: var(--radius-m);
 	background: color-mix(in srgb, var(--background-primary) 94%, var(--interactive-accent));
 	box-shadow: var(--ro-shadow);
+	container-type: inline-size;
 }
 
 .orphan-cleanup-convert-toolbar {
@@ -2166,10 +2169,29 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	overflow-wrap: anywhere;
 }
 
-/* 加权三列在中等窗口会接近最小宽度，提前回退单列避免横向溢出。 */
-@media (max-width: 640px) {
+/* 加权三列按容器宽度回退，而不是视口宽度：
+   放入窄侧栏时窗口往往仍很宽，原先用视口断点会让三列被容器硬压缩。 */
+@container (max-width: 620px) {
+	/* 中等宽度：目标格式占整行，质量 + 透明图处理并排各占半行，
+	   质量输入不会被压窄，透明图两个单选仍并排在一行内不换行错位。 */
+	.orphan-cleanup-convert-controls {
+		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+	}
+	.orphan-cleanup-convert-controls > :first-child {
+		grid-column: 1 / -1;
+	}
+	.orphan-cleanup-convert-controls {
+		align-items: start;
+	}
+}
+
+@container (max-width: 380px) {
+	/* 很窄：单列纵向堆叠，透明图两个单选保留并排、允许在自身列内换行。 */
 	.orphan-cleanup-convert-controls {
 		grid-template-columns: minmax(0, 1fr);
+	}
+	.orphan-cleanup-convert-controls > :first-child {
+		grid-column: auto;
 	}
 }
 

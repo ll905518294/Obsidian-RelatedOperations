@@ -1,7 +1,7 @@
 import { MarkdownView, Notice, setIcon, TFile, TFolder } from 'obsidian';
 import type { CleanupViewContext } from './cleanup-types';
 import type { DuplicateFileGroup } from '../duplicate-files';
-import { formatBytes, isImageFile, openFolderInVault, openInSystemFolder, parentFolder } from './cleanup-actions';
+import { formatBytes, isImageFile, openFolderInVault, openInSystemFolder, parentFolder, reasonFor } from './cleanup-actions';
 import { ImagePreviewModal } from './cleanup-modals';
 import { updateSelectionSummary } from './cleanup-list-actions';
 import { applyRovingTabindex, associateCheckbox, createColumnHeader, makePreviewTrigger } from './cleanup-a11y';
@@ -88,7 +88,9 @@ export function renderDuplicateGroups(host: CleanupViewContext, container: HTMLE
 				const remove = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
 				remove.disabled = host.scanningTabs.has('duplicates') || host.dirtyTabs.has('duplicates');
 				setIcon(remove, 'trash-2'); remove.title = '删除图片'; remove.setAttribute('aria-label', '删除图片');
-				requireSecondClick(remove, () => host.deleteDuplicateFile(file));
+				requireSecondClick(remove, () => host.deleteDuplicateFile(file), {
+					onError: (error) => new Notice(`删除失败：${reasonFor(error)}`),
+				});
 			}
 			const openFolder = actions.createEl('button', { cls: 'orphan-cleanup-icon-button' });
 			setIcon(openFolder, 'folder-open'); openFolder.title = '打开所在文件夹'; openFolder.setAttribute('aria-label', '打开所在文件夹');

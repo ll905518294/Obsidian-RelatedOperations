@@ -210,14 +210,41 @@ export async function confirmConvertLinks(host: CleanupViewContext): Promise<voi
 			list.push(link);
 			grouped.set(link.sourcePath, list);
 		}
+		const processedSources = new Set<string>();
 		for (const [path, links] of grouped) {
 			const file = host.app.vault.getFileByPath(path);
 			if (!file) { failed++; failures.push({ path, reason: '文件不存在' }); continue; }
-			try { await host.app.vault.process(file, (content) => { const result = replaceNativeImageLinks(content, links); converted += result.converted; skipped += result.skipped; return result.content; }); } catch (error) { failed++; failures.push({ path, reason: reasonFor(error) }); }
+			let fileConverted = 0;
+			let fileSkipped = 0;
+			try {
+				await host.app.vault.process(file, (content) => {
+					const result = replaceNativeImageLinks(content, links);
+					fileConverted = result.converted;
+					fileSkipped = result.skipped;
+					return result.content;
+				});
+			} catch (error) {
+				failed++;
+				failures.push({ path, reason: reasonFor(error) });
+				continue;
+			}
+			// Only a completed write may contribute to the result counts. If the
+			// write throws, the callback may already have run, so adding inside it
+			// would report the same link as both converted and failed.
+			converted += fileConverted;
+			skipped += fileSkipped;
+			processedSources.add(path);
+		}
+		const handledKeys = new Set(selected
+			.filter((link) => processedSources.has(link.sourcePath))
+			.map(nativeImageLinkKey));
+		if (handledKeys.size > 0) {
+			host.candidates.nativeLinks = host.candidates.nativeLinks.filter((link) => !handledKeys.has(nativeImageLinkKey(link)));
+			for (const key of handledKeys) host.nativeSelections.delete(key);
 		}
 		host.processed = { success: converted, skipped, failed: failures };
 		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
-		if (converted > 0) {
+		if (handledKeys.size > 0) {
 			host.saveCacheToSettings();
 			host.renderContents();
 		}
@@ -236,25 +263,42 @@ export async function confirmConvertWikiLinks(host: CleanupViewContext): Promise
 			list.push(link);
 			grouped.set(link.sourcePath, list);
 		}
+		const processedSources = new Set<string>();
 		for (const [path, links] of grouped) {
 			const file = host.app.vault.getFileByPath(path);
 			if (!file) { failed++; failures.push({ path, reason: '文件不存在' }); continue; }
+			let fileConverted = 0;
+			let fileSkipped = 0;
 			try {
 				await host.app.vault.process(file, (content) => {
 					const result = replaceWikiNoteLinks(content, links);
-					converted += result.converted;
-					skipped += result.skipped;
+					fileConverted = result.converted;
+					fileSkipped = result.skipped;
 					return result.content;
 				});
 			} catch (error) {
 				failed++;
 				failures.push({ path, reason: reasonFor(error) });
+				continue;
 			}
+			// Count only after vault.process resolves: a rejected write must not
+			// leave the same link in both the converted and failed totals.
+			converted += fileConverted;
+			skipped += fileSkipped;
+			processedSources.add(path);
+		}
+		const handledKeys = new Set(selected
+			.filter((link) => processedSources.has(link.sourcePath))
+			.map(wikiNoteLinkKey));
+		if (handledKeys.size > 0) {
+			host.candidates.wikiLinks = host.candidates.wikiLinks.filter((link) => !handledKeys.has(wikiNoteLinkKey(link)));
+			for (const key of handledKeys) host.wikiSelections.delete(key);
 		}
 		host.processed = { success: converted, skipped, failed: failures };
 		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
-		if (converted > 0) {
-			host.wikiSelections.clear();
+		// Refreshing after every successful file, even when all of its links were
+		// skipped, removes stale rows without dropping unrelated selections.
+		if (handledKeys.size > 0) {
 			host.saveCacheToSettings();
 			host.renderContents();
 		}

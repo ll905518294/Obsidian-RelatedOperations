@@ -73,6 +73,18 @@ test('CHANGELOG 与提交记录都没有该版本时失败', (t) => {
 	);
 });
 
+test('CHANGELOG 缺当前版本但存在提交记录时仍失败，不回退为提交列表', (t) => {
+	const root = writeProject({ changelog: '' });
+	cleanup(t, root);
+	const result = checkRelease({ root, tag: '1.2.3', commitSubjects: ['修复：某提交'] });
+	assert.equal(result.notesSource, 'git-log');
+	assert.ok(
+		result.errors.some((message) => message.includes('CHANGELOG 缺少 1.2.3 条目')),
+		result.errors.join('\n'),
+	);
+	assert.deepEqual(result.warnings, []);
+});
+
 test('内置更新说明缺少当前版本时失败', (t) => {
 	const root = writeProject({ updateIntro: 'export const UPDATE_INTROS = [];\n' });
 	cleanup(t, root);

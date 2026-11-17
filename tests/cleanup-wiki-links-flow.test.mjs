@@ -33,8 +33,9 @@ const bundle = await build({
 	stdin: {
 		contents: `
 			export { OrphanCleanupPanel as Panel } from './src/orphan-cleanup.ts';
-			export { confirmConvertWikiLinks } from './src/cleanup/cleanup-flows.ts';
+			export { confirmConvertLinks, confirmConvertWikiLinks } from './src/cleanup/cleanup-flows.ts';
 			export { findWikiNoteLinks, wikiNoteLinkKey } from './src/wiki-note-links.ts';
+			export { nativeImageLinkKey } from './src/native-image-links.ts';
 			export { updateSelectionSummary } from './src/cleanup/cleanup-list-actions.ts';
 			export { requireSecondClick } from './src/cleanup/cleanup-confirm-button.ts';
 		`,
@@ -48,10 +49,10 @@ const bundle = await build({
 		b.onLoad({ filter: /.*/, namespace: 'modal-stub' }, () => ({ contents: modalStub }));
 	} }],
 });
-const { Panel, confirmConvertWikiLinks, findWikiNoteLinks, wikiNoteLinkKey, updateSelectionSummary, requireSecondClick } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const { Panel, confirmConvertLinks, confirmConvertWikiLinks, findWikiNoteLinks, wikiNoteLinkKey, nativeImageLinkKey, updateSelectionSummary, requireSecondClick } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 const noteContent = '前文 [[a|笔记]] 后文';
-function makeApp({ resolve = true } = {}) {
+function makeApp({ resolve = true, content = noteContent } = {}) {
 	const cache = {
 		links: [{ original: '[[a|笔记]]', link: 'a', position: { start: { offset: 3 }, end: { offset: 11 } } }],
 	};
@@ -66,7 +67,7 @@ function makeApp({ resolve = true } = {}) {
 		vault: {
 			getMarkdownFiles: () => [file],
 			getFileByPath: (path) => (path === 'note.md' ? file : null),
-			process: async (f, fn) => { const next = fn(noteContent); if (next !== noteContent) writes.push(next); },
+			process: async (f, fn) => { const next = fn(content); if (next !== content) writes.push(next); },
 		},
 	};
 	return { app, writes, file };
@@ -144,6 +145,152 @@ test('duplicate two-step confirmation and wiki conversion keep separate selectio
 	assert.deepEqual(writes, ['前文 [笔记](<目标/a.md>) 后文']);
 	assert.deepEqual([...panel.duplicateSelections], ['dup/a.png'], 'Wiki 转换不得清空重复删除选择');
 	delete globalThis.window;
+});
+
+// A write can fail after vault.process has already produced the new content.
+// The callback must not have counted a successful conversion in that case.
+test('wiki conversion does not count links when the write fails', async () => {
+	const { app } = makeApp();
+	app.vault.process = async (_file, change) => {
+		change(noteContent);
+		throw new Error('EACCES: permission denied');
+	};
+	const panel = makePanel(app);
+	panel.candidates.wikiLinks = findWikiNoteLinks(app);
+	const selectedKey = wikiNoteLinkKey(panel.candidates.wikiLinks[0]);
+	panel.wikiSelections.add(selectedKey);
+	await confirmConvertWikiLinks(panel);
+
+	assert.deepEqual(panel.processed, {
+		success: 0,
+		skipped: 0,
+		failed: [{ path: 'note.md', reason: 'EACCES: permission denied' }],
+	});
+	assert.equal(panel.wikiSelections.has(selectedKey), true, '失败项应保留以便重试');
+	assert.equal(panel.candidates.wikiLinks.length, 1, '失败项不应从候选中移除');
+});
+
+// Even when every selected link is skipped (for example the note changed after
+// scanning), the handled rows and their selections must be refreshed; unrelated
+// candidates must stay untouched.
+test('all-skipped wiki conversion removes handled rows and keeps unrelated ones', async () => {
+	const staleContent = '前文 [笔记](<目标/a.md>) 后文';
+	const { app } = makeApp({ content: staleContent });
+	const savedCaches = [];
+	const panel = makePanel(app, { saveCache: (cache) => savedCaches.push(cache) });
+	panel.candidates.wikiLinks = findWikiNoteLinks(app);
+	const staleLink = panel.candidates.wikiLinks[0];
+	const staleKey = wikiNoteLinkKey(staleLink);
+	const unrelated = {
+		...staleLink,
+		sourcePath: 'other.md',
+		original: '[[b]]',
+		position: { start: { offset: 0 }, end: { offset: 5 } },
+	};
+	panel.candidates.wikiLinks.push(unrelated);
+	panel.wikiSelections.add(staleKey);
+	let renders = 0;
+	panel.renderContents = () => { renders++; };
+
+	await confirmConvertWikiLinks(panel);
+
+	assert.deepEqual(panel.processed, { success: 0, skipped: 1, failed: [] });
+	assert.deepEqual(panel.candidates.wikiLinks, [unrelated], '已处理的残留行应移除，未处理项应保留');
+	assert.deepEqual([...panel.wikiSelections], [], '已处理项的选择应清除');
+	assert.equal(savedCaches.length, 1, '全部跳过也应保存刷新后的候选');
+	assert.equal(renders, 1, '全部跳过也应重绘列表');
+});
+
+// The native image tab shares the same conversion contract.
+test('native conversion does not count links when the write fails', async () => {
+	const content = '前文 ![[a.png]] 后文';
+	const { app } = makeApp({ content });
+	app.vault.process = async (_file, change) => {
+		change(content);
+		throw new Error('ENOSPC: no space left on device');
+	};
+	const panel = makePanel(app);
+	const link = {
+		sourcePath: 'note.md',
+		original: '![[a.png]]',
+		linkPath: 'a.png',
+		position: { start: { offset: 3 }, end: { offset: 13 } },
+		file: { path: 'pics/a.png' },
+	};
+	panel.candidates.nativeLinks = [link];
+	const selectedKey = nativeImageLinkKey(link);
+	panel.nativeSelections.add(selectedKey);
+
+	await confirmConvertLinks(panel);
+
+	assert.deepEqual(panel.processed, {
+		success: 0,
+		skipped: 0,
+		failed: [{ path: 'note.md', reason: 'ENOSPC: no space left on device' }],
+	});
+	assert.equal(panel.nativeSelections.has(selectedKey), true, '失败项应保留以便重试');
+	assert.deepEqual(panel.candidates.nativeLinks, [link]);
+});
+
+test('all-skipped native conversion refreshes handled rows and selections', async () => {
+	const content = '前文 ![](<pics/a.png>) 后文';
+	const { app } = makeApp({ content });
+	const savedCaches = [];
+	const panel = makePanel(app, { saveCache: (cache) => savedCaches.push(cache) });
+	const link = {
+		sourcePath: 'note.md',
+		original: '![[a.png]]',
+		linkPath: 'a.png',
+		position: { start: { offset: 3 }, end: { offset: 13 } },
+		file: { path: 'pics/a.png' },
+	};
+	const unrelated = {
+		...link,
+		sourcePath: 'other.md',
+		original: '![[b.png]]',
+		linkPath: 'b.png',
+		position: { start: { offset: 0 }, end: { offset: 10 } },
+	};
+	panel.candidates.nativeLinks = [link, unrelated];
+	panel.nativeSelections.add(nativeImageLinkKey(link));
+	let renders = 0;
+	panel.renderContents = () => { renders++; };
+
+	await confirmConvertLinks(panel);
+
+	assert.deepEqual(panel.processed, { success: 0, skipped: 1, failed: [] });
+	assert.deepEqual(panel.candidates.nativeLinks, [unrelated], '已处理的残留行应移除，未处理项应保留');
+	assert.deepEqual([...panel.nativeSelections], [], '已处理项的选择应清除');
+	assert.equal(savedCaches.length, 1, '全部跳过也应保存刷新后的候选');
+	assert.equal(renders, 1, '全部跳过也应重绘列表');
+});
+
+test('successful native conversion clears the handled candidate and selection', async () => {
+	const content = '前文 ![[a.png]] 后文';
+	const { app, writes } = makeApp({ content });
+	app.metadataCache.getFirstLinkpathDest = (path) => (path === 'a.png' ? { path: 'pics/a.png' } : null);
+	const savedCaches = [];
+	const panel = makePanel(app, { saveCache: (cache) => savedCaches.push(cache) });
+	const link = {
+		sourcePath: 'note.md',
+		original: '![[a.png]]',
+		linkPath: 'a.png',
+		position: { start: { offset: 3 }, end: { offset: 13 } },
+		file: { path: 'pics/a.png' },
+	};
+	panel.candidates.nativeLinks = [link];
+	panel.nativeSelections.add(nativeImageLinkKey(link));
+	let renders = 0;
+	panel.renderContents = () => { renders++; };
+
+	await confirmConvertLinks(panel);
+
+	assert.deepEqual(writes, ['前文 ![](<pics/a.png>) 后文']);
+	assert.deepEqual(panel.processed, { success: 1, skipped: 0, failed: [] });
+	assert.deepEqual(panel.candidates.nativeLinks, []);
+	assert.equal(panel.nativeSelections.size, 0);
+	assert.equal(savedCaches.length, 1);
+	assert.equal(renders, 1);
 });
 
 function makeButton(text) {

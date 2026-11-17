@@ -61,7 +61,7 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
    npm version <版本号> --no-git-tag-version
    ```
 
-   该命令会更新 `package.json` 与 `package-lock.json`，并触发 `package.json` 的 `version` 脚本（`node version-bump.mjs`）同步 `manifest.json` 与 `versions.json`。本机 npm 11.11.1 实测 `npm_package_version` 为新版本；`--no-git-tag-version` 下即使工作区有未提交改动也能执行，但干净基线仍是推荐前提，可避免把无关改动混进版本提交。若所用 npm 版本在脏工作区拒绝执行，先提交或暂存无关改动，再按同一顺序 bump。
+   该命令会更新 `package.json` 与 `package-lock.json`，并触发 `package.json` 的 `version` 脚本（`node version-bump.mjs`）同步 `manifest.json` 与 `versions.json`。本机 npm 11.11.1 实测 `npm_package_version` 为新版本；`--no-git-tag-version` 下即使工作区有未提交改动也能执行，但干净基线仍是推荐前提，可避免把无关改动混进版本提交。若所用 npm 版本在脏工作区拒绝执行，先提交或暂存无关改动，再按同一顺序 bump。`version` 脚本会把 `package.json`、`package-lock.json`、`manifest.json`、`versions.json` 四份版本文件一起 `git add`；提交前用 `git status` 核对，避免把无关改动一起带入。
 2. 再编辑 `CHANGELOG.md` 与 `src/update-intro-content.ts`，加入同一版本的发布说明与内置更新说明。
 3. 最后执行 `npm run release:check`，确认四处版本与发布说明一致。
 
@@ -72,19 +72,21 @@ $v = node -e "process.stdout.write(require('./manifest.json').version)"
 - [ ] **必须**先执行 `npm run release:check`（也可用 `npm run release:check -- 1.9.4` 指定 tag/版本）。它会一次校验 `manifest.json`、`package.json`、`package-lock.json` 根版本、`versions.json` 映射、tag 一致性、CHANGELOG/发布说明、`src/update-intro-content.ts` 内置说明，以及 id/version/minAppVersion 格式；任一项失败都会列出原因并非零退出。
 - [ ] 版本号为 SemVer 且无 `v` 前缀（如 `1.0.1`）。
 - [ ] `versions.json` 已把 `$v` 映射到 `manifest.json` 的 `minAppVersion`。
+- [ ] 提交版本变更前核对 `git status --short`：`manifest.json`、`package.json`、`package-lock.json`、`versions.json` 四份版本文件与 `CHANGELOG.md`、`src/update-intro-content.ts` 同批提交，确认没有把无关改动一起暂存。
 - [ ] `npm run build` 通过，项目根生成了最新 `main.js`。
 - [ ] `npm run lint` 通过。
 - [ ] `npm test` 通过（原生测试全部绿）。
-- [ ] `node scripts/release-notes.mjs --check` 通过（`release:check` 已包含这一项；release 正文将从 `CHANGELOG.md` 的当前版本条目自动生成，条目缺失时回退为提交记录）。
+- [ ] `node scripts/release-notes.mjs --check` 通过（可单独确认能生成正文；发布闸门以 `release:check` 为准——正文必须来自 `CHANGELOG.md` 的当前版本条目，条目缺失会直接失败，不会回退为提交记录）。
 - [ ] 本次包含图片转换时，按第 9 节在演示库完成验证。
 - [ ] `npm run test:deploy` 与 `npm run deploy:check` 通过（两者都不复制文件、不重启 Obsidian；部署脚本会在构建前校验 `manifest.json`、`package.json`、`versions.json` 的版本一致性）。
 - [ ] 三件套存在：`Get-Item main.js, manifest.json, styles.css`。
 - [ ] **必须**在打 tag 前执行 `npm run package`：脚本会交叉校验 `manifest.json`、`package.json` 与 `versions.json`，任一版本或映射不一致就失败；`dist/<id>-$v.zip` 存在（文件名取自 manifest 的 id 与 version），且包内 `manifest.json` 的 `version` 与仓库根 `manifest.json` 完全一致（读取 ZIP 内文件比对，不能只看文件名）。连续打包两次的 SHA-256 应相同；ZIP 内三个条目要与仓库根的三件套逐字节一致。
 - [ ] tag 与版本一致：`git tag --list $v`（应显示 `$v`），用 `git push origin $v` 推送。
 - [ ] 发布后核对：`gh release view $v --json tagName,name,body,assets`，确认 `assets` 包含 `main.js`、`manifest.json`、`styles.css`（若存在）与 `<id>-$v.zip`。
+- [ ] 发布后核对：`gh release view $v --json isDraft,isPrerelease` 两项均为 `false`；市场侧按第 7.3 节处理，后续版本不需要重新提交「New plugin」表单。
 - [ ] 可选：`Get-FileHash main.js, manifest.json, styles.css, dist/<id>-$v.zip -Algorithm SHA256`，与 release 正文中的 SHA-256 对照。
 
-发布后 release workflow 会调用 `scripts/release-check.mjs` 复核版本、发布说明与内置更新说明，运行 `npm run lint`、`npm test` 与 `npm run package`，并复检 ZIP 内 `manifest.json` 的版本；release 正文由 `scripts/release-notes.mjs` 从 `CHANGELOG.md` 提取当前版本条目（缺失时回退为 tag 提交记录），再追加版本、最低 Obsidian 版本与资产 SHA-256。通过后把 ZIP 与三件套一起附到 release。
+发布后 release workflow 会调用 `scripts/release-check.mjs` 复核版本、发布说明与内置更新说明，运行 `npm run lint`、`npm test` 与 `npm run package`，并复检 ZIP 内 `manifest.json` 的版本；release 正文由 `scripts/release-notes.mjs` 从 `CHANGELOG.md` 提取当前版本条目（缺失时 `release:check` 直接失败，不会回退为 tag 提交记录），再追加版本、最低 Obsidian 版本与资产 SHA-256。通过后把 ZIP 与三件套一起附到 release。
 
 workflow 可安全重跑：Release 已存在时不再调用 `gh release create`，而是用 `gh release edit` 更新标题与正文，并用 `gh release upload --clobber` 覆盖同名资产；Release 不存在时才创建。tag 重推或 Actions 失败后重跑同一 workflow 都不会因「Release 已存在」卡住。Verify 阶段会断言正文非空且包含 `## 更新说明`，缺失即失败。
 
@@ -110,7 +112,7 @@ workflow 可安全重跑：Release 已存在时不再调用 `gh release create`�
 - 部署脚本：`scripts/deploy-and-restart.ps1`
 - 构建配置：`esbuild.config.mjs`
 
-## 7. 社区目录状态与维护（当前 1.9.3）
+## 7. 社区目录状态与维护（当前 1.9.5）
 
 插件已于 2026-11-17 上架 Obsidian 社区市场：<https://community.obsidian.md/plugins/vault-doctor>。首次提交通过 <https://community.obsidian.md/> 网页表单完成（`obsidianmd/obsidian-releases` 的 Issue/PR 通道已关闭）；7.1 与 7.2 是提交时的核对记录，保留供后续审核参考。
 
@@ -142,7 +144,7 @@ workflow 可安全重跑：Release 已存在时不再调用 `gh release create`�
 | 网络使用需在 README 披露（Developer policies） | 无网络请求，README 已声明 | 满足 |
 | 不访问 Vault 之外文件，除非披露（Developer policies） | 仅访问当前 Vault；「在资源管理器中显示」只定位文件，README 已说明 | 满足 |
 | 遵守 Obsidian 商标（Developer policies） | 名称与 README 未暗示官方第一方 | 满足 |
-| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | 已上架；最新正式 release 为 `1.9.3`，tag 与 `manifest.json` 一致 | 满足 |
+| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | 已上架；最新正式 release 为 `1.9.5`（2026-11-17），tag 与 `manifest.json` 一致 | 满足 |
 
 ### 7.3 后续版本维护
 
@@ -155,7 +157,7 @@ workflow 可安全重跑：Release 已存在时不再调用 `gh release create`�
 
 ## 8. 截图与 README 一致性维护
 
-README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert-result.png`）。当前截图状态（对照 1.8.0）：
+README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert-result.png`）。当前截图状态（对照 1.9.5）：
 
 - **已用演示库实拍替换（6 张，无缺口）**：通过 Obsidian CDP 在纯合成演示库 `vault-doctor-demo` 实拍，1920×1032，深色 Border 主题，9 分类齐全（含「Wiki 笔记链接」页签），内容全为虚构示例数据，不含任何真实项目/客户/公司名。
   - `01-dashboard.png`：体检首页 · 扫描前 `0/9`
@@ -165,18 +167,40 @@ README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert
   - `05-empty-files.png`：空文件 2 个
   - `06-duplicate-files.png`：重复文件 1 组
 - **无需更新**：`07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致。
-- `00-installed.png`（已安装插件列表与 **⋯** 操作菜单）只用于安装说明，本轮未单独核对它与 1.8.0 界面的一致性。
-- **1.8.0 新增（2 张）**：`09-image-convert.png`（图片转换页签：候选列表与汇总条）与 `10-image-convert-result.png`（转换完成后的结果与提示）。
+- `00-installed.png`（已安装插件列表与 **⋯** 操作菜单）只用于安装说明，本轮未单独核对它与 1.9.5 界面的一致性。
+- **1.8.0 新增（2 张，已过时）**：`09-image-convert.png`（图片转换页签：候选列表与汇总条）与 `10-image-convert-result.png`（转换完成后的结果与提示）。两张图均拍摄于 1.9.4/1.9.5 布局改动之前，画面仍含「此页会修改文件」横幅、质量滑块与底部「已选 / 开始转换」动作栏；当前 README 描述与 1.9.5 一致，但截图需按新布局重拍。
 
 更新截图时保持文件名不变，避免改动 README 引用；不要用真实 Vault 截图（会暴露私有内容），统一使用演示库实拍并保持 9 个分类页签齐全。
 
 `01-dashboard.png`、`02-scan-result.png` 仍是含 9 分类的旧取景，未包含末尾的「图片转换」页签；图片转换改由 `09`、`10` 两张单独说明，不要求首页截图滚动到标签条末尾。
 
-`09`/`10` 的拍摄方式（2026-11-17 实测）：把演示库 `vault-doctor-demo` 复制到临时目录后打开，先在复制件里补一张合成的噪声 PNG 作为「可节省」素材，扫描并估算后截取候选列表与汇总条；选择「全选可节省项」→ 连点两次「开始转换」→ 截取完成提示与「最近一次转换」行。转换会真实改写文件，因此只在临时复制件里执行，正式演示库未被改动；拍完恢复 `obsidian.json` 并重启回真实库。
+### 8.1 09/10 截图重拍（1.9.6 布局）
+
+安全约束（必须全部满足，缺一不可）：
+
+1. 只在演示库 `vault-doctor-demo` 的**临时副本**中操作：先把整个演示库复制到系统临时目录，再用 Obsidian 打开副本；不要直接打开正式演示库或任何真实 Vault。
+2. 副本启动后，先在开发者控制台执行 `app.vault.adapter.basePath`，确认返回值指向临时副本目录（路径包含副本目录名）。若指向正式演示库、真实库或无法确认，立即停止，不得继续转换。
+3. **禁止在真实库或正式演示库点击「开始转换」「全选可节省项」等会改写文件的操作**；转换只允许发生在临时副本。拍摄完成后恢复 `obsidian.json` 并重启回真实库。
+4. 拍摄只截取 Obsidian 窗口内容，不包含桌面、其他应用、账号信息或真实文件路径。
+
+拍摄步骤：
+
+1. 复制 `vault-doctor-demo` 到临时目录，并在副本中补一张合成噪声 PNG 作为「可节省」素材；素材文件名与引用不得包含真实项目、客户或公司信息。
+2. 打开副本，进入 **体检与清理 → 图片转换**，源格式只勾选 PNG，目标格式 JPG，质量 85，透明图处理选白底。
+3. 点**扫描并估算**，等进度结束；截取 `09-image-convert.png`。画面应包含顶部单一操作卡（操作栏、源格式、目标格式/质量/透明图、汇总）与候选表格，不得出现底部动作栏或「此页会修改文件」横幅。
+4. 点**全选可节省项** → 连点两次**开始转换** → 等转换完成；截取 `10-image-convert-result.png`。画面应包含表格下方的「最近一次转换」结果摘要与右上角完成提示。
+5. 保持文件名不变，覆盖 `docs/images/09-image-convert.png` 与 `docs/images/10-image-convert-result.png`，不新增 README 引用路径。
+
+验收标准：
+
+- 尺寸为 1920×1032，与现有 `00`–`08` 一致；深色 Border 主题。
+- 9 个分类页签齐全（含「Wiki 笔记链接」与「图片转换」），库名只显示 `vault-doctor-demo`。
+- 画面无真实项目/客户/公司名，无真实用户目录或账号信息。
+- 两张图均为 1.9.5 之后的新布局：无「此页会修改文件」横幅、无质量滑块、无底部「已选 / 开始转换」动作栏；质量显示为数字输入框，操作集中在顶部。
 
 ## 9. 图片转换验证
 
-图片转换在 1.7.0 引入。当前 `manifest.json` 为 `1.8.0`，`versions.json` 映射为 `"1.8.0": "1.13.0"`。发布前用演示库 `vault-doctor-demo` 验证图片转换：
+图片转换在 1.7.0 引入。当前 `manifest.json` 为 `1.9.5`，`versions.json` 映射为 `"1.9.5": "1.13.0"`。发布前用演示库 `vault-doctor-demo` 验证图片转换：
 
 1. 准备同一张 PNG 的三处引用：Wiki 嵌入（含别名、不含尺寸参数）、标准 Markdown 图片链接、HTML `<img src>`；确认三篇笔记都指向该 PNG。
 2. 打开 **体检与清理 → 图片转换**，源格式只勾选 PNG，目标格式选 JPG，质量 85，透明图处理选白底。

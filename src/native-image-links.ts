@@ -1,5 +1,9 @@
 import type { App, CachedMetadata, Pos, TFile } from 'obsidian';
 
+// A `#` after an image target is an Obsidian embed parameter, not a document
+// fragment. Non-image documents such as PDFs use `#page=3` as a real fragment.
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico', 'tif', 'tiff', 'heic', 'heif']);
+
 export interface NativeImageLink {
 	sourcePath: string;
 	original: string;
@@ -30,8 +34,8 @@ function findInCache(app: App, sourcePath: string, cache: CachedMetadata, extens
 		if (!reference.original.startsWith('![[') || isIgnored(cache, reference.position)) return [];
 		const parsed = parseNative(reference.original);
 		if (!parsed) return [];
-		const linkPath = parsed.target.split('#', 1)[0] ?? '';
-		const extension = linkPath.slice(linkPath.lastIndexOf('.') + 1).toLowerCase();
+		const linkPath = parsed.path;
+		const extension = fileExtension(linkPath) || fileExtension(parsed.target);
 		if (!extensions.has(extension)) return [];
 		const file = app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath) ?? undefined;
 		return [{ sourcePath, original: reference.original, linkPath, position: reference.position, file, reason: parsed.reason }];
@@ -59,7 +63,8 @@ export function convertNativeImageLink(link: NativeImageLink): string | null {
 	const parsed = parseNative(link.original);
 	if (!parsed) return null;
 	const alt = parsed.alias ? escapeAltText(parsed.alias) : '';
-	return `![${alt}](<${escapeDestination(link.file.path)}>)`;
+	const fragment = parsed.fragment ? `#${escapeFragment(parsed.fragment)}` : '';
+	return `![${alt}](<${escapeDestination(link.file.path)}${fragment}>)`;
 }
 
 export function replaceNativeImageLinks(content: string, links: NativeImageLink[]) {
@@ -95,14 +100,25 @@ export function replaceNativeImageLinks(content: string, links: NativeImageLink[
 	return { content: parts.join(''), converted, skipped };
 }
 
-function parseNative(original: string): { target: string; alias: string; reason?: string } | null {
+function parseNative(original: string): { target: string; path: string; alias: string; fragment?: string; reason?: string } | null {
 	const match = /^!\[\[([^\]]+)\]\]$/.exec(original);
 	if (!match) return null;
 	const parts = splitPipeParts(match[1]!);
 	const target = parts.shift()!.trim();
 	const extras = parts.map((part) => part.trim()).filter(Boolean);
-	if (extras.some((part) => /\d+x\d+/i.test(part) || /^\d+(?=\s|$)/.test(part))) return { target, alias: '', reason: '包含尺寸参数' };
-	return { target, alias: extras.join('|') };
+	if (extras.some((part) => /\d+x\d+/i.test(part) || /^\d+(?=\s|$)/.test(part))) return { target, path: target, alias: '', reason: '包含尺寸参数' };
+	const hash = target.indexOf('#');
+	if (hash < 0) return { target, path: target, alias: extras.join('|') };
+	const path = target.slice(0, hash).trim();
+	const fragment = target.slice(hash + 1).trim();
+	const pathExtension = fileExtension(path);
+	// An image name with `#` is ambiguous with an embed parameter. Keep the
+	// existing conservative behaviour and skip it instead of dropping the part
+	// after `#` from the destination.
+	if (!pathExtension || IMAGE_EXTENSIONS.has(pathExtension)) {
+		return { target, path, alias: '', reason: '包含片段参数' };
+	}
+	return { target, path, alias: extras.join('|'), fragment };
 }
 
 // Obsidian's table syntax escapes the alias separator as `\|`; the cache keeps
@@ -117,6 +133,16 @@ function escapeAltText(value: string) {
 		.replaceAll('[', '\\[')
 		.replaceAll(']', '\\]')
 		.replaceAll('|', '\\|');
+}
+
+function escapeFragment(value: string) {
+	return value.replaceAll('%', '%25').replaceAll('#', '%23').replaceAll('<', '%3C').replaceAll('>', '%3E');
+}
+
+function fileExtension(path: string) {
+	const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+	const dot = name.lastIndexOf('.');
+	return dot < 0 ? '' : name.slice(dot + 1).toLowerCase();
 }
 
 // Markdown destinations are URI-decoded by Obsidian and by this repo's own

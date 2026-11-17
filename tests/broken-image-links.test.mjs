@@ -306,3 +306,20 @@ test('removes links past the indexed-line limit through the scanning resolver', 
 	assert.deepEqual({ removed: result.removed, skipped: result.skipped }, { removed: 2, skipped: 0 });
 	assert.equal(result.content, '\n'.repeat(emptyLines));
 });
+
+// A stale cached range must not be treated as a match for the other link form:
+// a plain `[[a.png]]` entry and a live `![[a.png]]` embed are different links.
+// Removing the embed would destroy live content.
+test('does not remove a live embed when the cached range belongs to a plain link', () => {
+	const original = '[[a.png]]';
+	const content = '![[a.png]]';
+	const link = {
+		sourcePath: 'note.md',
+		original,
+		linkPath: 'a.png',
+		position: position(0, content.length),
+	};
+	const result = removeBrokenImageLinks(content, [link]);
+	assert.equal(result.content, content);
+	assert.deepEqual({ removed: result.removed, skipped: result.skipped }, { removed: 0, skipped: 1 });
+});

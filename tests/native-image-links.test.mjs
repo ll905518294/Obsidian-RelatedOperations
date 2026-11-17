@@ -10,6 +10,56 @@ test('converts basic embeds and preserves alias text as alt text', () => {
 	assert.equal(convertNativeImageLink(link('![[image.png|示意图]]', 'image.png', 0)), '![示意图](<image.png>)');
 });
 
+test('preserves PDF page fragments on non-image document embeds', () => {
+	const original = '![[doc.pdf#page=3]]';
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+		metadataCache: {
+			getFileCache: () => ({
+				embeds: [{ original, link: 'doc.pdf#page=3', position: { start: { offset: 0 }, end: { offset: original.length } } }],
+			}),
+			getFirstLinkpathDest: (path) => (path === 'doc.pdf' ? { path: 'doc.pdf' } : null),
+		},
+	};
+	const found = findNativeImageLinks(app, 'pdf');
+	assert.equal(found.length, 1);
+	assert.equal(found[0].linkPath, 'doc.pdf');
+	assert.equal(convertNativeImageLink(found[0]), '![](<doc.pdf#page=3>)');
+});
+
+test('keeps a PDF fragment together with an alias', () => {
+	const original = '![[doc.pdf#page=3|第 3 页]]';
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+		metadataCache: {
+			getFileCache: () => ({
+				embeds: [{ original, link: 'doc.pdf#page=3|第 3 页', position: { start: { offset: 0 }, end: { offset: original.length } } }],
+			}),
+			getFirstLinkpathDest: (path) => (path === 'doc.pdf' ? { path: 'doc.pdf' } : null),
+		},
+	};
+	const [found] = findNativeImageLinks(app, 'pdf');
+	assert.equal(found.linkPath, 'doc.pdf');
+	assert.equal(convertNativeImageLink(found), '![第 3 页](<doc.pdf#page=3>)');
+});
+
+test('skips image embeds that use a hash parameter instead of dropping it', () => {
+	const original = '![[image.png#fragment]]';
+	const app = {
+		vault: { getMarkdownFiles: () => [{ path: 'note.md' }] },
+		metadataCache: {
+			getFileCache: () => ({
+				embeds: [{ original, link: 'image.png#fragment', position: { start: { offset: 0 }, end: { offset: original.length } } }],
+			}),
+			getFirstLinkpathDest: (path) => (path === 'image.png' ? { path: 'image.png' } : null),
+		},
+	};
+	const [found] = findNativeImageLinks(app, 'png');
+	assert.equal(found.linkPath, 'image.png');
+	assert.equal(found.reason, '包含片段参数');
+	assert.equal(convertNativeImageLink(found), null);
+});
+
 test('parses escaped pipe aliases used inside tables', () => {
 	const original = '![[image.png\\|示意图]]';
 	const app = {

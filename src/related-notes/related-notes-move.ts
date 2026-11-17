@@ -179,6 +179,14 @@ function otherFolderFailure(path: string): MoveFailure {
 
 function renameFailure(path: string, error: unknown, destinationExists: boolean): MoveFailure {
 	const message = error instanceof Error ? error.message : '未知错误';
+	if (/enoent|no such file|not found|找不到|不存在/i.test(message)) {
+		return {
+			path,
+			reason: '笔记已不存在或已被移动',
+			kind: 'other',
+			nextStep: '请刷新关联笔记后重试。',
+		};
+	}
 	if (destinationExists || /eexist|already exists|已存在/i.test(message)) {
 		return {
 			path,

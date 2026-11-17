@@ -125,7 +125,9 @@ export function checkRelease({ root = ROOT, tag, commitSubjects } = {}) {
 			if (notes.source === 'empty') {
 				add(`CHANGELOG 与提交记录都没有版本 ${manifestVersion} 的更新说明`);
 			} else if (notes.source === 'git-log') {
-				warnings.push(`CHANGELOG 缺少 ${manifestVersion} 条目，发布将回退为提交记录`);
+				add(
+					`CHANGELOG 缺少 ${manifestVersion} 条目；每个版本必须写入更新说明，不允许回退为提交记录`,
+				);
 			}
 		} catch (error) {
 			add(`无法生成发布说明：${error.message}`);

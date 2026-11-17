@@ -1,3 +1,4 @@
+import { Notice } from 'obsidian';
 import type { CleanupViewContext } from './cleanup-types';
 import { brokenLinkKey } from '../broken-image-links';
 import { brokenNoteLinkKey } from '../broken-note-links';
@@ -5,6 +6,7 @@ import { nativeImageLinkKey } from '../native-image-links';
 import { wikiNoteLinkKey } from '../wiki-note-links';
 import { confirmCleanup, confirmCleanupDuplicates, confirmConvertLinks, confirmConvertWikiLinks, confirmCreateNotes, confirmRemoveLinks, confirmRemoveNoteLinks } from './cleanup-flows';
 import { requireSecondClick, resetArmedConfirmButtons } from './cleanup-confirm-button';
+import { reasonFor } from './cleanup-actions';
 
 export function renderActions(host: CleanupViewContext) {
 	const actions = host.contentEl.createDiv({ cls: 'orphan-cleanup-actions' });
@@ -24,7 +26,9 @@ export function renderActions(host: CleanupViewContext) {
 	} else {
 		// File deletion needs a second click on the armed button; link and note
 		// actions keep their own confirmation modals.
-		requireSecondClick(cleanup, () => host.activeTab === 'duplicates' ? confirmCleanupDuplicates(host) : confirmCleanup(host));
+		requireSecondClick(cleanup, () => host.activeTab === 'duplicates' ? confirmCleanupDuplicates(host) : confirmCleanup(host), {
+			onError: (error) => new Notice(`操作失败：${reasonFor(error)}`),
+		});
 	}
 	if (host.activeTab === 'broken-note-links') {
 		const remove = actions.createEl('button', { text: '移除选中链接', cls: 'orphan-cleanup-remove-note-links' });

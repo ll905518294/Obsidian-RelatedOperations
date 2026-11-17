@@ -72,10 +72,15 @@ export interface CleanupScanHost {
  * 避免重复扫描（以及第二次调用被静默丢弃）。
  */
 const activeFullScans = new WeakMap<CleanupScanHost, Promise<void>>();
+const CONVERSION_BUSY_NOTICE = '图片转换进行中，请先完成或中止转换。';
 
 export function runFullScan(panel: CleanupScanHost, preserveProcessed = false): Promise<void> {
 	const active = activeFullScans.get(panel);
 	if (active) return active;
+	if (panel.conversion.converting) {
+		new Notice(CONVERSION_BUSY_NOTICE);
+		return Promise.resolve();
+	}
 	const task = executeFullScan(panel, preserveProcessed).finally(() => {
 		if (activeFullScans.get(panel) === task) activeFullScans.delete(panel);
 	});
@@ -91,6 +96,10 @@ async function executeFullScan(panel: CleanupScanHost, preserveProcessed = false
 		await Promise.allSettled([...panel.categoryScans.values()]);
 		// 等待期间面板被关闭（dispose 会递增 generation）时不要再启动。
 		if (panel.scanGeneration !== requestGeneration) return;
+	}
+	if (panel.conversion.converting) {
+		new Notice(CONVERSION_BUSY_NOTICE);
+		return;
 	}
 	if (panel.scanning) return;
 	panel.lastScanError = undefined;
@@ -163,7 +172,14 @@ async function executeFullScan(panel: CleanupScanHost, preserveProcessed = false
 			for (const category of CLEANUP_CATEGORIES) if (!panel.scannedTabs.has(category.tab)) panel.markTabDirty(category.tab);
 			panel.lastScanError = undefined;
 			panel.lastScanAborted = true;
-			new Notice('已中止扫描：已完成的分类结果已保留。');
+			// 中止后把已完成的分类落盘，重开面板时先看到本次结果，而不是上一次完整缓存。
+			// 一个分类都没完成时没有可保留的结果，跳过写入以免覆盖上一次的完整缓存。
+			if (panel.scannedTabs.size > 0) {
+				panel.saveCacheToSettings();
+				new Notice('已中止扫描：已完成的分类结果已保留。');
+			} else {
+				new Notice('已中止扫描：尚未完成任何分类，请重新开始扫描。');
+			}
 			return;
 		}
 		const reason = reasonFor(error);
