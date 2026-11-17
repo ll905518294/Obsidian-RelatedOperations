@@ -53,6 +53,20 @@ Get-Item (Join-Path $plugin 'main.js') | Select-Object FullName, Length, LastWri
 $v = node -e "process.stdout.write(require('./manifest.json').version)"
 ```
 
+### 版本号 bump 标准顺序
+
+1. 从干净工作区开始（先处理或暂存无关改动），在项目根目录执行：
+
+   ```powershell
+   npm version <版本号> --no-git-tag-version
+   ```
+
+   该命令会更新 `package.json` 与 `package-lock.json`，并触发 `package.json` 的 `version` 脚本（`node version-bump.mjs`）同步 `manifest.json` 与 `versions.json`。本机 npm 11.11.1 实测 `npm_package_version` 为新版本；`--no-git-tag-version` 下即使工作区有未提交改动也能执行，但干净基线仍是推荐前提，可避免把无关改动混进版本提交。若所用 npm 版本在脏工作区拒绝执行，先提交或暂存无关改动，再按同一顺序 bump。
+2. 再编辑 `CHANGELOG.md` 与 `src/update-intro-content.ts`，加入同一版本的发布说明与内置更新说明。
+3. 最后执行 `npm run release:check`，确认四处版本与发布说明一致。
+
+之所以先 bump 再改文档：`npm version` 会运行 `version` 脚本并改写 `manifest.json`/`versions.json`；先完成版本文件同步，再写 CHANGELOG 与内置说明，`release:check` 校验的才是同一次版本变更，不会出现「文档已写、版本文件还没同步」的中间态。
+
 逐项勾选（全部通过后再推送 tag）：
 
 - [ ] **必须**先执行 `npm run release:check`（也可用 `npm run release:check -- 1.9.4` 指定 tag/版本）。它会一次校验 `manifest.json`、`package.json`、`package-lock.json` 根版本、`versions.json` 映射、tag 一致性、CHANGELOG/发布说明、`src/update-intro-content.ts` 内置说明，以及 id/version/minAppVersion 格式；任一项失败都会列出原因并非零退出。
