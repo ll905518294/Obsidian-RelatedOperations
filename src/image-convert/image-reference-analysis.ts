@@ -346,7 +346,7 @@ function dedupeSpans(spans: ReferenceSpan[]): ReferenceSpan[] {
 	const sorted = [...spans].sort((left, right) => left.start - right.start || right.end - left.end);
 	const accepted: ReferenceSpan[] = [];
 	for (const span of sorted) {
-		const previous = accepted.at(-1);
+		const previous = accepted[accepted.length - 1];
 		if (previous && span.start < previous.end) continue;
 		accepted.push(span);
 	}

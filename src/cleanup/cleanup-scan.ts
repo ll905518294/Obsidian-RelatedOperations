@@ -46,7 +46,7 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 		const original = snapshotPaths.get(file);
 		return original !== undefined && original !== file.path;
 	};
-	onProgress?.({ stage: 0, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
+	onProgress?.({ stage: 0, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles[visibleFiles.length - 1]?.path });
 	const referenced = new Set<string>();
 	for (const [sourcePath, destinations] of Object.entries(app.metadataCache.resolvedLinks)) {
 		if (!sourcePath.toLowerCase().endsWith('.md')) continue;
@@ -89,7 +89,7 @@ export async function findCleanupCandidates(app: App, imageExtensions: string, i
 	throwIfAborted(signal);
 	const emptyFiles = pruneStillPresent(presence, (await findEmptyFiles(visibleFiles, extensions, app, (processed, total, currentFile) => onProgress?.({ stage: 3, processed, total, currentFile }), signal)).filter((file) => !renamedDuringScan(file) && !referenced.has(file.path)));
 	const folders = pruneStillPresent(presence, findRecursivelyEmptyFolders(app.vault.getRoot(), ignoredFolders)).sort((a, b) => b.path.length - a.path.length || byPath(a, b));
-	onProgress?.({ stage: 3, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles.at(-1)?.path });
+	onProgress?.({ stage: 3, processed: visibleFiles.length, total: visibleFiles.length, currentFile: visibleFiles[visibleFiles.length - 1]?.path });
 	onCategoryComplete?.(['empty-files', 'folders'], { emptyFiles, folders });
 	throwIfAborted(signal);
 	onProgress?.({ stage: 4, processed: 0, total: 1 });

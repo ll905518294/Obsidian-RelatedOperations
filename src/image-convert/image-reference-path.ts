@@ -305,7 +305,7 @@ export function overlaps(start: number, end: number, ranges: { start: number; en
 export function mergeRanges(ranges: { start: number; end: number }[]): { start: number; end: number }[] {
 	const merged: { start: number; end: number }[] = [];
 	for (const range of ranges) {
-		const previous = merged.at(-1);
+		const previous = merged[merged.length - 1];
 		if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
 		else merged.push({ ...range });
 	}

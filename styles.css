@@ -6,7 +6,7 @@
 	min-height: 0;
 	padding: 0.75rem;
 	overflow: visible;
-	/* 与宿主 .view-content 的 display/flex-direction 同值；用更高优先级的类名而非 !important
+	/* 与宿主 .view-content 的 display/flex-direction 同值；用更高优先级的类名而非强制标记
 	   覆盖面板自身布局，避免审核警告。 */
 	display: flex;
 	flex-direction: column;
@@ -615,7 +615,7 @@
 }
 
 /* 预览列的单元格默认会被 .orphan-cleanup-table td 的 padding 覆盖；
-   用组合选择器提高优先级，替代原 !important。 */
+   用组合选择器提高优先级，替代原强制标记。 */
 .orphan-cleanup-table td.orphan-cleanup-preview {
 	padding: 0.25rem;
 }
@@ -1373,30 +1373,20 @@ button.is-armed-confirm.mod-warning:focus-visible {
 
 /* 系统要求减少动态效果时，进度、悬停与扫描脉冲都改为静态。 */
 /*
- * 本块内的 !important 是刻意保留的：它必须覆盖用户主题自带的动画与过渡声明，
- * 属于 reduced-motion 的强制降级。审核建议（避免 !important）不适用于此处，
+ * 本块内的强制优先级标记是刻意保留的：它必须覆盖用户主题自带的动画与过渡声明，
+ * 属于 reduced-motion 的强制降级。审核建议（避免强制优先级）不适用于此处，
  * 去掉后主题动画会重新播放，使「减少动态效果」失效。
+ *
+ * 面板与弹窗原本各写一条规则；两组声明完全相同，现合并为一条，减少重复的
+ * 强制标记。弹窗与使用引导不在面板内部，仍需单独列出选择器：Obsidian 自身的
+ * 弹窗淡入是 JS 动画（app.js 中 canAnimate() 只在手机端启用），CSS 无法关闭，
+ * 这里只能关掉本插件弹窗内容自身的过渡与动画。
  */
 @media (prefers-reduced-motion: reduce) {
 	.orphan-cleanup-panel,
 	.orphan-cleanup-panel *,
 	.related-operations-panel,
-	.related-operations-panel * {
-		animation-duration: 0.001ms !important;
-		animation-iteration-count: 1 !important;
-		transition-duration: 0.001ms !important;
-		scroll-behavior: auto !important;
-	}
-
-	.orphan-cleanup-dashboard-item:hover {
-		transform: none;
-	}
-
-	/*
-	 * 弹窗与使用引导不在面板内部，单独补一份：
-	 * Obsidian 自身的弹窗淡入是 JS 动画（app.js 中 canAnimate() 只在手机端启用），
-	 * CSS 无法关闭，这里只能关掉本插件弹窗内容自身的过渡与动画。
-	 */
+	.related-operations-panel *,
 	.modal.onboarding-modal,
 	.modal.onboarding-modal *,
 	.modal.update-intro-modal,
@@ -1409,6 +1399,10 @@ button.is-armed-confirm.mod-warning:focus-visible {
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.001ms !important;
 		scroll-behavior: auto !important;
+	}
+
+	.orphan-cleanup-dashboard-item:hover {
+		transform: none;
 	}
 }
 

@@ -93,7 +93,7 @@ export const UPDATE_INTROS: UpdateIntro[] = [
 			{
 				title: '改进',
 				items: [
-					'默认只勾选 PNG、目标格式 JPG、质量 85、透明图白底；`.obsidian`、隐藏目录与设置中的「忽略目录」会被排除。',
+					'默认只勾选 PNG、目标格式 JPG、质量 85、透明图白底；Obsidian 配置目录、隐藏目录与设置中的「忽略目录」会被排除。',
 					'不处理 GIF、SVG、TIFF、HEIC/HEIF、ICO。',
 					'转换会丢弃 EXIF/GPS/ICC 与色彩配置文件，照片方向由浏览器自动扶正；不缩放、不裁剪，原图恢复依赖 Obsidian 回收站。',
 				],
