@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { UPDATE_INTROS, currentUpdateIntro, shouldShowIntro } from '../src/update-intro-content.ts';
+
+const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
 
 test('首次安装或版本变化时显示，同版本不重复显示', () => {
 	assert.equal(shouldShowIntro('1.4.5', ''), true, 'lastSeenVersion 为空时应显示');
@@ -77,11 +80,11 @@ test('1.7.0 内置说明存在且覆盖图片转换', () => {
 	assert.match(text, /Canvas/);
 });
 
-test('1.9.0 内置说明存在、位于最前，且覆盖首页入口与转换提速', () => {
+test('1.9.0 内置说明存在且覆盖首页入口与转换提速', () => {
 	const intro = currentUpdateIntro('1.9.0');
 	assert.ok(intro, '1.9.0 必须有更新说明条目');
 	assert.equal(intro.theme, '首页入口与转换提速');
-	assert.equal(UPDATE_INTROS[0].version, '1.9.0', '最新版本必须排在最前');
+	assert.notEqual(UPDATE_INTROS[0].version, '1.9.0', '1.9.0 不应再排在最前');
 	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
 	assert.match(text, /图片转换/);
 	assert.match(text, /按需/);
@@ -90,6 +93,50 @@ test('1.9.0 内置说明存在、位于最前，且覆盖首页入口与转换�
 	assert.match(text, /默认配置/);
 	assert.match(text, /HTML 实体/);
 	assert.match(text, /撤销记录/);
+});
+
+test('1.9.1 内置说明存在且覆盖样式兼容修正', () => {
+	const intro = currentUpdateIntro('1.9.1');
+	assert.ok(intro, '1.9.1 必须有更新说明条目');
+	assert.equal(intro.theme, '样式兼容性修正');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /样式/);
+	assert.match(text, /主题|WebView/);
+	assert.match(text, /功能没有变化|没有新增或改动功能/);
+});
+
+test('1.9.2 内置说明存在且覆盖社区审核后的兼容性清理', () => {
+	const intro = currentUpdateIntro('1.9.2');
+	assert.ok(intro, '1.9.2 必须有更新说明条目');
+	assert.equal(intro.theme, '社区上架后的兼容性打磨');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /社区市场/);
+	assert.match(text, /兼容/);
+	assert.match(text, /没有新增或改动功能/);
+});
+
+test('1.9.3 内置说明存在、位于最前，且覆盖补齐说明', () => {
+	const intro = currentUpdateIntro('1.9.3');
+	assert.ok(intro, '1.9.3 必须有更新说明条目');
+	assert.equal(intro.theme, '补齐更新说明');
+	assert.equal(UPDATE_INTROS[0].version, '1.9.3', '最新版本必须排在最前');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /1\.9\.1/);
+	assert.match(text, /1\.9\.2/);
+	assert.match(text, /功能没有变化/);
+});
+
+test('manifest 当前版本有对应内置说明，且版本严格递减', () => {
+	assert.ok(currentUpdateIntro(manifest.version), `${manifest.version} 必须有内置更新说明`);
+	assert.equal(UPDATE_INTROS[0].version, manifest.version, '最新说明必须对应当前发布版本');
+	for (let index = 1; index < UPDATE_INTROS.length; index++) {
+		const newer = UPDATE_INTROS[index - 1].version.split('.').map(Number);
+		const older = UPDATE_INTROS[index].version.split('.').map(Number);
+		const isNewer = newer[0] !== older[0] ? newer[0] > older[0]
+			: newer[1] !== older[1] ? newer[1] > older[1]
+				: newer[2] > older[2];
+		assert.ok(isNewer, `${UPDATE_INTROS[index - 1].version} 应排在 ${UPDATE_INTROS[index].version} 之前`);
+	}
 });
 
 test('1.8.0 内置说明保留（可历史查看），且覆盖性能与安装包', () => {
