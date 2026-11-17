@@ -187,11 +187,22 @@ test('1.9.8 内置说明存在，且覆盖图片压缩页交互优化', () => {
 	assert.match(text, /引用 N 处/);
 });
 
-test('1.9.9 内置说明存在、位于最前，且覆盖转换提速与安全复核', () => {
+test('1.10.0 内置说明存在、位于最前，且覆盖转换报错修复', () => {
+	const intro = currentUpdateIntro('1.10.0');
+	assert.ok(intro, '1.10.0 必须有更新说明条目');
+	assert.equal(intro.theme, '图片压缩转换报错修复');
+	assert.equal(UPDATE_INTROS[0].version, '1.10.0', '最新版本必须排在最前');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /getFiles is not a function/);
+	assert.match(text, /快照/);
+	assert.match(text, /1\.9\.9/);
+});
+
+test('1.9.9 内置说明存在，且覆盖转换提速与安全复核', () => {
 	const intro = currentUpdateIntro('1.9.9');
 	assert.ok(intro, '1.9.9 必须有更新说明条目');
 	assert.equal(intro.theme, '图片转换执行提速');
-	assert.equal(UPDATE_INTROS[0].version, '1.9.9', '最新版本必须排在最前');
+	assert.notEqual(UPDATE_INTROS[0].version, '1.9.9', '1.9.9 不应再排在最前');
 	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
 	assert.match(text, /引用内容快照/);
 	assert.match(text, /resolvedLinks/);

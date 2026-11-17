@@ -15,6 +15,19 @@ export interface UpdateIntro {
 // Keep newest first and add an entry with each release.
 export const UPDATE_INTROS: UpdateIntro[] = [
 	{
+		version: '1.10.0',
+		theme: '图片压缩转换报错修复',
+		summary: '修复桌面端点击「开始转换」必现的报错（getFiles is not a function），恢复正常转换。',
+		sections: [
+			{
+				title: '修复',
+				items: [
+					'修复图片压缩转换必现报错：引用快照包装丢失 Vault 原型方法，导致调用 getFiles 失败；本问题由 1.9.9 引入，1.9.8 及以前不受影响。',
+				],
+			},
+		],
+	},
+	{
 		version: '1.9.9',
 		theme: '图片转换执行提速',
 		summary: '转换开始前一次性建立引用内容快照，不再逐张读取全库笔记，全库笔记读取从约 N+1 次降到 1 次，大库批量转换更快，并在删除原图前做安全复核。',

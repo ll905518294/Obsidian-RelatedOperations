@@ -28,14 +28,24 @@ interface SourceNoteLock {
 
 type NoteStatBaseline = Map<string, { size: number; mtime: number }>;
 
-function appWithSnapshot(app: ConversionApp, snapshot: ReferenceContentSnapshot): ConversionApp {
-	return {
-		...app,
-		vault: {
-			...app.vault,
-			read: async (file) => snapshot.get(file.path) ?? app.vault.read(file),
-		},
-	};
+export function appWithSnapshot(app: ConversionApp, snapshot: ReferenceContentSnapshot): ConversionApp {
+	// 不要用对象展开复刻 vault：真实 Obsidian 的 Vault 方法（getFiles 等）在原型上，
+	// 展开只复制自有可枚举属性，会丢失原型链。用 Object.create 继承全部原型与自有属性，
+	// 再仅覆盖 read（快照命中优先，miss 时以原 this 回退真实读盘）。
+	const wrappedApp = Object.create(app) as ConversionApp;
+	const originalVault = app.vault;
+	const wrappedVault = Object.create(originalVault) as ConversionApp['vault'];
+	Object.defineProperty(wrappedVault, 'read', {
+		value: (file: ConversionFile) => snapshot.get(file.path) ?? originalVault.read(file),
+		writable: true,
+		configurable: true,
+	});
+	Object.defineProperty(wrappedApp, 'vault', {
+		value: wrappedVault,
+		writable: true,
+		configurable: true,
+	});
+	return wrappedApp;
 }
 
 function noteStatBaseline(app: ConversionApp, paths: Iterable<string>, caseSensitive: boolean): NoteStatBaseline {
