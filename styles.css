@@ -6,8 +6,10 @@
 	min-height: 0;
 	padding: 0.75rem;
 	overflow: visible;
-	display: flex !important;
-	flex-direction: column !important;
+	/* 与宿主 .view-content 的 display/flex-direction 同值；用更高优先级的类名而非 !important
+	   覆盖面板自身布局，避免审核警告。 */
+	display: flex;
+	flex-direction: column;
 }
 
 .modal.related-operations-modal .modal-content {
@@ -612,8 +614,10 @@
 	white-space: nowrap;
 }
 
-.orphan-cleanup-preview {
-	padding: 0.25rem !important;
+/* 预览列的单元格默认会被 .orphan-cleanup-table td 的 padding 覆盖；
+   用组合选择器提高优先级，替代原 !important。 */
+.orphan-cleanup-table td.orphan-cleanup-preview {
+	padding: 0.25rem;
 }
 
 .orphan-cleanup-preview img {
@@ -718,8 +722,8 @@
 }
 
 .modal.orphan-cleanup-preview-dialog .modal-content.orphan-cleanup-preview-modal {
-	flex: 1 1 auto !important;
-	min-height: 0 !important;
+	flex: 1 1 auto;
+	min-height: 0;
 }
 
 .orphan-cleanup-preview-modal {
@@ -750,15 +754,15 @@
 	display: none;
 }
 
-.orphan-cleanup-preview-frame > img.orphan-cleanup-full-preview.is-auto-fit {
+.modal.orphan-cleanup-preview-dialog .orphan-cleanup-preview-frame > img.orphan-cleanup-full-preview.is-auto-fit {
 	position: absolute;
 	inset: 0;
 	display: block;
-	max-width: 100% !important;
-	max-height: 100% !important;
-	width: 100% !important;
-	height: 100% !important;
-	object-fit: contain !important;
+	max-width: 100%;
+	max-height: 100%;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
 }
 
 .orphan-cleanup-preview-path {
@@ -1368,6 +1372,11 @@ button.is-armed-confirm.mod-warning:focus-visible {
 }
 
 /* 系统要求减少动态效果时，进度、悬停与扫描脉冲都改为静态。 */
+/*
+ * 本块内的 !important 是刻意保留的：它必须覆盖用户主题自带的动画与过渡声明，
+ * 属于 reduced-motion 的强制降级。审核建议（避免 !important）不适用于此处，
+ * 去掉后主题动画会重新播放，使「减少动态效果」失效。
+ */
 @media (prefers-reduced-motion: reduce) {
 	.orphan-cleanup-panel,
 	.orphan-cleanup-panel *,
@@ -1589,7 +1598,7 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	margin: -1px;
 	padding: 0;
 	overflow: hidden;
-	clip-path: inset(50%);
+	clip: rect(0, 0, 0, 0);
 	white-space: nowrap;
 	border: 0;
 }
