@@ -20,6 +20,40 @@ import {
 // 估算与 runner 内部的解码/编码，不改变这里的串行提交边界。
 const CONVERSION_BATCH_SIZE = 1;
 
+type ConversionProgressPhase = 'estimate' | 'convert';
+
+/*
+ * 进度反馈只改进度文本与填充条，不重建整页。图片转换页在 5000+ 候选时
+ * 每次 renderContents 都要重建整张列表；估算/转换期间每 150/200ms 整页
+ * 重建是 Obsidian 卡顿的主因。进度节点尚未渲染时才允许回退整页一次。
+ */
+function paintProgress(panel: CleanupConversionHost, phase: ConversionProgressPhase, fallback: { used: boolean }): void {
+	const root: ParentNode | undefined = panel.contentEl;
+	const wrapper = root?.querySelector<HTMLElement>('.orphan-cleanup-convert-progress');
+	const text = root?.querySelector<HTMLElement>('.orphan-cleanup-convert-progress-text');
+	if (!wrapper || !text) {
+		if (!fallback.used) {
+			fallback.used = true;
+			panel.renderContents();
+		}
+		return;
+	}
+	const progress = phase === 'convert' ? panel.conversion.convertProgress : panel.conversion.estimateProgress;
+	const verb = phase === 'convert' ? '转换' : '估算';
+	wrapper.setAttribute('data-phase', phase);
+	if (progress.total > 0) {
+		const path = progress.currentPath ? ` · ${progress.currentPath}` : '';
+		text.setText(`正在${verb} ${progress.processed} / ${progress.total}${path}`);
+		const fill = root?.querySelector<HTMLElement>('.orphan-cleanup-convert-progress-fill');
+		if (fill) {
+			const percent = Math.min(100, Math.max(0, progress.processed / progress.total * 100));
+			fill.style.width = `${percent}%`;
+		}
+	} else {
+		text.setText(`正在${verb}…`);
+	}
+}
+
 export function createConversionState(config: ReadonlyImageConversionConfig): ImageConversionState {
 	const copy = cloneImageConversionConfig(config);
 	return {
@@ -57,14 +91,15 @@ export async function estimateConversions(panel: CleanupConversionHost): Promise
 	panel.conversion.estimateProgress = { processed: 0, total: files.length };
 	panel.renderContents();
 	let lastPaint = 0;
+	const paintFallback = { used: false };
 	try {
 		const items = await estimateConversionCosts(panel.app, files, panel.conversionConfig(), (progress) => {
 			panel.conversion.estimateProgress = progress;
 			const now = performance.now();
-			// 大批量图片时避免每个进度都重建整页 DOM。
+			// 大批量图片时避免每个进度都重建整页 DOM；只就地更新进度条。
 			if (panel.activeTab !== 'image-convert' || (now - lastPaint < 150 && progress.processed < progress.total)) return;
 			lastPaint = now;
-			panel.renderContents();
+			paintProgress(panel, 'estimate', paintFallback);
 		}, controller.signal);
 		panel.conversion.items = items;
 	} catch (error) {
@@ -97,6 +132,7 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 	panel.conversion.convertProgress = { processed: 0, total: files.length };
 	panel.renderContents();
 	let convertPaint = 0;
+	const paintFallback = { used: false };
 	try {
 		const config = panel.conversionConfig();
 		const result: ConversionResult = { converted: [], skipped: [], failed: [], pendingTrash: [], savedBytes: 0, aborted: false, unrestored: [] };
@@ -104,11 +140,11 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 			if (controller.signal.aborted) { result.aborted = true; break; }
 			const batch = files.slice(index, index + CONVERSION_BATCH_SIZE);
 			panel.conversion.convertProgress = { processed: index, total: files.length, currentPath: batch[0]?.path };
-			// 大批量时避免每张都重建整页 DOM；进度条仍会持续推进。
+			// 大批量时避免每张都重建整页 DOM；进度条就地推进。
 			const now = performance.now();
 			if (now - convertPaint >= 200) {
 				convertPaint = now;
-				panel.renderContents();
+				paintProgress(panel, 'convert', paintFallback);
 			}
 			const partial = await runImageConversion(
 				// Obsidian 的 App 在运行期满足 runner 需要的子集；vault.delete 的参数

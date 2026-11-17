@@ -42,6 +42,10 @@ const scannedStates = new WeakSet<ImageConversionState>();
 const fallbackSelectionSets = new WeakMap<CleanupViewContext, Set<string>>();
 let warnedMissingSelectionSet = false;
 
+export const CONVERT_ROW_PAGE_SIZE = 200;
+
+const renderedRows = new WeakMap<ImageConversionState, number>();
+
 type ConvertSelectionHost = CleanupViewContext & {
 	convertSelections?: Set<string>;
 };
@@ -71,6 +75,32 @@ export function isConversionTab(tab: string): boolean {
 
 function normalizedSource(value: string): string {
 	return value.trim().toLowerCase().replace(/^\./, '');
+}
+
+/**
+ * 按候选图片的扩展名统计各源格式数量，`jpeg` 归入 `jpg`。
+ * 五种源格式都返回，未命中的显示 0，便于界面稳定展示。
+ */
+export function countCandidatesByFormat(files: Array<{ extension?: string }>): Record<string, number> {
+	const counts: Record<string, number> = {};
+	for (const format of SOURCE_FORMATS) counts[format.value] = 0;
+	for (const file of files) {
+		const extension = normalizedSource(file.extension ?? '');
+		const format = extension === 'jpeg' ? 'jpg' : extension;
+		const count = counts[format];
+		if (count !== undefined) counts[format] = count + 1;
+	}
+	return counts;
+}
+
+/** 首次进入列表（或状态刚变化）时渲染的行数。 */
+export function initialVisibleRows(total: number, pageSize = CONVERT_ROW_PAGE_SIZE): number {
+	return Math.min(Math.max(total, 0), pageSize);
+}
+
+/** 点击「显示更多」后应渲染的行数：每次追加一页，并夹到总数以内。 */
+export function nextVisibleRows(current: number, total: number, pageSize = CONVERT_ROW_PAGE_SIZE): number {
+	return Math.min(Math.max(total, 0), Math.max(current, 0) + pageSize);
 }
 
 function sourceSelection(state: ImageConversionState): Set<string> {
@@ -126,16 +156,18 @@ function abortConversion(host: CleanupViewContext): (() => void) | undefined {
 function renderSourceFormats(host: CleanupViewContext, container: HTMLElement, warning: HTMLElement, scanButton: HTMLButtonElement) {
 	const state = host.conversion;
 	const selected = sourceSelection(state);
+	const counts = countCandidatesByFormat(host.candidates.convertibleImages);
 	const fieldset = container.createEl('fieldset', { cls: 'orphan-cleanup-convert-fieldset' });
 	fieldset.createEl('legend', { text: '源格式' });
 	const group = fieldset.createDiv({ cls: 'orphan-cleanup-convert-sources' });
 	for (const format of SOURCE_FORMATS) {
+		const count = counts[format.value] ?? 0;
 		const label = group.createEl('label', { cls: 'orphan-cleanup-convert-source' });
 		const checkbox = label.createEl('input', { type: 'checkbox' });
 		checkbox.checked = selected.has(format.value);
 		checkbox.disabled = isBusy(state);
-		checkbox.setAttribute('aria-label', `源格式 ${format.label}`);
-		label.createSpan({ text: format.label });
+		checkbox.setAttribute('aria-label', `源格式 ${format.label}，共 ${count} 张`);
+		label.createSpan({ text: `${format.label}（${count}）` });
 		checkbox.addEventListener('change', () => {
 			if (checkbox.checked) selected.add(format.value);
 			else selected.delete(format.value);
@@ -266,54 +298,20 @@ function renderSummary(state: ImageConversionState, container: HTMLElement) {
 	}
 }
 
-function renderConfig(host: CleanupViewContext, container: HTMLElement, toolbar: HTMLElement) {
+function renderToolbar(host: CleanupViewContext, toolbar: HTMLElement): HTMLButtonElement {
 	const state = host.conversion;
-	container.createDiv({
-		cls: 'orphan-cleanup-convert-warning',
-		text: '此页会修改文件：转换成功后原图移入回收站。',
-	});
-	container.createDiv({
-		cls: 'orphan-cleanup-convert-note',
-		text: '体积为按源格式与质量推算的预估值，仅供参考；实际大小与透明图处理在转换时精确判定。',
-	});
-
-	const config = container.createDiv({ cls: 'orphan-cleanup-convert-config' });
-	const noSources = config.createDiv({
-		cls: 'orphan-cleanup-convert-note is-warning',
-		text: '请至少勾选一种源格式。',
-	});
-	const scanRow = config.createDiv({ cls: 'orphan-cleanup-convert-scan-row' });
-	const scanButton = scanRow.createEl('button', { text: '扫描并估算', cls: 'mod-cta' });
+	const actions = toolbar.createDiv({ cls: 'orphan-cleanup-convert-toolbar-actions' });
+	const scanButton = actions.createEl('button', { text: '扫描并估算', cls: 'mod-cta' });
 	scanButton.disabled = isBusy(state) || state.sources.length === 0;
 	scanButton.addEventListener('click', () => {
 		scannedStates.add(state);
 		void host.estimateConversions().finally(() => host.renderContents());
 	});
 
-	renderSourceFormats(host, config, noSources, scanButton);
-	const controls = config.createDiv({ cls: 'orphan-cleanup-convert-controls' });
-	renderControls(host, controls);
-
-	if (state.estimating) {
-		renderProgress(host, scanRow);
-		const abort = abortConversion(host);
-		if (abort) {
-			const abortButton = scanRow.createEl('button', { text: '中止', cls: 'orphan-cleanup-convert-abort' });
-			abortButton.addEventListener('click', abort);
-		}
-	}
-	config.appendChild(scanRow);
-
-	renderSummary(state, container);
-	renderSelectionToolbar(host, toolbar);
-}
-
-function renderSelectionToolbar(host: CleanupViewContext, toolbar: HTMLElement) {
-	const state = host.conversion;
 	const selection = conversionSelections(host);
 	// 未估算项没有真实体积，不能计入「可节省」；只有已估算且确实省体积的才算。
 	const savingsCount = state.items.filter((item) => savings(item) > 0 && !isBlocked(item)).length;
-	const selectSavings = toolbar.createEl('button', { text: '全选可节省项', cls: 'orphan-cleanup-convert-select-savings' });
+	const selectSavings = actions.createEl('button', { text: '全选可节省项', cls: 'orphan-cleanup-convert-select-savings' });
 	selectSavings.disabled = isBusy(state) || savingsCount === 0;
 	selectSavings.addEventListener('click', () => {
 		for (const item of state.items) {
@@ -322,7 +320,45 @@ function renderSelectionToolbar(host: CleanupViewContext, toolbar: HTMLElement) 
 		syncCheckboxes(host);
 		updateConversionSelectionSummary(host);
 	});
-	toolbar.createSpan({ text: `${savingsCount} 张可节省`, cls: 'orphan-cleanup-convert-toolbar-count' });
+
+	if (state.estimating) {
+		const abort = abortConversion(host);
+		if (abort) {
+			const abortButton = actions.createEl('button', { text: '中止', cls: 'orphan-cleanup-convert-abort' });
+			abortButton.addEventListener('click', abort);
+		}
+	}
+
+	// 未估算时 items 为空，但候选枚举结果仍可给出「共 N 张候选」。
+	const totalCandidates = state.items.length || host.candidates.convertibleImages.length;
+	toolbar.createSpan({
+		text: `共 ${totalCandidates} 张候选 · ${savingsCount} 张可节省`,
+		cls: 'orphan-cleanup-convert-toolbar-count',
+	});
+	return scanButton;
+}
+
+function renderConfig(host: CleanupViewContext, container: HTMLElement, toolbar: HTMLElement) {
+	const state = host.conversion;
+	// 进度条紧贴顶部操作栏，估算/转换时就地更新，不额外重建整页。
+	if (state.estimating) renderProgress(host, container);
+	container.createDiv({
+		cls: 'orphan-cleanup-convert-note',
+		text: '体积为按源格式与质量推算的预估值，仅供参考；实际大小与透明图处理在转换时精确判定。',
+	});
+	const scanButton = renderToolbar(host, toolbar);
+
+	const config = container.createDiv({ cls: 'orphan-cleanup-convert-config' });
+	const noSources = config.createDiv({
+		cls: 'orphan-cleanup-convert-note is-warning',
+		text: '请至少勾选一种源格式。',
+	});
+
+	renderSourceFormats(host, config, noSources, scanButton);
+	const controls = config.createDiv({ cls: 'orphan-cleanup-convert-controls' });
+	renderControls(host, controls);
+
+	renderSummary(state, container);
 }
 
 function syncCheckboxes(host: CleanupViewContext) {
@@ -332,7 +368,7 @@ function syncCheckboxes(host: CleanupViewContext) {
 	}
 }
 
-function renderRows(host: CleanupViewContext, content: HTMLElement, toolbar: HTMLElement) {
+function renderRows(host: CleanupViewContext, content: HTMLElement) {
 	const state = host.conversion;
 	const emptyText = state.sources.length === 0
 		? '请先勾选至少一种源格式。'
@@ -354,9 +390,24 @@ function renderRows(host: CleanupViewContext, content: HTMLElement, toolbar: HTM
 	const header = table.createEl('thead').createEl('tr');
 	for (const text of ['选择', '文件', '尺寸', '大小', '变化', '引用', '状态']) createColumnHeader(header, text);
 	const body = table.createEl('tbody');
-	for (const item of state.items) renderRow(host, body, item);
+	const stored = renderedRows.get(state) ?? 0;
+	let shown = Math.min(state.items.length, Math.max(stored, initialVisibleRows(state.items.length)));
+	renderedRows.set(state, shown);
+	for (const item of state.items.slice(0, shown)) renderRow(host, body, item);
+	if (shown >= state.items.length) return;
 
-	toolbar.createSpan({ text: `共 ${state.items.length} 张候选`, cls: 'orphan-cleanup-convert-toolbar-count' });
+	const more = content.createEl('button', { cls: 'orphan-cleanup-convert-more' });
+	const updateLabel = () => more.setText(`显示更多（剩余 ${state.items.length - shown} 张）`);
+	updateLabel();
+	more.addEventListener('click', () => {
+		const next = nextVisibleRows(shown, state.items.length);
+		if (next <= shown) return;
+		for (const item of state.items.slice(shown, next)) renderRow(host, body, item);
+		shown = next;
+		renderedRows.set(state, shown);
+		if (shown >= state.items.length) more.hidden = true;
+		else updateLabel();
+	});
 }
 
 function renderRow(host: CleanupViewContext, body: HTMLElement, item: ConvertibleImage) {
@@ -451,5 +502,5 @@ export function renderConversionList(host: CleanupViewContext) {
 	const toolbar = list.createDiv({ cls: 'orphan-cleanup-toolbar orphan-cleanup-convert-toolbar' });
 	const content = list.createDiv({ cls: 'orphan-cleanup-scroll orphan-cleanup-convert-content' });
 	renderConfig(host, content, toolbar);
-	renderRows(host, content, toolbar);
+	renderRows(host, content);
 }

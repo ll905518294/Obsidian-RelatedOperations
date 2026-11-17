@@ -98,7 +98,7 @@ export const setIcon = () => {};
 const bundle = await build({
 	stdin: {
 		contents: `
-			export { renderConversionList, updateConversionSelectionSummary } from './src/cleanup/cleanup-list-convert.ts';
+			export { renderConversionList, updateConversionSelectionSummary, countCandidatesByFormat, initialVisibleRows, nextVisibleRows } from './src/cleanup/cleanup-list-convert.ts';
 			export { renderConversionActions } from './src/cleanup/cleanup-list-convert-actions.ts';
 		`,
 		resolveDir: process.cwd(),
@@ -115,9 +115,14 @@ const bundle = await build({
 		},
 	}],
 });
-const { renderConversionList, updateConversionSelectionSummary, renderConversionActions } = await import(
-	`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`
-);
+const {
+	renderConversionList,
+	updateConversionSelectionSummary,
+	renderConversionActions,
+	countCandidatesByFormat,
+	initialVisibleRows,
+	nextVisibleRows,
+} = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 function makeItem(patch) {
 	return {
@@ -152,6 +157,7 @@ function makeHost(items) {
 		contentEl: new El('div'),
 		activeTab: 'image-convert',
 		app: { workspace: { openLinkText: async () => {} } },
+		candidates: { convertibleImages: [] },
 		conversion,
 		selections: new Set(),
 		convertSelections: new Set(),
@@ -245,7 +251,7 @@ test('转换进行中禁用配置控件，并把开始按钮改成转换中…',
 	renderConversionActions(host);
 
 	const inputs = byTag(host.contentEl, 'input');
-	const source = inputs.find((input) => input.type === 'checkbox' && input.getAttribute('aria-label') === '源格式 PNG');
+	const source = inputs.find((input) => input.type === 'checkbox' && /^源格式 PNG，共 \d+ 张$/.test(input.getAttribute('aria-label')));
 	assert.equal(source.disabled, true);
 	const rowCheckbox = inputs.find((input) => input.type === 'checkbox' && input.dataset.path === 'pics/a.png');
 	assert.equal(rowCheckbox.disabled, true);
@@ -442,4 +448,89 @@ test('选中含未估算项时汇总条标注待估算张数', () => {
 	const summary = byClass(host.contentEl, 'orphan-cleanup-convert-selection-summary')[0];
 	assert.ok(summary);
 	assert.match(summary.textContent, /已选：2 张 · 预计节省 60 B（1 张待估算）/);
+});
+
+test('页面不再展示「此页会修改文件」重复横幅', () => {
+	const host = makeHost([makeItem({ path: 'pics/a.png' })]);
+	renderConversionList(host);
+
+	assert.equal(byClass(host.contentEl, 'orphan-cleanup-convert-warning').length, 0);
+	assert.doesNotMatch(host.contentEl.textContent, /此页会修改文件/);
+});
+
+test('源格式统计候选数量：jpeg 归入 jpg，零项也显示', () => {
+	assert.deepEqual(countCandidatesByFormat([
+		{ extension: 'png' },
+		{ extension: 'PNG' },
+		{ extension: 'jpeg' },
+		{ extension: 'jpg' },
+		{ extension: 'webp' },
+		{ extension: 'gif' },
+	]), { png: 2, jpg: 2, webp: 1, bmp: 0, avif: 0 });
+
+	const host = makeHost([]);
+	host.candidates.convertibleImages = [
+		{ path: 'a.png', extension: 'png' },
+		{ path: 'b.jpeg', extension: 'jpeg' },
+	];
+	renderConversionList(host);
+
+	const labels = byTag(host.contentEl, 'input')
+		.filter((input) => input.type === 'checkbox')
+		.map((input) => input.getAttribute('aria-label'))
+		.filter((value) => Boolean(value) && value.startsWith('源格式'));
+	assert.deepEqual(labels, [
+		'源格式 PNG，共 1 张',
+		'源格式 JPG，共 1 张',
+		'源格式 WebP，共 0 张',
+		'源格式 BMP，共 0 张',
+		'源格式 AVIF，共 0 张',
+	]);
+	assert.match(host.contentEl.textContent, /PNG（1）/);
+	assert.match(host.contentEl.textContent, /BMP（0）/);
+});
+
+test('顶部操作栏合并扫描、全选与候选统计', () => {
+	const host = makeHost([
+		makeItem({ path: 'pics/save.png', oldBytes: 100, newBytes: 40 }),
+		makeItem({ path: 'pics/pending.png', oldBytes: 100, newBytes: 0 }),
+	]);
+	host.candidates.convertibleImages = host.conversion.items.map((item) => ({ path: item.path, extension: item.extension }));
+	renderConversionList(host);
+
+	const toolbar = byClass(host.contentEl, 'orphan-cleanup-convert-toolbar')[0];
+	assert.ok(toolbar);
+	assert.deepEqual(byTag(toolbar, 'button').map((button) => button.textContent), ['扫描并估算', '全选可节省项']);
+	assert.equal(byClass(toolbar, 'orphan-cleanup-convert-toolbar-count')[0].textContent, '共 2 张候选 · 1 张可节省');
+	// 统计信息只在操作栏出现一次，配置区不再重复。
+	assert.equal(byClass(host.contentEl, 'orphan-cleanup-convert-toolbar-count').length, 1);
+});
+
+test('候选超过一页时按 200 张分页，显示更多只追加行', () => {
+	const items = Array.from({ length: 450 }, (_, index) => makeItem({ path: `pics/${index}.png` }));
+	const host = makeHost(items);
+	renderConversionList(host);
+
+	const rows = () => byClass(host.contentEl, 'orphan-cleanup-convert-row');
+	const more = () => byClass(host.contentEl, 'orphan-cleanup-convert-more')[0];
+	assert.equal(rows().length, 200);
+	assert.equal(more().textContent, '显示更多（剩余 250 张）');
+
+	more().dispatch('click');
+	assert.equal(rows().length, 400);
+	assert.equal(more().textContent, '显示更多（剩余 50 张）');
+
+	more().dispatch('click');
+	assert.equal(rows().length, 450);
+	assert.equal(more().hidden, true);
+});
+
+test('分页边界：不足一页全部渲染，追加夹到总数', () => {
+	assert.equal(initialVisibleRows(120), 120);
+	assert.equal(initialVisibleRows(450), 200);
+	assert.equal(initialVisibleRows(0), 0);
+	assert.equal(nextVisibleRows(200, 450), 400);
+	assert.equal(nextVisibleRows(400, 450), 450);
+	assert.equal(nextVisibleRows(450, 450), 450);
+	assert.equal(nextVisibleRows(0, 30), 30);
 });
