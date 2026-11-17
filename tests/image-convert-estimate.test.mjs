@@ -143,16 +143,22 @@ test('质量越高预估体积越大，目标为 PNG 时质量不参与', async 
 	const image = file('assets/a.png', 10000);
 	const { app } = fakeApp({ files: [image] });
 	const at = async (quality) => (await estimateConversions(app, [image], { ...config, quality }))[0].newBytes;
+	const lowest = await at(1);
 	const low = await at(50);
 	const mid = await at(85);
 	const high = await at(95);
-	assert.ok(low < mid && mid < high, `质量应单调影响体积：${low} < ${mid} < ${high}`);
+	const highest = await at(100);
+	assert.ok(
+		lowest < low && low < mid && mid < high && high < highest,
+		`质量应单调影响体积：${lowest} < ${low} < ${mid} < ${high} < ${highest}`,
+	);
+	assert.ok(lowest * 10 < mid, `quality=1 应明显小于 85：${lowest} vs ${mid}`);
 
 	// PNG 目标下用 JPG 源，避免和 PNG 源同格式被过滤。
 	const jpg = file('assets/a.jpg', 10000);
 	const { app: pngApp } = fakeApp({ files: [jpg] });
 	const pngTarget = async (quality) => (await estimateConversions(pngApp, [jpg], { ...config, sources: ['jpg'], target: 'png', quality }))[0].newBytes;
-	assert.equal(await pngTarget(50), await pngTarget(95), 'PNG 为无损目标，质量参数不影响预估');
+	assert.equal(await pngTarget(1), await pngTarget(100), 'PNG 为无损目标，质量参数不影响预估');
 });
 
 test('不可转换的源格式写入 unsupported-source 且不预估体积', async () => {
@@ -236,7 +242,7 @@ test('normalizeImageConversionConfig 收敛旧配置并夹紧质量范围', () =
 	assert.deepEqual(normalizeImageConversionConfig({ sources: ['.PNG', 'jpeg', 'gif'], target: 'webp', quality: 120, alpha: 'skip' }), {
 		sources: ['png', 'jpg'],
 		target: 'webp',
-		quality: 95,
+		quality: 100,
 		alpha: 'skip',
 	});
 	assert.deepEqual(normalizeImageConversionConfig({ sources: 'png', target: 'gif', quality: '90', alpha: 'keep' }), config);

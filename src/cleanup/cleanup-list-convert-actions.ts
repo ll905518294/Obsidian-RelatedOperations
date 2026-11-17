@@ -1,7 +1,7 @@
 import type { CleanupViewContext, ImageConversionResult } from './cleanup-types';
 import { formatBytes } from './cleanup-actions';
 import { requireSecondClick } from './cleanup-confirm-button';
-import { describeBlockedReason, renderProgress, updateConversionSelectionSummary } from './cleanup-list-convert';
+import { describeBlockedReason, updateConversionSelectionSummary } from './cleanup-list-convert';
 
 interface ConversionDetail {
 	path?: string;
@@ -113,18 +113,15 @@ function renderResult(host: CleanupViewContext) {
 export function renderConversionActions(host: CleanupViewContext) {
 	renderResult(host);
 
-	const actions = host.contentEl.createDiv({ cls: 'orphan-cleanup-actions orphan-cleanup-convert-actions' });
-	const summary = actions.createSpan({ cls: 'orphan-cleanup-summary orphan-cleanup-convert-selection-summary' });
-	summary.setAttribute('aria-live', 'polite');
-	updateConversionSelectionSummary(host, summary);
+	const primary = host.contentEl.querySelector<HTMLElement>('.orphan-cleanup-convert-toolbar-primary');
+	if (!primary) return;
+	const summary = host.contentEl.querySelector<HTMLElement>('.orphan-cleanup-convert-selection-summary');
 
-	const start = actions.createEl('button', { text: '开始转换', cls: 'mod-cta orphan-cleanup-convert-start' });
+	const start = primary.createEl('button', { text: '开始转换', cls: 'mod-cta orphan-cleanup-convert-start' });
 	if (host.conversion.converting) {
 		start.setText('转换中…');
 		start.disabled = true;
-		// 转换期间在动作区直接展示进度条与已处理张数，避免长时间无反馈。
-		renderProgress(host, actions);
-		const abort = actions.createEl('button', { text: '中止转换', cls: 'orphan-cleanup-convert-abort' });
+		const abort = primary.createEl('button', { text: '中止转换', cls: 'orphan-cleanup-convert-abort' });
 		abort.addEventListener('click', () => {
 			abort.disabled = true;
 			abort.setText('正在中止…');
@@ -136,8 +133,8 @@ export function renderConversionActions(host: CleanupViewContext) {
 		}, { confirm: '再次点击开始转换', hint: '再次点击开始转换' });
 	}
 
-	updateConversionSelectionSummary(host, summary);
+	if (summary) updateConversionSelectionSummary(host, summary);
 	if (host.conversion.estimating || host.scanningTabs.has(host.activeTab) || host.dirtyTabs.has(host.activeTab)) {
-		for (const button of Array.from(actions.querySelectorAll<HTMLButtonElement>('button'))) button.disabled = true;
+		start.disabled = true;
 	}
 }

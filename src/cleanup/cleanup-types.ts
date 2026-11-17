@@ -48,6 +48,11 @@ export const CONVERTIBLE_SOURCE_EXTENSIONS = ['png', 'jpg', 'webp', 'bmp', 'avif
 export type ImageConversionTarget = 'jpg' | 'webp' | 'png';
 export type ImageConversionAlpha = 'flatten' | 'skip';
 
+// 质量范围与默认值集中在这里，设置页、估算公式与测试都复用，避免多处漂移。
+export const IMAGE_CONVERSION_MIN_QUALITY = 1;
+export const IMAGE_CONVERSION_MAX_QUALITY = 100;
+export const IMAGE_CONVERSION_DEFAULT_QUALITY = 85;
+
 export interface ImageConversionConfig {
 	sources: string[];
 	target: ImageConversionTarget;
@@ -62,7 +67,7 @@ export type ReadonlyImageConversionConfig =
 export const DEFAULT_IMAGE_CONVERSION: ReadonlyImageConversionConfig = Object.freeze({
 	sources: Object.freeze(['png']),
 	target: 'jpg',
-	quality: 85,
+	quality: IMAGE_CONVERSION_DEFAULT_QUALITY,
 	alpha: 'flatten',
 });
 
@@ -153,7 +158,7 @@ export function normalizeImageConversionConfig(
 		: [...defaults.sources];
 	const target = value.target === 'webp' || value.target === 'png' || value.target === 'jpg' ? value.target : defaults.target;
 	const qualityValue = typeof value.quality === 'number' && Number.isFinite(value.quality) ? Math.round(value.quality) : defaults.quality;
-	const quality = Math.min(95, Math.max(50, qualityValue));
+	const quality = Math.min(IMAGE_CONVERSION_MAX_QUALITY, Math.max(IMAGE_CONVERSION_MIN_QUALITY, qualityValue));
 	const alpha = value.alpha === 'skip' || value.alpha === 'flatten' ? value.alpha : defaults.alpha;
 	return { sources, target, quality, alpha };
 }

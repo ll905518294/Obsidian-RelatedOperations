@@ -98,7 +98,7 @@ export const setIcon = () => {};
 const bundle = await build({
 	stdin: {
 		contents: `
-			export { renderConversionList, updateConversionSelectionSummary, countCandidatesByFormat, initialVisibleRows, nextVisibleRows } from './src/cleanup/cleanup-list-convert.ts';
+			export { renderConversionList, updateConversionSelectionSummary, countCandidatesByFormat, initialVisibleRows, nextVisibleRows, clampQualityInput } from './src/cleanup/cleanup-list-convert.ts';
 			export { renderConversionActions } from './src/cleanup/cleanup-list-convert-actions.ts';
 		`,
 		resolveDir: process.cwd(),
@@ -122,6 +122,7 @@ const {
 	countCandidatesByFormat,
 	initialVisibleRows,
 	nextVisibleRows,
+	clampQualityInput,
 } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 function makeItem(patch) {
@@ -256,7 +257,7 @@ test('转换进行中禁用配置控件，并把开始按钮改成转换中…',
 	const rowCheckbox = inputs.find((input) => input.type === 'checkbox' && input.dataset.path === 'pics/a.png');
 	assert.equal(rowCheckbox.disabled, true);
 	assert.equal(byTag(host.contentEl, 'select')[0].disabled, true);
-	assert.equal(inputs.find((input) => input.type === 'range').disabled, true);
+	assert.equal(inputs.find((input) => input.type === 'number').disabled, true);
 	const radios = inputs.filter((input) => input.type === 'radio');
 	assert.equal(radios.length, 2);
 	assert.ok(radios.every((radio) => radio.disabled));
@@ -272,6 +273,7 @@ test('转换进行中显示中止按钮并调用 abortConvert', () => {
 	host.conversion.converting = true;
 	let aborted = 0;
 	host.abortConvert = () => { aborted += 1; };
+	renderConversionList(host);
 	renderConversionActions(host);
 
 	const abort = byText(host.contentEl, 'button', '中止转换')[0];
@@ -364,10 +366,11 @@ test('blocked 行不展示 0 × 0 与 −100%，改显示 — 与 跳过', () =>
 	assert.match(row.textContent, /引用 0 处/);
 });
 
-test('转换进行中动作区展示转换进度与张数', () => {
+test('转换进行中顶部卡片展示转换进度与张数', () => {
 	const host = makeHost([]);
 	host.conversion.converting = true;
 	host.conversion.convertProgress = { processed: 3, total: 8, currentPath: 'pics/d.png' };
+	renderConversionList(host);
 	renderConversionActions(host);
 
 	const progress = byClass(host.contentEl, 'orphan-cleanup-convert-progress')[0];
@@ -533,4 +536,120 @@ test('分页边界：不足一页全部渲染，追加夹到总数', () => {
 	assert.equal(nextVisibleRows(400, 450), 450);
 	assert.equal(nextVisibleRows(450, 450), 450);
 	assert.equal(nextVisibleRows(0, 30), 30);
+});
+
+test('开始转换上移到顶部工具栏，不再有底部动作栏', () => {
+	const host = makeHost([makeItem({ path: 'pics/a.png' })]);
+	renderConversionList(host);
+	renderConversionActions(host);
+
+	const toolbar = byClass(host.contentEl, 'orphan-cleanup-convert-toolbar')[0];
+	const toolbarActions = byClass(host.contentEl, 'orphan-cleanup-convert-toolbar-actions')[0];
+	const primary = byClass(host.contentEl, 'orphan-cleanup-convert-toolbar-primary')[0];
+	assert.ok(toolbar);
+	assert.ok(toolbarActions);
+	assert.ok(primary);
+	const start = byClass(host.contentEl, 'orphan-cleanup-convert-start')[0];
+	assert.ok(start);
+	assert.equal(start.parent, primary);
+	assert.equal(byClass(host.contentEl, 'orphan-cleanup-convert-actions').length, 0);
+
+	const summary = byClass(host.contentEl, 'orphan-cleanup-convert-selection-summary')[0];
+	assert.ok(summary);
+	assert.equal(summary.parent, primary);
+	assert.equal(primary.parent, toolbar);
+	assert.ok(toolbar.hasClass('orphan-cleanup-convert-toolbar'));
+	// 右侧信息区顺序：候选统计 → 已选摘要 → 主操作按钮。
+	const order = primary.children.map((child) => child.hasClass('orphan-cleanup-convert-toolbar-count')
+		? 'count'
+		: child.hasClass('orphan-cleanup-convert-selection-summary')
+			? 'summary'
+			: child.hasClass('orphan-cleanup-convert-start') ? 'start' : '');
+	assert.deepEqual(order, ['count', 'summary', 'start']);
+});
+
+test('质量输入为数字框，范围 1–100 且不再使用滑块', () => {
+	const host = makeHost([makeItem({ path: 'pics/a.png' })]);
+	renderConversionList(host);
+
+	const quality = byClass(host.contentEl, 'orphan-cleanup-convert-quality-input')[0];
+	assert.ok(quality);
+	assert.equal(quality.type, 'number');
+	assert.equal(quality.getAttribute('min'), '1');
+	assert.equal(quality.getAttribute('max'), '100');
+	assert.equal(quality.getAttribute('step'), '1');
+	assert.equal(quality.value, '85');
+	assert.equal(byTag(host.contentEl, 'input').filter((input) => input.type === 'range').length, 0);
+	assert.match(host.contentEl.textContent, /100 = 最高质量/);
+
+	assert.equal(clampQualityInput(''), 1);
+	assert.equal(clampQualityInput('0'), 1);
+	assert.equal(clampQualityInput('150'), 100);
+	assert.equal(clampQualityInput('99.6'), 100);
+	assert.equal(clampQualityInput('not-a-number'), 1);
+});
+
+test('质量输入 change 与 Enter 都提交夹取后的值', () => {
+	const host = makeHost([makeItem({ path: 'pics/a.png' })]);
+	renderConversionList(host);
+	const quality = byClass(host.contentEl, 'orphan-cleanup-convert-quality-input')[0];
+	let patch;
+	host.setConversionConfig = async (value) => { patch = value; };
+
+	quality.value = '150';
+	quality.dispatch('change');
+	assert.equal(quality.value, '100');
+	assert.deepEqual(patch, { quality: 100 });
+
+	patch = undefined;
+	quality.value = '';
+	quality.dispatch('change');
+	assert.equal(quality.value, '85', '清空后应恢复当前质量，而不是落到最低值');
+	assert.equal(patch, undefined);
+
+	quality.value = 'not-a-number';
+	quality.dispatch('keydown', { key: 'Enter' });
+	assert.equal(quality.value, '85');
+	assert.equal(patch, undefined);
+
+	quality.value = '0';
+	quality.dispatch('change');
+	assert.equal(quality.value, '1');
+	assert.deepEqual(patch, { quality: 1 });
+
+	patch = undefined;
+	quality.value = '70';
+	quality.dispatch('keydown', { key: 'a' });
+	assert.equal(patch, undefined);
+});
+
+test('目标为 PNG 时禁用质量输入并显示无损说明', () => {
+	const host = makeHost([makeItem({ path: 'pics/a.png' })]);
+	host.conversion.target = 'png';
+	renderConversionList(host);
+
+	const quality = byClass(host.contentEl, 'orphan-cleanup-convert-quality-input')[0];
+	assert.equal(quality.disabled, true);
+	const notes = byClass(host.contentEl, 'orphan-cleanup-convert-quality-hint');
+	const pngNote = notes.find((note) => note.textContent === 'PNG 输出为无损，质量设置不适用。');
+	assert.ok(pngNote);
+	assert.equal(pngNote.hidden, false);
+	assert.ok(notes.some((note) => /100 = 最高质量/.test(note.textContent)));
+});
+
+test('单一顶部卡片承载操作栏、源格式、控制项与汇总', () => {
+	const host = makeHost([makeItem({ path: 'pics/a.png', oldBytes: 100, newBytes: 40 })]);
+	renderConversionList(host);
+
+	const cards = byClass(host.contentEl, 'orphan-cleanup-convert-card');
+	assert.equal(cards.length, 1);
+	const card = cards[0];
+	assert.equal(byClass(card, 'orphan-cleanup-convert-toolbar').length, 1);
+	assert.equal(byClass(card, 'orphan-cleanup-convert-fieldset').length, 2);
+	assert.equal(byClass(card, 'orphan-cleanup-convert-summary').length, 1);
+	assert.equal(byClass(card, 'orphan-cleanup-convert-hint').length, 1);
+	assert.match(byClass(card, 'orphan-cleanup-convert-hint')[0].textContent, /原图移入回收站，可恢复/);
+	// 长说明段落已移除，只保留源格式为空时的警告（默认已选 PNG，因此隐藏）。
+	assert.equal(byClass(card, 'orphan-cleanup-convert-note').length, 1);
+	assert.doesNotMatch(host.contentEl.textContent, /体积为按源格式与质量推算的预估值/);
 });

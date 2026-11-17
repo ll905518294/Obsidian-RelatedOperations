@@ -250,7 +250,7 @@ export async function setConversionConfig(panel: CleanupConversionHost, patch: P
 		panel.scannedTabs.add('image-convert');
 		panel.dirtyTabs.delete('image-convert');
 	}
-	// 质量滑杆会连续触发；合并成一次落盘，避免拖动时反复写 data.json。
+	// 质量输入与配置调整会触发，合并成一次落盘，避免反复写 data.json。
 	window.clearTimeout(panel.conversionSaveTimer);
 	panel.conversionSaveTimer = window.setTimeout(() => {
 		panel.conversionSaveTimer = 0;

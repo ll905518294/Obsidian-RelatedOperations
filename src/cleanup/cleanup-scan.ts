@@ -5,7 +5,7 @@ import { findVaultLinkScans, type VaultLinkScans } from './link-scans';
 import { findDuplicateFiles, type DuplicateFileGroup } from '../duplicate-files';
 import { pathKey, planImageConversions } from '../image-convert/image-convert-plan';
 import { byPath } from './cleanup-actions';
-import { CleanupScanAbortedError, COMMON_IMAGE_EXTENSIONS, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
+import { CleanupScanAbortedError, COMMON_IMAGE_EXTENSIONS, IMAGE_CONVERSION_DEFAULT_QUALITY, IMAGE_CONVERSION_MAX_QUALITY, IMAGE_CONVERSION_MIN_QUALITY, normalizeImageConversionConfig, type CleanupCandidates, type ConvertibleImage, type ImageConversionConfig, type ImageConversionProgress, type ScanCategoryTab, type ScanProgress } from './cleanup-types';
 
 const READ_CONCURRENCY = 8;
 
@@ -353,11 +353,14 @@ const DEFAULT_ESTIMATE_RATIO = 0.5;
 
 /*
  * 经验压缩比只是量级参考：目标为有损格式（JPG/WebP）时按质量线性缩放，
- * 目标为 PNG（无损）时不缩放。最低保留 1 字节，保证界面按「已估算」展示。
+ * 目标为 PNG（无损）时不缩放。100 不是无损，只是最高质量；JPG/WebP 在
+ * quality=100 时仍有损，只有 PNG 目标无损。最低保留 1 字节，保证界面按
+ * 「已估算」展示。
  */
 function estimateTargetBytes(oldBytes: number, source: string, target: string, quality: number): number {
 	const ratio = ESTIMATE_RATIO_BY_FORMAT[`${source}->${target}`] ?? DEFAULT_ESTIMATE_RATIO;
-	const qualityScale = target === 'png' ? 1 : Math.min(95, Math.max(50, quality)) / 85;
+	const clampedQuality = Math.min(IMAGE_CONVERSION_MAX_QUALITY, Math.max(IMAGE_CONVERSION_MIN_QUALITY, quality));
+	const qualityScale = target === 'png' ? 1 : clampedQuality / IMAGE_CONVERSION_DEFAULT_QUALITY;
 	return Math.max(1, Math.round(oldBytes * ratio * qualityScale));
 }
 

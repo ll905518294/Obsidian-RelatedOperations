@@ -126,16 +126,28 @@ test('1.9.3 内置说明存在且覆盖补齐说明', () => {
 	assert.match(text, /功能没有变化/);
 });
 
-test('1.9.4 内置说明存在、位于最前，且覆盖图片转换界面与性能优化', () => {
+test('1.9.4 内置说明存在，且覆盖图片转换界面与性能优化', () => {
 	const intro = currentUpdateIntro('1.9.4');
 	assert.ok(intro, '1.9.4 必须有更新说明条目');
 	assert.equal(intro.theme, '图片转换更清爽更快');
-	assert.equal(UPDATE_INTROS[0].version, '1.9.4', '最新版本必须排在最前');
+	assert.notEqual(UPDATE_INTROS[0].version, '1.9.4', '1.9.4 不应再排在最前');
 	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
 	assert.match(text, /源格式/);
 	assert.match(text, /200/);
 	assert.match(text, /显示更多/);
 	assert.match(text, /进度/);
+});
+
+test('1.9.5 内置说明存在、位于最前，且覆盖质量输入与顶部操作', () => {
+	const intro = currentUpdateIntro('1.9.5');
+	assert.ok(intro, '1.9.5 必须有更新说明条目');
+	assert.equal(intro.theme, '图片转换更顺手');
+	assert.equal(UPDATE_INTROS[0].version, '1.9.5', '最新版本必须排在最前');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /1–100/);
+	assert.match(text, /数字输入框/);
+	assert.match(text, /顶部/);
+	assert.match(text, /中止转换/);
 });
 
 test('manifest 当前版本有对应内置说明，且版本严格递减', () => {

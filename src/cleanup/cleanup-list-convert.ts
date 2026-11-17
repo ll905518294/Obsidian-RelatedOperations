@@ -1,4 +1,4 @@
-import { CONVERTIBLE_SOURCE_EXTENSIONS, type CleanupViewContext, type ConvertibleImage, type ImageConversionProgress, type ImageConversionState, type ImageConversionTarget } from './cleanup-types';
+import { CONVERTIBLE_SOURCE_EXTENSIONS, IMAGE_CONVERSION_MAX_QUALITY, IMAGE_CONVERSION_MIN_QUALITY, type CleanupViewContext, type ConvertibleImage, type ImageConversionProgress, type ImageConversionState, type ImageConversionTarget } from './cleanup-types';
 import { formatBytes } from './cleanup-actions';
 import { associateCheckbox, createColumnHeader } from './cleanup-a11y';
 import { resetArmedConfirmButtons } from './cleanup-confirm-button';
@@ -103,6 +103,13 @@ export function nextVisibleRows(current: number, total: number, pageSize = CONVE
 	return Math.min(Math.max(total, 0), Math.max(current, 0) + pageSize);
 }
 
+/** 把合法质量数值夹到允许范围；空值与非数字由调用方先行拦截。 */
+export function clampQualityInput(value: string | number): number {
+	const numeric = typeof value === 'number' ? value : Number.parseFloat(value);
+	if (!Number.isFinite(numeric)) return IMAGE_CONVERSION_MIN_QUALITY;
+	return Math.min(IMAGE_CONVERSION_MAX_QUALITY, Math.max(IMAGE_CONVERSION_MIN_QUALITY, Math.round(numeric)));
+}
+
 function sourceSelection(state: ImageConversionState): Set<string> {
 	return new Set(state.sources.map(normalizedSource));
 }
@@ -193,30 +200,62 @@ function renderControls(host: CleanupViewContext, container: HTMLElement) {
 	}
 
 	const qualityField = container.createEl('label', { cls: 'orphan-cleanup-convert-control' });
-	const qualityHeading = qualityField.createSpan({ text: '质量 ' });
-	const qualityValue = qualityHeading.createSpan({ text: String(state.quality), cls: 'orphan-cleanup-convert-quality-value' });
-	qualityHeading.createSpan({ text: '%' });
-	const quality = qualityField.createEl('input', {
-		type: 'range',
-		attr: { min: '50', max: '95', step: '1', 'aria-label': '转换质量' },
+	qualityField.createSpan({ text: '质量' });
+	const qualityRow = qualityField.createDiv({ cls: 'orphan-cleanup-convert-quality' });
+	const quality = qualityRow.createEl('input', {
+		type: 'number',
+		cls: 'orphan-cleanup-convert-quality-input',
+		attr: {
+			min: String(IMAGE_CONVERSION_MIN_QUALITY),
+			max: String(IMAGE_CONVERSION_MAX_QUALITY),
+			step: '1',
+			inputmode: 'numeric',
+			'aria-label': `转换质量（${IMAGE_CONVERSION_MIN_QUALITY}–${IMAGE_CONVERSION_MAX_QUALITY}）`,
+		},
 	});
 	quality.value = String(state.quality);
+	qualityRow.createSpan({ text: '%', cls: 'orphan-cleanup-convert-quality-suffix' });
+	qualityField.createDiv({
+		cls: 'orphan-cleanup-convert-quality-hint',
+		text: '100 = 最高质量；JPG/WebP 仍会重新编码（有损），仅 PNG 无损。',
+	});
+	const pngNote = qualityField.createDiv({
+		cls: 'orphan-cleanup-convert-quality-hint is-muted',
+		text: 'PNG 输出为无损，质量设置不适用。',
+	});
 
+	let targetValue = state.target;
 	const syncQuality = () => {
-		quality.disabled = isBusy(state) || target.value === 'png';
-		qualityValue.toggleClass('is-disabled', quality.disabled);
+		const isPng = targetValue === 'png';
+		quality.disabled = isBusy(state) || isPng;
+		qualityRow.toggleClass('is-disabled', quality.disabled);
+		pngNote.hidden = !isPng;
 	};
 	target.addEventListener('change', () => {
-		void host.setConversionConfig({ target: target.value as ImageConversionTarget });
+		targetValue = target.value as ImageConversionTarget;
+		void host.setConversionConfig({ target: targetValue });
 		scannedStates.delete(state);
 		syncQuality();
 	});
-	quality.addEventListener('input', () => {
-		qualityValue.setText(String(Number(quality.value)));
-	});
-	quality.addEventListener('change', () => {
-		void host.setConversionConfig({ quality: Number(quality.value) });
+	const commitQuality = () => {
+		const raw = quality.value.trim();
+		const numeric = Number.parseFloat(raw);
+		// 清空或非法输入不应悄悄落到最低质量，直接恢复当前值。
+		if (raw === '' || !Number.isFinite(numeric)) {
+			quality.value = String(state.quality);
+			return;
+		}
+		const next = clampQualityInput(numeric);
+		quality.value = String(next);
+		if (next === state.quality) return;
+		void host.setConversionConfig({ quality: next });
 		scannedStates.delete(state);
+	};
+	quality.addEventListener('change', commitQuality);
+	quality.addEventListener('keydown', (event) => {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		commitQuality();
 	});
 	syncQuality();
 
@@ -331,34 +370,37 @@ function renderToolbar(host: CleanupViewContext, toolbar: HTMLElement): HTMLButt
 
 	// 未估算时 items 为空，但候选枚举结果仍可给出「共 N 张候选」。
 	const totalCandidates = state.items.length || host.candidates.convertibleImages.length;
-	toolbar.createSpan({
+	const info = toolbar.createDiv({ cls: 'orphan-cleanup-convert-toolbar-primary' });
+	info.createSpan({
 		text: `共 ${totalCandidates} 张候选 · ${savingsCount} 张可节省`,
 		cls: 'orphan-cleanup-convert-toolbar-count',
 	});
+	const selectionSummary = info.createSpan({ cls: 'orphan-cleanup-summary orphan-cleanup-convert-selection-summary' });
+	selectionSummary.setAttribute('aria-live', 'polite');
+	updateConversionSelectionSummary(host, selectionSummary);
 	return scanButton;
 }
 
-function renderConfig(host: CleanupViewContext, container: HTMLElement, toolbar: HTMLElement) {
+function renderCard(host: CleanupViewContext, card: HTMLElement, toolbar: HTMLElement) {
 	const state = host.conversion;
-	// 进度条紧贴顶部操作栏，估算/转换时就地更新，不额外重建整页。
-	if (state.estimating) renderProgress(host, container);
-	container.createDiv({
-		cls: 'orphan-cleanup-convert-note',
-		text: '体积为按源格式与质量推算的预估值，仅供参考；实际大小与透明图处理在转换时精确判定。',
-	});
 	const scanButton = renderToolbar(host, toolbar);
+	// 估算/转换进度放在顶部卡片内，控制器按类名就地更新，不重建整页。
+	if (state.estimating || state.converting) renderProgress(host, card);
 
-	const config = container.createDiv({ cls: 'orphan-cleanup-convert-config' });
-	const noSources = config.createDiv({
+	const noSources = card.createDiv({
 		cls: 'orphan-cleanup-convert-note is-warning',
 		text: '请至少勾选一种源格式。',
 	});
 
-	renderSourceFormats(host, config, noSources, scanButton);
-	const controls = config.createDiv({ cls: 'orphan-cleanup-convert-controls' });
+	renderSourceFormats(host, card, noSources, scanButton);
+	const controls = card.createDiv({ cls: 'orphan-cleanup-convert-controls' });
 	renderControls(host, controls);
 
-	renderSummary(state, container);
+	renderSummary(state, card);
+	card.createDiv({
+		cls: 'orphan-cleanup-convert-hint',
+		text: '预估仅供参考；转换成功后原图移入回收站，可恢复。',
+	});
 }
 
 function syncCheckboxes(host: CleanupViewContext) {
@@ -499,8 +541,9 @@ export function updateConversionSelectionSummary(host: CleanupViewContext, targe
 
 export function renderConversionList(host: CleanupViewContext) {
 	const list = host.contentEl.createDiv({ cls: 'orphan-cleanup-list' });
-	const toolbar = list.createDiv({ cls: 'orphan-cleanup-toolbar orphan-cleanup-convert-toolbar' });
+	const card = list.createDiv({ cls: 'orphan-cleanup-convert-card' });
+	const toolbar = card.createDiv({ cls: 'orphan-cleanup-convert-toolbar' });
+	renderCard(host, card, toolbar);
 	const content = list.createDiv({ cls: 'orphan-cleanup-scroll orphan-cleanup-convert-content' });
-	renderConfig(host, content, toolbar);
 	renderRows(host, content);
 }

@@ -1714,14 +1714,24 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	gap: 0.75rem;
 }
 
-.orphan-cleanup-convert-config {
+/* 图片转换顶部统一卡片：操作栏、源格式、控制项、汇总各占一行。 */
+.orphan-cleanup-convert-card {
 	display: flex;
 	flex-direction: column;
 	gap: 0.65rem;
-	padding: 0.8rem;
+	flex: 0 0 auto;
+	padding: 0.65rem;
 	border: 1px solid var(--ro-border);
 	border-radius: var(--radius-m);
-	background: var(--ro-surface-raised);
+	background: color-mix(in srgb, var(--background-primary) 94%, var(--interactive-accent));
+	box-shadow: var(--ro-shadow);
+}
+
+.orphan-cleanup-convert-toolbar {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.5rem;
 }
 
 .orphan-cleanup-convert-note {
@@ -1774,7 +1784,8 @@ button.is-armed-confirm.mod-warning:focus-visible {
 
 .orphan-cleanup-convert-controls {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	/* 目标格式、质量、透明图按 1.1 / 1 / 0.9 分配，避免质量列被压得过窄。 */
+	grid-template-columns: minmax(200px, 1.1fr) minmax(230px, 1fr) minmax(180px, 0.9fr);
 	gap: 0.65rem;
 	align-items: end;
 }
@@ -1794,19 +1805,40 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	min-height: 44px;
 }
 
-.orphan-cleanup-convert-control input[type="range"] {
-	width: 100%;
+.orphan-cleanup-convert-quality {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+
+.orphan-cleanup-convert-quality-input {
+	width: 4.5rem;
 	min-height: 44px;
-	accent-color: var(--interactive-accent);
-}
-
-.orphan-cleanup-convert-quality-value {
-	color: var(--ro-accent-text);
+	padding: 0 0.45rem;
 	font-variant-numeric: tabular-nums;
+	text-align: right;
 }
 
-.orphan-cleanup-convert-quality-value.is-disabled {
+.orphan-cleanup-convert-quality.is-disabled,
+.orphan-cleanup-convert-quality.is-disabled .orphan-cleanup-convert-quality-suffix {
 	color: var(--text-muted);
+}
+
+.orphan-cleanup-convert-quality-suffix {
+	color: var(--text-muted);
+	font-weight: 600;
+}
+
+.orphan-cleanup-convert-quality-hint {
+	max-width: 24rem;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: 400;
+	line-height: 1.4;
+}
+
+.orphan-cleanup-convert-quality-hint.is-muted {
+	color: var(--text-faint);
 }
 
 .orphan-cleanup-convert-toolbar-actions {
@@ -1816,8 +1848,17 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	gap: 0.5rem;
 }
 
+.orphan-cleanup-convert-toolbar-primary {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	min-width: 0;
+	margin-left: auto;
+}
+
 .orphan-cleanup-convert-toolbar button,
-.orphan-cleanup-convert-actions button,
 .orphan-cleanup-convert-more {
 	min-height: 44px;
 }
@@ -1829,12 +1870,6 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	display: flex;
 	flex-direction: column;
 	gap: 0.35rem;
-}
-
-/* 转换进行中，进度条与动作按钮同排，按内容自适应伸展。 */
-.orphan-cleanup-convert-actions .orphan-cleanup-convert-progress {
-	flex: 1 1 16rem;
-	width: auto;
 }
 
 .orphan-cleanup-convert-more {
@@ -1889,8 +1924,10 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	font-size: var(--font-ui-smaller);
 }
 
-.orphan-cleanup-convert-toolbar-count:last-child {
-	margin-left: auto;
+.orphan-cleanup-convert-hint {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
 }
 
 .orphan-cleanup-convert-table {
@@ -2091,7 +2128,7 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	color: color-mix(in srgb, var(--text-warning) 70%, var(--text-normal));
 }
 
-.orphan-cleanup-convert-actions .orphan-cleanup-convert-abort {
+.orphan-cleanup-convert-toolbar .orphan-cleanup-convert-abort {
 	color: var(--ro-warning-text);
 	border-color: color-mix(in srgb, var(--text-warning) 45%, var(--ro-border));
 }
@@ -2129,16 +2166,20 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	overflow-wrap: anywhere;
 }
 
-@media (max-width: 500px) {
+/* 加权三列在中等窗口会接近最小宽度，提前回退单列避免横向溢出。 */
+@media (max-width: 640px) {
 	.orphan-cleanup-convert-controls {
 		grid-template-columns: minmax(0, 1fr);
 	}
+}
 
+@media (max-width: 500px) {
 	.orphan-cleanup-convert-table {
 		min-width: 720px;
 	}
 
-	.orphan-cleanup-convert-toolbar-count {
+	/* 窄屏让信息区占满整行，换行时仍右对齐，开始按钮不会孤零零甩到最左。 */
+	.orphan-cleanup-convert-toolbar-primary {
 		width: 100%;
 		margin-left: 0;
 	}

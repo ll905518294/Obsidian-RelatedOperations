@@ -4,6 +4,8 @@ import type { OrphanCleanupCache } from './cleanup/cleanup-cache';
 import {
 	cloneImageConversionConfig,
 	DEFAULT_IMAGE_CONVERSION,
+	IMAGE_CONVERSION_MAX_QUALITY,
+	IMAGE_CONVERSION_MIN_QUALITY,
 	normalizeImageConversionConfig,
 	type ImageConversionConfig,
 } from './cleanup/cleanup-types';
@@ -22,9 +24,6 @@ export interface RelatedOperationsSettings {
 }
 
 type ImageConversionField = keyof ImageConversionConfig;
-
-const IMAGE_CONVERSION_MIN_QUALITY = 50;
-const IMAGE_CONVERSION_MAX_QUALITY = 95;
 
 function isImageConversionField(value: string): value is ImageConversionField {
 	return value === 'sources' || value === 'target' || value === 'quality' || value === 'alpha';
@@ -165,7 +164,7 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 					},
 					{
 						name: '默认质量',
-						desc: `转换质量，${IMAGE_CONVERSION_MIN_QUALITY}–${IMAGE_CONVERSION_MAX_QUALITY}；越高体积越大、画质越好。目标为 PNG 时质量不生效。`,
+						desc: `转换质量，${IMAGE_CONVERSION_MIN_QUALITY}–${IMAGE_CONVERSION_MAX_QUALITY}；100 为最高质量，JPG/WebP 仍有损，PNG 无损、质量不生效。`,
 						control: {
 							type: 'slider',
 							key: 'imageConversion.quality',
