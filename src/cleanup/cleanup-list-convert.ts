@@ -1,3 +1,4 @@
+import { Notice, TFile } from 'obsidian';
 import { CONVERTIBLE_SOURCE_EXTENSIONS, IMAGE_CONVERSION_MAX_QUALITY, IMAGE_CONVERSION_MIN_QUALITY, type CleanupViewContext, type ConvertibleImage, type ImageConversionProgress, type ImageConversionState, type ImageConversionTarget } from './cleanup-types';
 import { formatBytes } from './cleanup-actions';
 import { associateCheckbox, createColumnHeader } from './cleanup-a11y';
@@ -215,21 +216,24 @@ function renderControls(host: CleanupViewContext, container: HTMLElement) {
 	});
 	quality.value = String(state.quality);
 	qualityRow.createSpan({ text: '%', cls: 'orphan-cleanup-convert-quality-suffix' });
-	qualityField.createDiv({
-		cls: 'orphan-cleanup-convert-quality-hint',
-		text: '100 = 最高质量；JPG/WebP 仍会重新编码（有损），仅 PNG 无损。',
-	});
-	const pngNote = qualityField.createDiv({
-		cls: 'orphan-cleanup-convert-quality-hint is-muted',
-		text: 'PNG 输出为无损，质量设置不适用。',
-	});
+	const qualityInfo = qualityRow.createSpan({ text: 'ⓘ', cls: 'orphan-cleanup-convert-quality-info' });
+	qualityInfo.setAttribute('role', 'img');
+	qualityInfo.setAttribute('tabindex', '0');
+	const qualityHint = '100 = 最高质量；JPG/WebP 仍会重新编码（有损），仅 PNG 无损。';
+	const pngHint = 'PNG 输出为无损，质量设置不适用。';
+	const syncQualityHint = (isPng: boolean) => {
+		const hint = isPng ? `${pngHint} ${qualityHint}` : qualityHint;
+		qualityInfo.title = hint;
+		qualityInfo.setAttribute('aria-label', `质量说明：${hint}`);
+	};
+	syncQualityHint(state.target === 'png');
 
 	let targetValue = state.target;
 	const syncQuality = () => {
 		const isPng = targetValue === 'png';
 		quality.disabled = isBusy(state) || isPng;
 		qualityRow.toggleClass('is-disabled', quality.disabled);
-		pngNote.hidden = !isPng;
+		syncQualityHint(isPng);
 	};
 	target.addEventListener('change', () => {
 		targetValue = target.value as ImageConversionTarget;
@@ -359,6 +363,20 @@ function renderToolbar(host: CleanupViewContext, toolbar: HTMLElement): HTMLButt
 		syncCheckboxes(host);
 		updateConversionSelectionSummary(host);
 	});
+	const selectAll = actions.createEl('button', { text: '全部选择', cls: 'orphan-cleanup-convert-select-all' });
+	selectAll.disabled = isBusy(state) || !state.items.some((item) => !isBlocked(item));
+	selectAll.addEventListener('click', () => {
+		for (const item of state.items) if (!isBlocked(item)) selection.add(item.path);
+		syncCheckboxes(host);
+		updateConversionSelectionSummary(host);
+	});
+	const clearSelection = actions.createEl('button', { text: '取消选择', cls: 'orphan-cleanup-convert-clear-selection' });
+	clearSelection.disabled = isBusy(state) || selection.size === 0;
+	clearSelection.addEventListener('click', () => {
+		selection.clear();
+		syncCheckboxes(host);
+		updateConversionSelectionSummary(host);
+	});
 
 	if (state.estimating) {
 		const abort = abortConversion(host);
@@ -407,6 +425,47 @@ function syncCheckboxes(host: CleanupViewContext) {
 	const selection = conversionSelections(host);
 	for (const checkbox of Array.from(host.contentEl.querySelectorAll<HTMLInputElement>('.orphan-cleanup-convert-row input[type="checkbox"]'))) {
 		if (!checkbox.disabled) checkbox.checked = selection.has(checkbox.dataset.path ?? '');
+	}
+}
+
+function sourceNotePathsOf(item: ConvertibleImage): string[] {
+	const seen = new Set<string>();
+	for (const path of item.sourceNotePaths) {
+		if (typeof path === 'string' && path.trim()) seen.add(path.trim());
+	}
+	return [...seen];
+}
+
+function openSourceNote(host: CleanupViewContext, path: string): void {
+	const file = host.app.vault.getAbstractFileByPath(path);
+	if (!(file instanceof TFile) || file.extension.toLowerCase() !== 'md') {
+		new Notice(`笔记不存在或已被移动：${path}`);
+		return;
+	}
+	void Promise.resolve(host.app.workspace.getLeaf('tab').openFile(file))
+		.catch(() => new Notice(`打开笔记失败：${path}`));
+}
+
+function openSourceNotes(host: CleanupViewContext, notePaths: string[], anchor: HTMLElement): void {
+	if (notePaths.length === 0) {
+		new Notice('没有可跳转的引用笔记');
+		return;
+	}
+	const onlyPath = notePaths.length === 1 ? notePaths[0] : undefined;
+	if (onlyPath !== undefined) {
+		openSourceNote(host, onlyPath);
+		return;
+	}
+	anchor.querySelector('.orphan-cleanup-convert-ref-menu')?.remove();
+	const menu = anchor.createDiv({ cls: 'orphan-cleanup-convert-ref-menu' });
+	menu.setAttribute('role', 'menu');
+	for (const path of notePaths) {
+		const item = menu.createEl('button', { text: path, cls: 'orphan-cleanup-convert-ref-menu-item' });
+		item.setAttribute('role', 'menuitem');
+		item.addEventListener('click', () => {
+			openSourceNote(host, path);
+			menu.remove();
+		});
 	}
 }
 
@@ -507,8 +566,17 @@ function renderRow(host: CleanupViewContext, body: HTMLElement, item: Convertibl
 			cls: item.oldBytes === 0 ? 'orphan-cleanup-convert-delta' : saved > 0 ? 'orphan-cleanup-convert-delta is-save' : saved < 0 ? 'orphan-cleanup-convert-delta is-grow' : 'orphan-cleanup-convert-delta',
 		});
 	}
-	const references = row.createEl('td', { text: `引用 ${item.referenceCount} 处`, cls: 'orphan-cleanup-convert-references' });
-	references.title = '按引用处数统计，同一篇笔记中的多次引用会分别计数';
+	const references = row.createEl('td', { cls: 'orphan-cleanup-convert-references is-clickable' });
+	const referencesLabel = references.createEl('button', {
+		text: `引用 ${item.referenceCount} 处`,
+		cls: 'orphan-cleanup-convert-references-button',
+	});
+	referencesLabel.setAttribute('aria-label', `打开引用此图片的笔记（${item.referenceCount} 处）`);
+	const sourceNotes = sourceNotePathsOf(item);
+	referencesLabel.title = sourceNotes.length
+		? `打开引用笔记：${sourceNotes.join('、')}`
+		: '没有可跳转的引用笔记（按引用处数统计，同一篇笔记中的多次引用会分别计数）';
+	referencesLabel.addEventListener('click', () => openSourceNotes(host, sourceNotes, references));
 	const status = row.createEl('td', { cls: 'orphan-cleanup-convert-status' });
 	if (item.hasAlpha) status.createSpan({ text: '透明', cls: 'orphan-cleanup-convert-badge is-alpha' });
 	if (item.blockedReason) status.createSpan({ text: `跳过：${describeBlockedReason(item.blockedReason)}`, cls: 'orphan-cleanup-convert-blocked-reason' });
@@ -537,6 +605,8 @@ export function updateConversionSelectionSummary(host: CleanupViewContext, targe
 		if (host.conversion.converting) start.setText('转换中…');
 		start.disabled = selected.length === 0 || isBusy(host.conversion);
 	}
+	const clearSelection = host.contentEl.querySelector<HTMLButtonElement>('.orphan-cleanup-convert-clear-selection');
+	if (clearSelection) clearSelection.disabled = isBusy(host.conversion) || selection.size === 0;
 }
 
 export function renderConversionList(host: CleanupViewContext) {

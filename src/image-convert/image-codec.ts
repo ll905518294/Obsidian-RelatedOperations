@@ -49,7 +49,7 @@ export type DecodeImageResult = { ok: true; image: DecodedImage } | { ok: false;
 export type EncodeImageResult = { ok: true; bytes: ArrayBuffer } | { ok: false; reason: string };
 
 export interface ImageCodec {
-	decode(bytes: ArrayBuffer): Promise<DecodeImageResult>;
+	decode(bytes: ArrayBuffer, options?: { needAlpha?: boolean }): Promise<DecodeImageResult>;
 	encode(
 		image: DecodedImage,
 		target: ImageConvertTarget,
@@ -67,40 +67,57 @@ export function isWithinPixelLimit(width: number, height: number): boolean {
 	return width > 0 && height > 0 && width * height <= MAX_IMAGE_PIXELS;
 }
 
+/** alpha 采样画布的边长上限：最多 64×64×4 = 16KB，而非原图数十 MB。 */
+const ALPHA_SAMPLE_SIZE = 64;
+
 export class CanvasImageCodec implements ImageCodec {
-	async decode(bytes: ArrayBuffer): Promise<DecodeImageResult> {
+	async decode(bytes: ArrayBuffer, options?: { needAlpha?: boolean }): Promise<DecodeImageResult> {
 		if (bytes.byteLength === 0) return { ok: false, reason: '图片内容为空' };
 		let url = '';
+		let bitmap: ImageBitmap | null = null;
+		let keepBitmap = false;
 		try {
-			url = URL.createObjectURL(new Blob([bytes]));
-			const image = new Image();
-			image.src = url;
-			await image.decode();
-			const width = image.naturalWidth || image.width;
-			const height = image.naturalHeight || image.height;
+			let source: CanvasImageSource;
+			let width: number;
+			let height: number;
+			// 优先用浏览器原生 createImageBitmap 直接解码，省去 Image + 二次绘制；
+			// 不可用时回退到 Image + object URL（老版本/受限环境）。
+			if (typeof createImageBitmap === 'function') {
+				try {
+					bitmap = await createImageBitmap(new Blob([bytes]));
+				} catch {
+					bitmap = null;
+				}
+			}
+			if (bitmap) {
+				source = bitmap;
+				width = bitmap.width;
+				height = bitmap.height;
+			} else {
+				url = URL.createObjectURL(new Blob([bytes]));
+				const image = new Image();
+				image.src = url;
+				await image.decode();
+				source = image;
+				width = image.naturalWidth || image.width;
+				height = image.naturalHeight || image.height;
+			}
 			if (!width || !height) return { ok: false, reason: '无法读取图片尺寸' };
 			if (!isWithinPixelLimit(width, height)) {
 				return { ok: false, reason: `图片尺寸 ${width}×${height} 超过 4000 万像素上限` };
 			}
-			const canvas = createEl('canvas');
-			canvas.width = width;
-			canvas.height = height;
-			const context = canvas.getContext('2d', { willReadFrequently: true });
-			if (!context) return { ok: false, reason: '无法创建图片画布' };
-			context.drawImage(image, 0, 0, width, height);
-			const pixels = context.getImageData(0, 0, width, height).data;
-			let hasAlpha = false;
-			for (let index = 3; index < pixels.length; index += 4) {
-				if (pixels[index]! < 255) {
-					hasAlpha = true;
-					break;
-				}
-			}
-			return { ok: true, image: { width, height, hasAlpha, source: canvas } };
+			// needAlpha=false（flatten 模式）完全跳过像素读取，直接用解码结果作 source。
+			// 默认（不传）仍检测，保证未传参的调用方拿到正确的 hasAlpha。
+			const hasAlpha = options?.needAlpha === false ? false : hasTransparentPixel(source, width, height);
+			keepBitmap = true;
+			return { ok: true, image: { width, height, hasAlpha, source } };
 		} catch (error) {
 			return { ok: false, reason: `无法解码图片：${reasonOf(error)}` };
 		} finally {
 			if (url) URL.revokeObjectURL(url);
+			// 只有成功返回且 source 交给调用方时才保留 bitmap；其余分支统一关闭，
+			// 避免异常或前置校验失败时泄漏 ImageBitmap 的像素内存。
+			if (bitmap && !keepBitmap) bitmap.close();
 		}
 	}
 
@@ -138,7 +155,7 @@ export class CanvasImageCodec implements ImageCodec {
 	}
 
 	release(image: DecodedImage): void {
-		const source = image.source as { close?: () => void; width?: number; height?: number } | null;
+		const source = image.source as { close?: () => void; width?: number; height?: number; src?: string } | null;
 		if (!source) return;
 		// ImageBitmap 必须显式 close；画布则把宽高置 0，浏览器会立即回收
 		// 后备存储，不必等这个 canvas 元素被 GC。
@@ -149,7 +166,39 @@ export class CanvasImageCodec implements ImageCodec {
 		if (typeof source.width === 'number' && typeof source.height === 'number') {
 			source.width = 0;
 			source.height = 0;
+			return;
 		}
+		// Image 回退路径：清空 src，提示浏览器尽早释放已解码位图。
+		if (typeof source.src === 'string' && source.src) {
+			source.src = '';
+		}
+	}
+}
+
+/**
+ * 把原图等比缩到不超过 64×64 的采样画布，只读这块小区域的 alpha 通道。
+ * 相比逐像素读取整图（4000×3000 = 48MB），这里最多读 16KB；缩放采样仍能
+ * 识别出有实际面积分布的透明区域，透明图在 skip 模式下照样被跳过。
+ */
+function hasTransparentPixel(source: CanvasImageSource, width: number, height: number): boolean {
+	const scale = Math.min(1, ALPHA_SAMPLE_SIZE / Math.max(width, height));
+	const sampleWidth = Math.max(1, Math.round(width * scale));
+	const sampleHeight = Math.max(1, Math.round(height * scale));
+	const canvas = createEl('canvas');
+	canvas.width = sampleWidth;
+	canvas.height = sampleHeight;
+	try {
+		const context = canvas.getContext('2d', { willReadFrequently: true });
+		if (!context) return false;
+		context.drawImage(source, 0, 0, sampleWidth, sampleHeight);
+		const pixels = context.getImageData(0, 0, sampleWidth, sampleHeight).data;
+		for (let index = 3; index < pixels.length; index += 4) {
+			if (pixels[index]! < 255) return true;
+		}
+		return false;
+	} finally {
+		canvas.width = 0;
+		canvas.height = 0;
 	}
 }
 

@@ -8,11 +8,20 @@ import {
 	countLiveReferencesInVault,
 	countRemainingReferences,
 	findImageReferences,
+	findImageReferencesBatch,
 	findRawImageReferenceSources,
 	rewriteImageReferences,
 	type ImageReferenceSite,
 	type ImageReferenceSourceKind,
+	type ImageReferenceScanResult,
 } from './image-convert-links.ts';
+
+const DEFAULT_CONVERSION_CONCURRENCY = 8;
+const MAX_CONVERSION_CONCURRENCY = 8;
+
+interface SourceNoteLock {
+	tail: Promise<void>;
+}
 
 interface ConversionFile {
 	path: string;
@@ -54,6 +63,7 @@ interface ConversionOptions {
 	signal?: AbortSignal;
 	caseSensitive?: boolean;
 	alpha?: 'flatten' | 'skip';
+	concurrency?: number;
 }
 
 interface ConvertedImage {
@@ -148,9 +158,23 @@ async function execute(
 	const outcomes = new Array<Outcome | undefined>(total);
 	const caseSensitive = options.caseSensitive ?? isCaseSensitiveFileSystem();
 	const colliding = collidingTargetPaths(items, options.target, caseSensitive);
-	const limit = Math.min(4, items.length || 1);
+	const requestedLimit = options.concurrency ?? DEFAULT_CONVERSION_CONCURRENCY;
+	const limit = Math.max(1, Math.min(MAX_CONVERSION_CONCURRENCY, requestedLimit, items.length || 1));
+	if (options.signal?.aborted) {
+		return {
+			converted: [],
+			skipped: [],
+			failed: [],
+			pendingTrash: [],
+			savedBytes: 0,
+			aborted: true,
+			unrestored: [],
+		};
+	}
+	const referenceResults = await findImageReferencesBatch(app, items.map((item) => item.path), caseSensitive);
+	const sourceLocks = new Map<string, SourceNoteLock>();
 	const indexed = items.map((item, index) => ({ item, index }));
-	// 与估算一致：解码前按文件体积把大图分到单并发通道，普通图跑满 4 路。
+	// 与估算一致：解码前按文件体积把大图分到单并发通道，普通图跑满可配置并发。
 	const runLane = async (lane: Array<{ item: ConversionItem; index: number }>, concurrency: number) => {
 		let next = 0;
 		const workers = Array.from({ length: Math.max(1, Math.min(concurrency, lane.length || 1)) }, async () => {
@@ -161,7 +185,7 @@ async function execute(
 				try {
 					outcomes[index] = colliding.has(item.path)
 						? skip(item.path, 'target-collision', '多张图片会转换为同一目标文件')
-						: await convertOne(app, codec, item, options, caseSensitive);
+						: await convertOne(app, codec, item, options, caseSensitive, referenceResults.get(item.path), sourceLocks);
 				} catch (error) {
 					outcomes[index] = {
 						failed: {
@@ -240,6 +264,8 @@ async function convertOne(
 	item: ConversionItem,
 	options: ConversionOptions,
 	caseSensitive: boolean,
+	referenceResult: ImageReferenceScanResult | undefined,
+	sourceLocks: Map<string, SourceNoteLock>,
 ): Promise<Outcome> {
 	const sourceFile = findFile(app, item.path, caseSensitive);
 	if (!sourceFile) {
@@ -264,11 +290,17 @@ async function convertOne(
 
 	let sites: ImageReferenceSite[] | null = null;
 	if (!targetFile) {
-		const scan = await findImageReferences(app, sourceFile.path, caseSensitive);
-		if (!scan.ok) {
-			return skip(sourceFile.path, scan.reason, scan.reasonText);
+		if (!referenceResult) {
+			const scan = await findImageReferences(app, sourceFile.path, caseSensitive);
+			if (!scan.ok) {
+				return skip(sourceFile.path, scan.reason, scan.reasonText);
+			}
+			sites = scan.sites;
+		} else if (!referenceResult.ok) {
+			return skip(sourceFile.path, referenceResult.reason, referenceResult.reasonText);
+		} else {
+			sites = referenceResult.sites;
 		}
-		sites = scan.sites;
 	}
 	const bytes = await app.vault.readBinary(sourceFile);
 	const current = findFile(app, sourceFile.path, caseSensitive);
@@ -277,7 +309,7 @@ async function convertOne(
 		return skip(item.path, 'file-changed', '原图已变化，请重新扫描');
 	}
 
-	const decoded = await codec.decode(bytes);
+	const decoded = await codec.decode(bytes, { needAlpha: (options.alpha ?? 'flatten') === 'skip' });
 	if (!decoded.ok) {
 		return skip(sourceFile.path, 'unsupported-codec', decoded.reason);
 	}
@@ -326,50 +358,50 @@ async function convertOne(
 	const originals = new Map<string, OriginalContent>();
 	try {
 		for (const site of referenceSites) {
-			const file = findFile(app, site.sourcePath, caseSensitive);
-			if (!file) throw new Error(`${site.sourcePath} 已不存在`);
-			const before = await app.vault.read(file);
-			const resolver = makeResolver(app, file.path);
-			const vaultPaths = app.vault.getFiles().map((candidate) => candidate.path);
-			const analysis = analyzeReferenceContent(
-				before,
-				sourceFile.path,
-				file.path,
-				site.sourceKind,
-				resolver,
-				vaultPaths,
-				caseSensitive,
-			);
-			if (analysis.error || analysis.liveRefs !== site.liveRefs) {
-				throw new Error(`${file.path} 的引用在转换期间发生变化`);
-			}
-			const rewrite = rewriteImageReferences(before, sourceFile.path, targetPath, site.sourceKind, {
-				sourcePath: file.path,
-				resolveLink: resolver,
-				vaultPaths,
-				caseSensitive,
+			await withSourceNoteLock(app, sourceLocks, site.sourcePath, caseSensitive, async (file) => {
+				const before = await app.vault.read(file);
+				const resolver = makeResolver(app, file.path);
+				const vaultPaths = app.vault.getFiles().map((candidate) => candidate.path);
+				const analysis = analyzeReferenceContent(
+					before,
+					sourceFile.path,
+					file.path,
+					site.sourceKind,
+					resolver,
+					vaultPaths,
+					caseSensitive,
+				);
+				if (analysis.error || analysis.liveRefs !== site.liveRefs) {
+					throw new Error(`${file.path} 的引用在转换期间发生变化`);
+				}
+				const rewrite = rewriteImageReferences(before, sourceFile.path, targetPath, site.sourceKind, {
+					sourcePath: file.path,
+					resolveLink: resolver,
+					vaultPaths,
+					caseSensitive,
+				});
+				if (rewrite.blockedReason || rewrite.error || rewrite.rewritten !== analysis.liveRefs) {
+					throw new Error(rewrite.reasonText ?? rewrite.error ?? `${file.path} 有引用无法改写`);
+				}
+				await app.vault.process(file, (content) => {
+					if (content !== before) throw new Error('文件在转换期间发生变化');
+					return rewrite.content;
+				});
+				originals.set(file.path, { before, after: rewrite.content });
+				await verifyRewrite(app, file, sourceFile.path, targetPath, site.sourceKind, analysis.liveRefs, caseSensitive);
 			});
-			if (rewrite.blockedReason || rewrite.error || rewrite.rewritten !== analysis.liveRefs) {
-				throw new Error(rewrite.reasonText ?? rewrite.error ?? `${file.path} 有引用无法改写`);
-			}
-			await app.vault.process(file, (content) => {
-				if (content !== before) throw new Error('文件在转换期间发生变化');
-				return rewrite.content;
-			});
-			originals.set(file.path, { before, after: rewrite.content });
-			await verifyRewrite(app, file, sourceFile.path, targetPath, site.sourceKind, analysis.liveRefs, caseSensitive);
 		}
 		for (const site of referenceSites) {
-			const file = findFile(app, site.sourcePath, caseSensitive);
-			if (!file) throw new Error(`${site.sourcePath} 已不存在`);
-			const content = await app.vault.read(file);
-			if (countRemainingReferences(content, sourceFile.path, {
-				sourcePath: file.path,
-				sourceKind: site.sourceKind,
-				caseSensitive,
-			}) !== 0) {
-				throw new Error(`${file.path} 仍有旧路径引用`);
-			}
+			await withSourceNoteLock(app, sourceLocks, site.sourcePath, caseSensitive, async (file) => {
+				const content = await app.vault.read(file);
+				if (countRemainingReferences(content, sourceFile.path, {
+					sourcePath: file.path,
+					sourceKind: site.sourceKind,
+					caseSensitive,
+				}) !== 0) {
+					throw new Error(`${file.path} 仍有旧路径引用`);
+				}
+			});
 		}
 	} catch (error) {
 		return rollbackOutcome(
@@ -632,6 +664,29 @@ async function deleteCreatedFile(app: ConversionApp, path: string, caseSensitive
 
 function makeResolver(app: ConversionApp, sourcePath: string): (linkPath: string) => string | null {
 	return (linkPath: string) => app.metadataCache.getFirstLinkpathDest(linkPath, sourcePath)?.path ?? null;
+}
+
+async function withSourceNoteLock<T>(
+	app: ConversionApp,
+	locks: Map<string, SourceNoteLock>,
+	path: string,
+	caseSensitive: boolean,
+	task: (file: ConversionFile) => Promise<T>,
+): Promise<T> {
+	const key = caseSensitive ? path : pathKey(path, false);
+	const lock = locks.get(key) ?? { tail: Promise.resolve() };
+	const wait = lock.tail;
+	let release!: () => void;
+	lock.tail = new Promise<void>((resolve) => { release = resolve; });
+	locks.set(key, lock);
+	await wait;
+	try {
+		const file = findFile(app, path, caseSensitive);
+		if (!file) throw new Error(`${path} 已不存在`);
+		return await task(file);
+	} finally {
+		release();
+	}
 }
 
 function findFile(app: ConversionApp, path: string, caseSensitive: boolean): ConversionFile | null {

@@ -121,8 +121,10 @@ function createCodec({ decoded = { width: 10, height: 10, hasAlpha: false }, out
 	const calls = { decode: 0, encode: 0, encodeOptions: [] };
 	return {
 		calls,
-		async decode() {
+		async decode(bytes, options) {
 			calls.decode++;
+			calls.decodeOptions ??= [];
+			calls.decodeOptions.push(options);
 			if (decodeGate) await decodeGate;
 			if (decodeError) return { ok: false, reason: decodeError };
 			return { ok: true, image: decoded };
@@ -918,7 +920,7 @@ function pipelineCodec(options = {}) {
 	};
 }
 
-test('互不引用的多图转换跑满 4 路并发，且每张只释放一次', async () => {
+test('互不引用的多图转换默认跑满 8 路并发，且每张只释放一次', async () => {
 	const images = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`img/${index}.png`, 100]));
 	const app = notesApp({ notes: {}, images });
 	const codec = pipelineCodec();
@@ -927,7 +929,7 @@ test('互不引用的多图转换跑满 4 路并发，且每张只释放一次',
 	const result = await runImageConversion(app, codec, items, { target: 'webp' });
 
 	assert.equal(result.converted.length, 8);
-	assert.equal(codec.state.peak, 4);
+	assert.equal(codec.state.peak, 8);
 	assert.equal(codec.state.releases, 8);
 });
 
@@ -942,4 +944,95 @@ test('体积超过 8MB 的大图在转换阶段单并发执行', async () => {
 	assert.equal(result.converted.length, 2);
 	assert.equal(codec.state.peak, 1);
 	assert.equal(codec.state.releases, 2);
+});
+
+test('并发可通过 options.concurrency 调整且不超过默认上限', async () => {
+	const images = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`img/${index}.png`, 100]));
+	const app = notesApp({ notes: {}, images });
+	const codec = pipelineCodec();
+	const items = Object.keys(images).map((path) => ({ path, size: 100, mtime: 1 }));
+
+	await runImageConversion(app, codec, items, { target: 'webp', concurrency: 3 });
+
+	assert.equal(codec.state.peak, 3);
+});
+
+test('多张图片只批量扫描一次引用笔记', async () => {
+	const note = '![[a.png]]\n![[b.png]]\n![[c.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'a.png': 100, 'b.png': 100, 'c.png': 100 },
+		resolvedLinks: { 'note.md': { 'a.png': 1, 'b.png': 1, 'c.png': 1 } },
+		caches: { 'note.md': {
+			embeds: [
+				{ link: 'a.png', original: '![[a.png]]', position: span(note, '![[a.png]]') },
+				{ link: 'b.png', original: '![[b.png]]', position: span(note, '![[b.png]]', note.indexOf('![[b.png]]')) },
+				{ link: 'c.png', original: '![[c.png]]', position: span(note, '![[c.png]]', note.indexOf('![[c.png]]')) },
+			],
+			links: [],
+		} },
+	});
+	const reads = [];
+	let scanning = true;
+	const read = app.vault.read;
+	app.vault.read = async (file) => {
+		if (scanning && file.path === 'note.md') reads.push(file.path);
+		return read(file);
+	};
+	const codec = createCodec();
+	const decode = codec.decode.bind(codec);
+	codec.decode = async (...args) => {
+		scanning = false;
+		return decode(...args);
+	};
+	const items = ['a.png', 'b.png', 'c.png'].map((path) => ({ path, size: 100, mtime: 1 }));
+
+	const result = await runImageConversion(app, codec, items, { target: 'webp' });
+
+	assert.equal(result.converted.length, 3);
+	assert.equal(reads.length, 1, `引用笔记只应读取一次，实际 ${reads.length} 次`);
+	assert.equal(app.files.get('note.md').content, '![](<a.webp>)\n![](<b.webp>)\n![](<c.webp>)');
+});
+
+test('decode 按 alpha 设置传入 needAlpha', async () => {
+	const app = notesApp({ notes: {}, images: { 'img.png': 100 } });
+	const codec = createCodec();
+	const items = [{ path: 'img.png', size: 100, mtime: 1 }];
+
+	await runImageConversion(app, codec, items, { target: 'webp', alpha: 'skip' });
+	assert.deepEqual(codec.calls.decodeOptions[0], { needAlpha: true });
+
+	const flattenApp = notesApp({ notes: {}, images: { 'img.png': 100 } });
+	const flattenCodec = createCodec();
+	await runImageConversion(flattenApp, flattenCodec, items, { target: 'webp', alpha: 'flatten' });
+	assert.deepEqual(flattenCodec.calls.decodeOptions[0], { needAlpha: false });
+});
+
+test('批量扫描开始前已中止时跳过全库扫描与解码', async () => {
+	const app = notesApp({
+		notes: { 'note.md': '![[img.png]]' },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache('![[img.png]]', 'img.png') },
+	});
+	const reads = [];
+	const read = app.vault.read;
+	app.vault.read = async (file) => {
+		reads.push(file.path);
+		return read(file);
+	};
+	const codec = createCodec();
+	const controller = new AbortController();
+	controller.abort();
+
+	const result = await runImageConversion(
+		app,
+		codec,
+		[{ path: 'img.png', size: 100, mtime: 1 }],
+		{ target: 'webp', signal: controller.signal },
+	);
+
+	assert.equal(result.aborted, true);
+	assert.deepEqual(reads, []);
+	assert.equal(codec.calls.decode, 0);
 });

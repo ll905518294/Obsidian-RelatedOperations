@@ -21,7 +21,7 @@ export const Platform = {};
 
 const bundle = await build({
 	stdin: {
-		contents: "export { collectConvertibleImages, estimateConversions } from './src/cleanup/cleanup-scan.ts'; export { normalizeImageConversionConfig } from './src/cleanup/cleanup-types.ts';",
+		contents: "export { collectConvertibleImages, estimateConversions } from './src/cleanup/cleanup-scan.ts'; export { normalizeImageConversionConfig } from './src/cleanup/cleanup-types.ts'; export { isCaseSensitiveFileSystem } from './src/core-utils.ts';",
 		resolveDir: process.cwd(),
 	},
 	bundle: true,
@@ -37,7 +37,7 @@ const bundle = await build({
 	}],
 });
 
-const { collectConvertibleImages, estimateConversions, normalizeImageConversionConfig } = await import(
+const { collectConvertibleImages, estimateConversions, normalizeImageConversionConfig, isCaseSensitiveFileSystem } = await import(
 	`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`
 );
 globalThis.window ??= globalThis;
@@ -101,6 +101,7 @@ test('快速预估按经验压缩比给出约体积，且不读取/解码文件'
 		newBytes: 100,
 		hasAlpha: false,
 		referenceCount: 2,
+		sourceNotePaths: ['note.md', 'other.md'],
 	}]);
 	assert.equal(progress.at(-1).processed, 1);
 	assert.equal(progress.at(-1).total, 1);
@@ -138,6 +139,59 @@ test('referenceCount 按索引里的引用处数累加，同一篇多次引用�
 	const [item] = await estimateConversions(app, [image], config);
 	assert.equal(item.blockedReason, undefined);
 	assert.equal(item.referenceCount, 5);
+	assert.deepEqual(item.sourceNotePaths, ['note.md', 'second.md']);
+});
+
+test('sourceNotePaths 只去重来源笔记，不把同一篇的多次引用记成多篇', async () => {
+	const image = file('assets/a.png', 1000);
+	const { app } = fakeApp({
+		files: [image],
+		resolvedLinks: { 'note.md': { 'assets/a.png': 3 } },
+	});
+	const [item] = await estimateConversions(app, [image], config);
+	assert.equal(item.referenceCount, 3, '同一篇多次引用仍按次数累加');
+	assert.deepEqual(item.sourceNotePaths, ['note.md'], '来源笔记路径只保留唯一一篇');
+});
+
+test('多篇笔记引用同一图片时 referenceCount 与 sourceNotePaths 都正确', async () => {
+	const image = file('assets/a.png', 1000);
+	const { app } = fakeApp({
+		files: [image],
+		resolvedLinks: {
+			'notes/甲.md': { 'assets/a.png': 1 },
+			'notes/乙.md': { 'assets/a.png': 2 },
+			'notes/丙.md': { 'assets/a.png': 1 },
+		},
+	});
+	const [item] = await estimateConversions(app, [image], config);
+	assert.equal(item.referenceCount, 4, '次数 = 1 + 2 + 1');
+	// 去重后按默认稳定排序（UTF-16 码点）：丙(U+4E19) < 乙(U+4E59) < 甲(U+7532)。
+	assert.deepEqual(item.sourceNotePaths, ['notes/丙.md', 'notes/乙.md', 'notes/甲.md'], '路径去重并按原始路径稳定排序');
+});
+
+test('没有引用时 referenceCount 为 0 且 sourceNotePaths 为空数组', async () => {
+	const image = file('assets/lonely.png', 1000);
+	const { app } = fakeApp({ files: [image], resolvedLinks: {} });
+	const [item] = await estimateConversions(app, [image], config);
+	assert.equal(item.referenceCount, 0);
+	assert.deepEqual(item.sourceNotePaths, []);
+});
+
+test('引用大小写边界：key 归一化但 sourceNotePaths 保留原始大小写', async () => {
+	const image = file('Assets/Pic.PNG', 1000);
+	const { app } = fakeApp({
+		files: [image],
+		resolvedLinks: { 'Note.md': { 'assets/pic.png': 1 } },
+	});
+	const [item] = await estimateConversions(app, [image], config);
+	// key 按 pathKey（平台决定大小写）命中与否都不应崩溃；来源笔记路径必存原始大小写。
+	if (isCaseSensitiveFileSystem()) {
+		assert.equal(item.referenceCount, 0, '大小写敏感平台不把 pic.png 与 Pic.PNG 等同');
+		assert.deepEqual(item.sourceNotePaths, []);
+	} else {
+		assert.equal(item.referenceCount, 1, '大小写不敏感平台按归一化 key 命中');
+		assert.deepEqual(item.sourceNotePaths, ['Note.md']);
+	}
 });
 
 test('质量越高预估体积越大，目标为 PNG 时质量不参与', async () => {

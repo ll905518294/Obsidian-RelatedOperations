@@ -163,16 +163,28 @@ test('1.9.6 内置说明存在，且覆盖本轮稳定性修正', () => {
 	assert.match(text, /四份版本文件/);
 });
 
-test('1.9.7 内置说明存在、位于最前，且覆盖单入口与图片压缩改名', () => {
+test('1.9.7 内置说明存在，且覆盖单入口与图片压缩改名', () => {
 	const intro = currentUpdateIntro('1.9.7');
 	assert.ok(intro, '1.9.7 必须有更新说明条目');
 	assert.equal(intro.theme, '单入口与按钮整合');
-	assert.equal(UPDATE_INTROS[0].version, '1.9.7', '最新版本必须排在最前');
+	assert.notEqual(UPDATE_INTROS[0].version, '1.9.7', '1.9.7 不应再排在最前');
 	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
 	assert.match(text, /Vault 体检与清理/);
 	assert.match(text, /相关功能/);
 	assert.match(text, /更多/);
 	assert.match(text, /图片压缩/);
+});
+
+test('1.9.8 内置说明存在、位于最前，且覆盖图片压缩页交互优化', () => {
+	const intro = currentUpdateIntro('1.9.8');
+	assert.ok(intro, '1.9.8 必须有更新说明条目');
+	assert.equal(intro.theme, '图片压缩页交互优化');
+	assert.equal(UPDATE_INTROS[0].version, '1.9.8', '最新版本必须排在最前');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /全部选择/);
+	assert.match(text, /取消选择/);
+	assert.match(text, /ⓘ/);
+	assert.match(text, /引用 N 处/);
 });
 
 test('manifest 当前版本有对应内置说明，且版本严格递减', () => {

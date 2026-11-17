@@ -376,18 +376,33 @@ function estimateTargetBytes(oldBytes: number, source: string, target: string, q
 	return Math.max(1, Math.round(oldBytes * ratio * qualityScale));
 }
 
-// 一次遍历引用索引，统计每张图片被引用到多少处；不读任何笔记正文。
-function countIndexedReferences(app: App, caseSensitive: boolean): Map<string, number> {
+// 一次遍历引用索引，统计每张图片被引用到多少处（referenceCount，含重复引用），
+// 以及引用它的来源笔记路径列表（去重、稳定排序）。不读任何笔记正文。
+interface IndexedReferenceStats {
+	counts: Map<string, number>;
+	sourcesByImage: Map<string, Set<string>>;
+}
+
+function countIndexedReferences(app: App, caseSensitive: boolean): IndexedReferenceStats {
 	const counts = new Map<string, number>();
-	for (const destinations of Object.values(app.metadataCache.resolvedLinks ?? {})) {
+	const sourcesByImage = new Map<string, Set<string>>();
+	for (const [sourcePath, destinations] of Object.entries(app.metadataCache.resolvedLinks ?? {})) {
 		if (!destinations) continue;
 		for (const [targetPath, count] of Object.entries(destinations)) {
 			if (typeof count !== 'number' || count <= 0) continue;
 			const key = pathKey(targetPath, caseSensitive);
 			counts.set(key, (counts.get(key) ?? 0) + count);
+			// sourceNotePaths 只保留唯一来源笔记路径（存原始路径）；referenceCount
+			// 仍按原样累加次数，同一篇多次引用会计多次。
+			let sources = sourcesByImage.get(key);
+			if (!sources) {
+				sources = new Set<string>();
+				sourcesByImage.set(key, sources);
+			}
+			sources.add(sourcePath);
 		}
 	}
-	return counts;
+	return { counts, sourcesByImage };
 }
 
 export async function estimateConversions(
@@ -411,7 +426,7 @@ export async function estimateConversions(
 	);
 	const planned = new Set(plan.items.map((item) => item.path));
 	const planSkipped = new Map(plan.skipped.map((item) => [item.path, item.reason]));
-	const referenceCounts = countIndexedReferences(app, caseSensitive);
+	const { counts: referenceCounts, sourcesByImage } = countIndexedReferences(app, caseSensitive);
 	const items: ConvertibleImage[] = [];
 	let processed = 0;
 	onProgress?.({ processed, total });
@@ -424,6 +439,8 @@ export async function estimateConversions(
 		}
 		const extension = file.extension.toLowerCase();
 		const source = extension === 'jpeg' ? 'jpg' : extension;
+		const referenceKey = pathKey(file.path, caseSensitive);
+		const sourcePaths = [...(sourcesByImage.get(referenceKey) ?? [])].sort();
 		const base: ConvertibleImage = {
 			path: file.path,
 			extension,
@@ -432,7 +449,8 @@ export async function estimateConversions(
 			oldBytes: file.stat?.size ?? 0,
 			newBytes: 0,
 			hasAlpha: false,
-			referenceCount: referenceCounts.get(pathKey(file.path, caseSensitive)) ?? 0,
+			referenceCount: referenceCounts.get(referenceKey) ?? 0,
+			sourceNotePaths: sourcePaths,
 		};
 		const planBlockedReason = planSkipped.get(file.path);
 		if (source === normalized.target) {

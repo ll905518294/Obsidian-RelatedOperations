@@ -58,6 +58,13 @@ class El {
 		this.children.push(node);
 		node.parent = this;
 	}
+	remove() {
+		if (!this.parent) return;
+		const index = this.parent.children.indexOf(this);
+		if (index >= 0) this.parent.children.splice(index, 1);
+		this.parent = null;
+	}
+	empty() { this.children = []; this._text = ''; }
 	querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
 	querySelectorAll(selector) { return descendants(this).filter((el) => matches(el, selector)); }
 }
@@ -86,18 +93,19 @@ function byText(root, tag, text) { return byTag(root, tag).filter((el) => el.tex
 
 const stub = `
 export class TAbstractFile {}
-export class TFile {}
+export class TFile { constructor(path, extension) { this.path = path; this.extension = extension; } }
 export class TFolder {}
 export class App {}
 export class FileSystemAdapter {}
-export class Notice { constructor(message) { Notice.messages.push(String(message)); } static messages = []; }
+export class Notice { constructor(message) { (globalThis.__notices ??= []).push(String(message)); Notice.messages.push(String(message)); } static messages = []; }
 export const Platform = { isDesktopApp: false };
 export const setIcon = () => {};
 `;
 
 const bundle = await build({
 	stdin: {
-		contents: `
+			contents: `
+				export { TFile } from 'obsidian';
 			export { renderConversionList, updateConversionSelectionSummary, countCandidatesByFormat, initialVisibleRows, nextVisibleRows, clampQualityInput } from './src/cleanup/cleanup-list-convert.ts';
 			export { renderConversionActions } from './src/cleanup/cleanup-list-convert-actions.ts';
 		`,
@@ -116,6 +124,7 @@ const bundle = await build({
 	}],
 });
 const {
+	TFile,
 	renderConversionList,
 	updateConversionSelectionSummary,
 	renderConversionActions,
@@ -135,6 +144,7 @@ function makeItem(patch) {
 		newBytes: 40,
 		hasAlpha: false,
 		referenceCount: 2,
+		sourceNotePaths: [],
 		...patch,
 	};
 }
@@ -157,7 +167,15 @@ function makeHost(items) {
 	return {
 		contentEl: new El('div'),
 		activeTab: 'image-convert',
-		app: { workspace: { openLinkText: async () => {} } },
+		app: {
+			workspace: {
+				openLinkText: async (path) => { (globalThis.__openedLinks ??= []).push(path); },
+				getLeaf: () => ({ openFile: async (file) => { (globalThis.__openedLinks ??= []).push(file.path); } }),
+			},
+			vault: {
+				getAbstractFileByPath: (path) => path.endsWith('.md') ? new TFile(path, 'md') : null,
+			},
+		},
 		candidates: { convertibleImages: [] },
 		conversion,
 		selections: new Set(),
@@ -185,7 +203,7 @@ test('转换页勾选只写 convertSelections，不污染共享 selections', () 
 	assert.equal(host.convertSelections.has(item.path), true);
 	const references = byClass(host.contentEl, 'orphan-cleanup-convert-references')[0];
 	assert.equal(references.textContent, '引用 2 处');
-	assert.match(references.title, /按引用处数统计/);
+	assert.equal(byTag(references, 'button')[0].getAttribute('aria-label'), '打开引用此图片的笔记（2 处）');
 });
 
 test('全选可节省项排除 blocked 与增体积项', () => {
@@ -503,7 +521,7 @@ test('顶部操作栏合并扫描、全选与候选统计', () => {
 
 	const toolbar = byClass(host.contentEl, 'orphan-cleanup-convert-toolbar')[0];
 	assert.ok(toolbar);
-	assert.deepEqual(byTag(toolbar, 'button').map((button) => button.textContent), ['扫描并估算', '全选可节省项']);
+	assert.deepEqual(byTag(toolbar, 'button').map((button) => button.textContent), ['扫描并估算', '全选可节省项', '全部选择', '取消选择']);
 	assert.equal(byClass(toolbar, 'orphan-cleanup-convert-toolbar-count')[0].textContent, '共 2 张候选 · 1 张可节省');
 	// 统计信息只在操作栏出现一次，配置区不再重复。
 	assert.equal(byClass(host.contentEl, 'orphan-cleanup-convert-toolbar-count').length, 1);
@@ -580,7 +598,7 @@ test('质量输入为数字框，范围 1–100 且不再使用滑块', () => {
 	assert.equal(quality.getAttribute('step'), '1');
 	assert.equal(quality.value, '85');
 	assert.equal(byTag(host.contentEl, 'input').filter((input) => input.type === 'range').length, 0);
-	assert.match(host.contentEl.textContent, /100 = 最高质量/);
+	assert.match(byClass(host.contentEl, 'orphan-cleanup-convert-quality-info')[0].title, /100 = 最高质量/);
 
 	assert.equal(clampQualityInput(''), 1);
 	assert.equal(clampQualityInput('0'), 1);
@@ -623,18 +641,24 @@ test('质量输入 change 与 Enter 都提交夹取后的值', () => {
 	assert.equal(patch, undefined);
 });
 
-test('目标为 PNG 时禁用质量输入并显示无损说明', () => {
+test('质量说明收进 info 图标，PNG 目标时提示质量不适用', () => {
 	const host = makeHost([makeItem({ path: 'pics/a.png' })]);
-	host.conversion.target = 'png';
 	renderConversionList(host);
 
 	const quality = byClass(host.contentEl, 'orphan-cleanup-convert-quality-input')[0];
-	assert.equal(quality.disabled, true);
-	const notes = byClass(host.contentEl, 'orphan-cleanup-convert-quality-hint');
-	const pngNote = notes.find((note) => note.textContent === 'PNG 输出为无损，质量设置不适用。');
-	assert.ok(pngNote);
-	assert.equal(pngNote.hidden, false);
-	assert.ok(notes.some((note) => /100 = 最高质量/.test(note.textContent)));
+	assert.equal(quality.disabled, false);
+	assert.equal(byClass(host.contentEl, 'orphan-cleanup-convert-quality-hint').length, 0, '说明不应再占独立行');
+	const info = byClass(host.contentEl, 'orphan-cleanup-convert-quality-info')[0];
+	assert.ok(info, '应有 info 图标承载说明');
+	assert.match(info.title, /100 = 最高质量/);
+	assert.match(info.getAttribute('aria-label'), /质量说明/);
+	assert.doesNotMatch(info.title, /PNG 输出为无损/);
+	host.conversion.target = 'png';
+	host.contentEl.empty();
+	renderConversionList(host);
+	const pngInfo = byClass(host.contentEl, 'orphan-cleanup-convert-quality-info')[0];
+	assert.equal(byClass(host.contentEl, 'orphan-cleanup-convert-quality-input')[0].disabled, true);
+	assert.match(pngInfo.title, /PNG 输出为无损，质量设置不适用/);
 });
 
 test('单一顶部卡片承载操作栏、源格式、控制项与汇总', () => {
@@ -652,4 +676,82 @@ test('单一顶部卡片承载操作栏、源格式、控制项与汇总', () =>
 	// 长说明段落已移除，只保留源格式为空时的警告（默认已选 PNG，因此隐藏）。
 	assert.equal(byClass(card, 'orphan-cleanup-convert-note').length, 1);
 	assert.doesNotMatch(host.contentEl.textContent, /体积为按源格式与质量推算的预估值/);
+});
+
+test('全部选择包含非节省的未阻断项，取消选择清空且不污染共享 selections', () => {
+	const host = makeHost([
+		makeItem({ path: 'pics/save.png', oldBytes: 100, newBytes: 40 }),
+		makeItem({ path: 'pics/grow.png', oldBytes: 100, newBytes: 140 }),
+		makeItem({ path: 'pics/same.png', oldBytes: 100, newBytes: 100 }),
+		makeItem({ path: 'pics/blocked.png', oldBytes: 500, newBytes: 10, blockedReason: '目标文件已存在' }),
+	]);
+	renderConversionList(host);
+
+	byText(host.contentEl, 'button', '全部选择')[0].dispatch('click');
+	assert.deepEqual([...host.convertSelections].sort(), ['pics/grow.png', 'pics/same.png', 'pics/save.png']);
+	assert.equal(host.selections.size, 0);
+	assert.match(byClass(host.contentEl, 'orphan-cleanup-convert-selection-summary')[0].textContent, /已选：3 张/);
+
+	byText(host.contentEl, 'button', '取消选择')[0].dispatch('click');
+	assert.equal(host.convertSelections.size, 0);
+	assert.match(byClass(host.contentEl, 'orphan-cleanup-convert-selection-summary')[0].textContent, /已选：0 张/);
+});
+
+test('全部选择/取消选择在忙碌时禁用，取消选择在无选择时禁用', () => {
+	const host = makeHost([makeItem({ path: 'pics/a.png' })]);
+	renderConversionList(host);
+	assert.equal(byText(host.contentEl, 'button', '全部选择')[0].disabled, false);
+	assert.equal(byText(host.contentEl, 'button', '取消选择')[0].disabled, true, '无选择时应禁用取消选择');
+
+	const checkbox = byClass(host.contentEl, 'orphan-cleanup-convert-row')[0].querySelector('input');
+	checkbox.checked = true;
+	checkbox.dispatch('change');
+	assert.equal(byText(host.contentEl, 'button', '取消选择')[0].disabled, false, '勾选后取消选择应立即可用');
+
+	host.conversion.estimating = true;
+	host.contentEl.empty();
+	renderConversionList(host);
+	assert.equal(byText(host.contentEl, 'button', '全部选择')[0].disabled, true);
+	assert.equal(byText(host.contentEl, 'button', '取消选择')[0].disabled, true);
+});
+
+test('引用 1 处直接打开笔记，0 处给出中文提示', () => {
+	globalThis.__openedLinks = [];
+	globalThis.__notices = [];
+	const host = makeHost([
+		makeItem({ path: 'pics/one.png', referenceCount: 1, sourceNotePaths: ['笔记/甲.md'] }),
+		makeItem({ path: 'pics/zero.png', referenceCount: 0, sourceNotePaths: [] }),
+	]);
+	renderConversionList(host);
+
+	const refs = byClass(host.contentEl, 'orphan-cleanup-convert-references');
+	const oneButton = byTag(refs[0], 'button')[0];
+	assert.match(oneButton.getAttribute('aria-label'), /打开引用此图片的笔记/);
+	oneButton.dispatch('click');
+	assert.deepEqual(globalThis.__openedLinks, ['笔记/甲.md']);
+
+	const zeroButton = byTag(refs[1], 'button')[0];
+	zeroButton.dispatch('click');
+	assert.ok(globalThis.__notices.some((message) => /没有可跳转的引用笔记/.test(message)));
+	assert.deepEqual(globalThis.__openedLinks, ['笔记/甲.md'], '0 处时不应打开任何笔记');
+});
+
+test('引用多处弹出内联菜单，选中后打开对应笔记', () => {
+	globalThis.__openedLinks = [];
+	const host = makeHost([
+		makeItem({ path: 'pics/many.png', referenceCount: 3, sourceNotePaths: ['笔记/甲.md', '笔记/乙.md', '笔记/甲.md'] }),
+	]);
+	renderConversionList(host);
+
+	const button = byTag(byClass(host.contentEl, 'orphan-cleanup-convert-references')[0], 'button')[0];
+	button.dispatch('click');
+	const menu = byClass(host.contentEl, 'orphan-cleanup-convert-ref-menu')[0];
+	assert.ok(menu, '多处引用应弹出内联菜单');
+	const items = byClass(menu, 'orphan-cleanup-convert-ref-menu-item');
+	assert.equal(items.length, 2, '重复路径应去重');
+	assert.deepEqual(items.map((item) => item.textContent), ['笔记/甲.md', '笔记/乙.md']);
+
+	items[1].dispatch('click');
+	assert.deepEqual(globalThis.__openedLinks, ['笔记/乙.md']);
+	assert.equal(byClass(host.contentEl, 'orphan-cleanup-convert-ref-menu').length, 0, '打开后菜单应关闭');
 });

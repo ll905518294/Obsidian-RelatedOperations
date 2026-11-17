@@ -112,7 +112,7 @@ workflow 可安全重跑：Release 已存在时不再调用 `gh release create`�
 - 部署脚本：`scripts/deploy-and-restart.ps1`
 - 构建配置：`esbuild.config.mjs`
 
-## 7. 社区目录状态与维护（当前 1.9.7）
+## 7. 社区目录状态与维护（当前 1.9.8）
 
 插件已于 2026-11-17 上架 Obsidian 社区市场：<https://community.obsidian.md/plugins/vault-doctor>。首次提交通过 <https://community.obsidian.md/> 网页表单完成（`obsidianmd/obsidian-releases` 的 Issue/PR 通道已关闭）；7.1 与 7.2 是提交时的核对记录，保留供后续审核参考。
 
@@ -144,7 +144,7 @@ workflow 可安全重跑：Release 已存在时不再调用 `gh release create`�
 | 网络使用需在 README 披露（Developer policies） | 无网络请求，README 已声明 | 满足 |
 | 不访问 Vault 之外文件，除非披露（Developer policies） | 仅访问当前 Vault；「在资源管理器中显示」只定位文件，README 已说明 | 满足 |
 | 遵守 Obsidian 商标（Developer policies） | 名称与 README 未暗示官方第一方 | 满足 |
-| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | 已上架；最新正式 release 为 `1.9.6`（2026-11-17），tag 与 `manifest.json` 一致；1.9.7 发布后更新 | 满足 |
+| 存在 tag 与 `manifest.version` 一致的正式 release（Submit guide / README） | 已上架；最新正式 release 为 `1.9.7`（2026-11-17），tag 与 `manifest.json` 一致；1.9.8 发布后更新 | 满足 |
 
 ### 7.3 后续版本维护
 
@@ -157,7 +157,7 @@ workflow 可安全重跑：Release 已存在时不再调用 `gh release create`�
 
 ## 8. 截图与 README 一致性维护
 
-README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert-result.png`）。当前截图状态（对照 1.9.7）：
+README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert-result.png`）。当前截图状态（对照 1.9.8）：
 
 - **已用演示库实拍替换（6 张，无缺口）**：通过 Obsidian CDP 在纯合成演示库 `vault-doctor-demo` 实拍，1920×1032，深色 Border 主题，9 分类齐全（含「Wiki 笔记链接」页签），内容全为虚构示例数据，不含任何真实项目/客户/公司名。
   - `01-dashboard.png`：体检首页 · 扫描前 `0/9`
@@ -167,14 +167,14 @@ README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert
   - `05-empty-files.png`：空文件 2 个
   - `06-duplicate-files.png`：重复文件 1 组
 - **无需更新**：`07-related-notes.png`（关联笔记整理）与 `08-settings.png`（插件设置）与当前实现一致。
-- `00-installed.png`（已安装插件列表与 **⋯** 操作菜单）只用于安装说明，本轮未单独核对它与 1.9.7 界面的一致性。
-- **1.8.0 新增（2 张，已过时）**：`09-image-convert.png`（图片压缩页签：候选列表与汇总条）与 `10-image-convert-result.png`（压缩完成后的结果与提示）。两张图均拍摄于 1.9.4 之前，画面仍含「此页会修改文件」横幅、质量滑块与底部动作栏，也未体现 1.9.7 的「图片压缩」改名、按钮整合与单入口；当前 README 描述已按 1.9.7 更新，截图需按 8.1 重拍。
+- `00-installed.png`（已安装插件列表与 **⋯** 操作菜单）只用于安装说明，本轮未单独核对它与 1.9.8 界面的一致性。
+- **1.8.0 新增（2 张，已过时）**：`09-image-convert.png`（图片压缩页签：候选列表与汇总条）与 `10-image-convert-result.png`（压缩完成后的结果与提示）。两张图均拍摄于 1.9.4 之前，画面仍含「此页会修改文件」横幅、质量滑块与底部动作栏，也未体现 1.9.7 的改名/单入口与 1.9.8 的选择按钮、质量 ⓘ、可点击引用列；当前 README 描述已按 1.9.8 更新，截图需按 8.1 重拍。
 
 更新截图时保持文件名不变，避免改动 README 引用；不要用真实 Vault 截图（会暴露私有内容），统一使用演示库实拍，并保持 9 个分类页签与「图片压缩」页签齐全。
 
 `01-dashboard.png`、`02-scan-result.png` 仍是含 9 分类的旧取景，未包含末尾的「图片压缩」页签；图片压缩改由 `09`、`10` 两张单独说明，不要求首页截图滚动到标签条末尾。
 
-### 8.1 09/10 截图重拍（1.9.7 布局）
+### 8.1 09/10 截图重拍（1.9.8 布局）
 
 安全约束（必须全部满足，缺一不可）：
 
@@ -187,7 +187,7 @@ README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert
 
 1. 复制 `vault-doctor-demo` 到临时目录，并在副本中补一张合成噪声 PNG 作为「可节省」素材；素材文件名与引用不得包含真实项目、客户或公司信息。
 2. 打开副本，进入 **体检与清理 → 图片压缩**，源格式只勾选 PNG，目标格式 JPG，质量 85，透明图处理选白底。
-3. 点**扫描并估算**，等进度结束；截取 `09-image-convert.png`。画面应包含顶部单一操作卡（操作栏、源格式、目标格式/质量/透明图、汇总）与候选表格，不得出现底部动作栏或「此页会修改文件」横幅。
+3. 点**扫描并估算**，等进度结束；确认工具栏有「全部选择」「取消选择」、质量旁有 ⓘ 信息图标、引用列显示为按钮。截取 `09-image-convert.png`，画面应包含顶部单一操作卡（操作栏、源格式、目标格式/质量/透明图、汇总）与候选表格，不得出现底部动作栏或「此页会修改文件」横幅。
 4. 点**全选可节省项** → 连点两次**开始转换** → 等转换完成；截取 `10-image-convert-result.png`。画面应包含表格下方的「最近一次转换」结果摘要与右上角完成提示。
 5. 保持文件名不变，覆盖 `docs/images/09-image-convert.png` 与 `docs/images/10-image-convert-result.png`，不新增 README 引用路径。
 
@@ -196,11 +196,11 @@ README 的截图位于 `docs/images/`（`00-installed.png` 至 `10-image-convert
 - 尺寸为 1920×1032，与现有 `00`–`08` 一致；深色 Border 主题。
 - 9 个分类页签与「图片压缩」页签齐全（含「Wiki 笔记链接」），库名只显示 `vault-doctor-demo`。
 - 画面无真实项目/客户/公司名，无真实用户目录或账号信息。
-- 两张图均为 1.9.7 新布局：页签名与卡片名使用「图片压缩」；无「此页会修改文件」横幅、无质量滑块、无底部动作栏；质量显示为数字输入框，常用操作在顶部或「更多」按钮组。
+- 两张图均为 1.9.8 新布局：页签名与卡片名使用「图片压缩」；无「此页会修改文件」横幅、无质量滑块、无底部动作栏；质量显示为数字输入框与 ⓘ 说明图标；工具栏含「全部选择」「取消选择」；引用列显示为可点击按钮。
 
 ## 9. 图片压缩验证
 
-图片压缩（原图片转换）在 1.7.0 引入。当前 `manifest.json` 为 `1.9.7`，`versions.json` 映射为 `"1.9.7": "1.13.0"`。发布前用演示库 `vault-doctor-demo` 验证图片压缩：
+图片压缩（原图片转换）在 1.7.0 引入。当前 `manifest.json` 为 `1.9.8`，`versions.json` 映射为 `"1.9.8": "1.13.0"`。发布前用演示库 `vault-doctor-demo` 验证图片压缩：
 
 1. 准备同一张 PNG 的三处引用：Wiki 嵌入（含别名、不含尺寸参数）、标准 Markdown 图片链接、HTML `<img src>`；确认三篇笔记都指向该 PNG。
 2. 打开 **体检与清理 → 图片压缩**，源格式只勾选 PNG，目标格式选 JPG，质量 85，透明图处理选白底。

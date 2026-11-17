@@ -95,7 +95,7 @@ function makeFile(path) {
 
 function makeHost(files) {
 	const state = createConversionState(config);
-	state.items = [{ path: 'existing.png', extension: 'png', width: 1, height: 1, oldBytes: 100, newBytes: 80, hasAlpha: false, referenceCount: 0 }];
+	state.items = [{ path: 'existing.png', extension: 'png', width: 1, height: 1, oldBytes: 100, newBytes: 80, hasAlpha: false, referenceCount: 0, sourceNotePaths: [] }];
 	return {
 		app: {},
 		settings: { orphanImageExtensions: 'png', orphanIgnoredFolders: '' },

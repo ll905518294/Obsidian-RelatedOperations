@@ -89,6 +89,7 @@ export interface ConvertibleImage {
 	newBytes: number;
 	hasAlpha: boolean;
 	referenceCount: number;
+	sourceNotePaths: string[];
 	blockedReason?: string;
 }
 
