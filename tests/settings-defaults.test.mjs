@@ -96,7 +96,7 @@ test('设置页把图片压缩控件的嵌套键路由进嵌套配置', async ()
 	assert.equal(saved.length, 2, '每次修改都应落盘一次');
 });
 
-test('图片压缩设置组定义目标格式、质量与透明图处理三项', () => {
+test('图片压缩设置组定义目标格式、质量、透明图处理与转换策略四项', () => {
 	const { tab } = makeTab();
 	const groups = tab.getSettingDefinitions().filter((item) => item.type === 'group');
 	const conversion = groups.find((item) => item.heading === '图片压缩默认配置');
@@ -105,7 +105,7 @@ test('图片压缩设置组定义目标格式、质量与透明图处理三项',
 	const keys = conversion.items
 		.filter((item) => item.control)
 		.map((item) => item.control.key);
-	assert.deepEqual(keys.sort(), ['imageConversion.alpha', 'imageConversion.quality', 'imageConversion.target']);
+	assert.deepEqual(keys.sort(), ['imageConversion.alpha', 'imageConversion.quality', 'imageConversion.target', 'imageConversion.whenToConvert']);
 });
 
 test('图片压缩设置组用说明条目交代源格式在页面内设置', () => {

@@ -1828,6 +1828,19 @@ button.is-armed-confirm.mod-warning:focus-visible {
 	accent-color: var(--interactive-accent);
 }
 
+/* 转换策略：选项文字较长，独占整行，避免与透明图处理挤在同一列。 */
+.orphan-cleanup-convert-strategy {
+	grid-column: 1 / -1;
+}
+
+.orphan-cleanup-convert-hint-text {
+	margin-top: 0.3rem;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: 400;
+	line-height: 1.4;
+}
+
 .orphan-cleanup-convert-controls {
 	display: grid;
 	/* 目标格式、质量、透明图按 1.1 / 1 / 0.9 分配，避免质量列被压得过窄。 */

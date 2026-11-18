@@ -182,6 +182,15 @@ export class RelatedOperationsSettingTab extends PluginSettingTab {
 							options: { flatten: '白底', skip: '跳过' },
 						},
 					},
+					{
+						name: '默认转换策略',
+						desc: '默认只在转换后体积确实变小时才执行；选「总是转换」即使体积变大也会转换。这是默认值，图片压缩页内可临时调整。',
+						control: {
+							type: 'dropdown',
+							key: 'imageConversion.whenToConvert',
+							options: { 'save-space': '能省空间才转换', always: '总是转换（即使变大）' },
+						},
+					},
 				],
 			},
 		];

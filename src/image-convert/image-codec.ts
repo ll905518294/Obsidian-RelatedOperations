@@ -1,11 +1,15 @@
 import type { ImageConvertTarget } from './image-convert-plan.ts';
 
 /**
- * 解码/编码的硬像素上限：宽×高超过该值直接跳过，防止单张图把画布与位图堆到
- * 数 GB 触发 Obsidian 内存崩溃。1.2 亿像素可覆盖 9921×7016（约 6960 万像素）
- * 这类 CAD 长图，同时仍保留防止 OOM 的硬闸。
+ * 软像素上限：save-space 策略下超过该值直接跳过（1.11.0 行为）。1.2 亿像素
+ * 可覆盖 9921×7016（约 6960 万像素）这类 CAD 长图。
  */
 export const MAX_IMAGE_PIXELS = 120_000_000;
+/**
+ * 绝对硬像素上限：无论策略如何都跳过，防止单张图把画布与位图堆到数 GB
+ * 触发 Obsidian 内存崩溃。always 策略只放开软限，硬限始终保留。
+ */
+export const HARD_MAX_IMAGE_PIXELS = 400_000_000;
 /**
  * 超过该像素数视为大图：解码/编码各占 宽×高×4 字节，大图进入单独的
  * 低并发通道，避免多张大图同时把画布堆到 GB 级。
@@ -58,7 +62,10 @@ export type DecodeImageResult =
 export type EncodeImageResult = { ok: true; bytes: ArrayBuffer } | { ok: false; reason: string };
 
 export interface ImageCodec {
-	decode(bytes: ArrayBuffer, options?: { needAlpha?: boolean }): Promise<DecodeImageResult>;
+	decode(
+		bytes: ArrayBuffer,
+		options?: { needAlpha?: boolean; whenToConvert?: 'save-space' | 'always' },
+	): Promise<DecodeImageResult>;
 	encode(
 		image: DecodedImage,
 		target: ImageConvertTarget,
@@ -76,11 +83,19 @@ export function isWithinPixelLimit(width: number, height: number): boolean {
 	return width > 0 && height > 0 && width * height <= MAX_IMAGE_PIXELS;
 }
 
+/** 绝对硬限判定：always 策略下也必须拦住，避免 OOM。 */
+export function isWithinHardPixelLimit(width: number, height: number): boolean {
+	return width > 0 && height > 0 && width * height <= HARD_MAX_IMAGE_PIXELS;
+}
+
 /** alpha 采样画布的边长上限：最多 64×64×4 = 16KB，而非原图数十 MB。 */
 const ALPHA_SAMPLE_SIZE = 64;
 
 export class CanvasImageCodec implements ImageCodec {
-	async decode(bytes: ArrayBuffer, options?: { needAlpha?: boolean }): Promise<DecodeImageResult> {
+	async decode(
+		bytes: ArrayBuffer,
+		options?: { needAlpha?: boolean; whenToConvert?: 'save-space' | 'always' },
+	): Promise<DecodeImageResult> {
 		if (bytes.byteLength === 0) return { ok: false, reason: '图片内容为空' };
 		let url = '';
 		let bitmap: ImageBitmap | null = null;
@@ -112,7 +127,16 @@ export class CanvasImageCodec implements ImageCodec {
 				height = image.naturalHeight || image.height;
 			}
 			if (!width || !height) return { ok: false, reason: '无法读取图片尺寸' };
-			if (!isWithinPixelLimit(width, height)) {
+			const always = options?.whenToConvert === 'always';
+			// always 策略只放开软限（1.2 亿像素）；绝对硬限（4 亿像素）始终拦截。
+			if (!isWithinHardPixelLimit(width, height)) {
+				return {
+					ok: false,
+					reason: `图片尺寸 ${width}×${height} 超过 4 亿像素硬上限，为避免 Obsidian 内存崩溃已跳过`,
+					reasonId: 'pixel-limit',
+				};
+			}
+			if (!always && !isWithinPixelLimit(width, height)) {
 				return {
 					ok: false,
 					reason: `图片尺寸 ${width}×${height} 超过 1.2 亿像素上限，为避免 Obsidian 内存崩溃已跳过`,

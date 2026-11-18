@@ -81,7 +81,7 @@ function fakeApp({ files = [], existing = new Set(), resolvedLinks = {} } = {}) 
 	};
 }
 
-const config = { sources: ['png'], target: 'jpg', quality: 85, alpha: 'flatten' };
+const config = { sources: ['png'], target: 'jpg', quality: 85, alpha: 'flatten', whenToConvert: 'save-space' };
 
 test('快速预估按经验压缩比给出约体积，且不读取/解码文件', async () => {
 	const target = file('assets/a.png', 1000);
@@ -299,6 +299,7 @@ test('normalizeImageConversionConfig 收敛旧配置并夹紧质量范围', () =
 		target: 'webp',
 		quality: 100,
 		alpha: 'skip',
+		whenToConvert: 'save-space',
 	});
 	assert.deepEqual(normalizeImageConversionConfig({ sources: 'png', target: 'gif', quality: '90', alpha: 'keep' }), config);
 });
@@ -309,5 +310,6 @@ test('normalizeImageConversionConfig 丢弃畸形源扩展名并把 jpeg 映射�
 		target: 'jpg',
 		quality: 85,
 		alpha: 'flatten',
+		whenToConvert: 'save-space',
 	});
 });

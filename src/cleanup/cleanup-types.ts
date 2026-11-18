@@ -47,6 +47,12 @@ export type ScanCategoryTab = Exclude<CleanupTab, 'overview'>;
 export const CONVERTIBLE_SOURCE_EXTENSIONS = ['png', 'jpg', 'webp', 'bmp', 'avif'] as const;
 export type ImageConversionTarget = 'jpg' | 'webp' | 'png';
 export type ImageConversionAlpha = 'flatten' | 'skip';
+/**
+ * 转换策略：
+ * - save-space：转换后体积不减反增就跳过，并拦截超软像素上限的图（默认，1.11.0 行为）。
+ * - always：即使变大也照常转换；仅超绝对硬上限时跳过，避免把 Obsidian 内存打爆。
+ */
+export type ImageConversionWhenToConvert = 'save-space' | 'always';
 
 // 质量范围与默认值集中在这里，设置页、估算公式与测试都复用，避免多处漂移。
 export const IMAGE_CONVERSION_MIN_QUALITY = 1;
@@ -58,6 +64,7 @@ export interface ImageConversionConfig {
 	target: ImageConversionTarget;
 	quality: number;
 	alpha: ImageConversionAlpha;
+	whenToConvert: ImageConversionWhenToConvert;
 }
 
 export type ReadonlyImageConversionConfig =
@@ -69,6 +76,7 @@ export const DEFAULT_IMAGE_CONVERSION: ReadonlyImageConversionConfig = Object.fr
 	target: 'jpg',
 	quality: IMAGE_CONVERSION_DEFAULT_QUALITY,
 	alpha: 'flatten',
+	whenToConvert: 'save-space',
 });
 
 export function cloneImageConversionConfig(config: ReadonlyImageConversionConfig): ImageConversionConfig {
@@ -77,6 +85,7 @@ export function cloneImageConversionConfig(config: ReadonlyImageConversionConfig
 		target: config.target,
 		quality: config.quality,
 		alpha: config.alpha,
+		whenToConvert: config.whenToConvert,
 	};
 }
 
@@ -161,7 +170,15 @@ export function normalizeImageConversionConfig(
 	const qualityValue = typeof value.quality === 'number' && Number.isFinite(value.quality) ? Math.round(value.quality) : defaults.quality;
 	const quality = Math.min(IMAGE_CONVERSION_MAX_QUALITY, Math.max(IMAGE_CONVERSION_MIN_QUALITY, qualityValue));
 	const alpha = value.alpha === 'skip' || value.alpha === 'flatten' ? value.alpha : defaults.alpha;
-	return { sources, target, quality, alpha };
+	// 缺省或非法值一律回退 save-space；defaults 若是旧对象（无该字段）也安全。
+	const whenToConvert = value.whenToConvert === 'always'
+		? 'always'
+		: value.whenToConvert === 'save-space'
+			? 'save-space'
+			: defaults.whenToConvert === 'always'
+				? 'always'
+				: 'save-space';
+	return { sources, target, quality, alpha, whenToConvert };
 }
 
 export interface CleanupScanError {

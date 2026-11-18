@@ -309,6 +309,33 @@ function renderControls(host: CleanupViewContext, container: HTMLElement) {
 		});
 		label.createSpan({ text: mode.label });
 	}
+
+	const strategyFieldset = container.createEl('fieldset', { cls: 'orphan-cleanup-convert-fieldset orphan-cleanup-convert-strategy' });
+	strategyFieldset.createEl('legend', { text: '转换策略' });
+	const strategyGroup = strategyFieldset.createDiv({ cls: 'orphan-cleanup-convert-alpha' });
+	// 旧状态对象可能还没有该字段，缺省按默认策略显示，避免两个选项都不选中。
+	const currentStrategy = state.whenToConvert ?? 'save-space';
+	for (const mode of [
+		{ value: 'save-space', label: '能省空间才转换（默认）' },
+		{ value: 'always', label: '总是转换（即使变大）' },
+	] as const) {
+		const label = strategyGroup.createEl('label', { cls: 'orphan-cleanup-convert-alpha-option' });
+		const radio = label.createEl('input', { type: 'radio' });
+		radio.name = 'orphan-cleanup-convert-when';
+		radio.value = mode.value;
+		radio.checked = currentStrategy === mode.value;
+		radio.disabled = isBusy(state);
+		radio.addEventListener('change', () => {
+			if (!radio.checked) return;
+			// 策略只影响转换执行时的跳过判定，不改变预估体积，因此不需要重新估算。
+			void host.setConversionConfig({ whenToConvert: mode.value });
+		});
+		label.createSpan({ text: mode.label });
+	}
+	strategyFieldset.createDiv({
+		cls: 'orphan-cleanup-convert-hint-text',
+		text: '总是转换时，转完变大也会执行，原图仍移入回收站；超大像素图放宽限制但仅提示。',
+	});
 }
 
 function progressState(host: CleanupViewContext): { phase: 'estimate' | 'convert'; progress: ImageConversionProgress } {

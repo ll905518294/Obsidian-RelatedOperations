@@ -113,6 +113,8 @@ interface ConversionOptions {
 	caseSensitive?: boolean;
 	alpha?: 'flatten' | 'skip';
 	concurrency?: number;
+	/** 转换策略：save-space（默认，体积变大就跳过）/ always（即使变大也转换）。 */
+	whenToConvert?: 'save-space' | 'always';
 }
 
 interface ConvertedImage {
@@ -370,7 +372,11 @@ async function convertOne(
 		return skip(item.path, 'file-changed', '原图已变化，请重新扫描');
 	}
 
-	const decoded = await codec.decode(bytes, { needAlpha: (options.alpha ?? 'flatten') === 'skip' });
+	// 只在策略显式指定时才透传 whenToConvert，保持默认路径的 decode 选项形状不变。
+	const decodeOptions = options.whenToConvert
+		? { needAlpha: (options.alpha ?? 'flatten') === 'skip', whenToConvert: options.whenToConvert }
+		: { needAlpha: (options.alpha ?? 'flatten') === 'skip' };
+	const decoded = await codec.decode(bytes, decodeOptions);
 	if (!decoded.ok) {
 		const reason = decoded.reasonId === 'pixel-limit' ? 'pixel-limit' : 'unsupported-codec';
 		return skip(sourceFile.path, reason, decoded.reason);
@@ -391,9 +397,10 @@ async function convertOne(
 		}
 		encodedBytes = encoded.bytes;
 		// 护栏：转换目的是省空间。若目标格式重编码后体积不减反增（例如高压缩的
-		// CAD 线稿 PNG 转 JPG，有损重编码会抵消 PNG 的高压缩比），就保留原图。
+		// CAD 线稿 PNG 转 JPG，有损重编码会抵消 PNG 的高压缩比），save-space 策略
+		// 下保留原图；always 策略由用户明确选择「即使变大也转换」，不拦。
 		// 判断放在 createBinary 之前：不写新文件、不改写引用、不动原图。
-		if (encodedBytes.byteLength >= sourceStat.size) {
+		if (options.whenToConvert !== 'always' && encodedBytes.byteLength >= sourceStat.size) {
 			return skip(
 				sourceFile.path,
 				'larger-than-source',

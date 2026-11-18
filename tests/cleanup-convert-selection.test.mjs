@@ -277,7 +277,7 @@ test('转换进行中禁用配置控件，并把开始按钮改成转换中…',
 	assert.equal(byTag(host.contentEl, 'select')[0].disabled, true);
 	assert.equal(inputs.find((input) => input.type === 'number').disabled, true);
 	const radios = inputs.filter((input) => input.type === 'radio');
-	assert.equal(radios.length, 2);
+	assert.equal(radios.length, 4, '透明图处理与转换策略各两个单选，转换中都要禁用');
 	assert.ok(radios.every((radio) => radio.disabled));
 	assert.equal(byText(host.contentEl, 'button', '扫描并估算')[0].disabled, true);
 	assert.equal(byText(host.contentEl, 'button', '全选可节省项')[0].disabled, true);
@@ -725,7 +725,7 @@ test('单一顶部卡片承载操作栏、源格式、控制项与汇总', () =>
 	assert.equal(cards.length, 1);
 	const card = cards[0];
 	assert.equal(byClass(card, 'orphan-cleanup-convert-toolbar').length, 1);
-	assert.equal(byClass(card, 'orphan-cleanup-convert-fieldset').length, 2);
+	assert.equal(byClass(card, 'orphan-cleanup-convert-fieldset').length, 3, '源格式、透明图处理与转换策略各一个分组');
 	assert.equal(byClass(card, 'orphan-cleanup-convert-summary').length, 1);
 	assert.equal(byClass(card, 'orphan-cleanup-convert-hint').length, 1);
 	assert.match(byClass(card, 'orphan-cleanup-convert-hint')[0].textContent, /原图移入回收站，可恢复/);

@@ -12,6 +12,7 @@ const defaults = {
 	target: 'jpg',
 	quality: 85,
 	alpha: 'flatten',
+	whenToConvert: 'save-space',
 };
 
 test('quality 夹紧到 1–100，默认值 85', () => {
@@ -64,12 +65,13 @@ test('缺失、空对象与非对象输入保持完整默认配置', () => {
 });
 
 test('自定义 defaults 同时用于缺省字段与非法值回退', () => {
-	const custom = { sources: ['webp'], target: 'png', quality: 70, alpha: 'skip' };
+	const custom = { sources: ['webp'], target: 'png', quality: 70, alpha: 'skip', whenToConvert: 'save-space' };
 	assert.deepEqual(normalizeImageConversionConfig({ quality: 0 }, custom), {
 		sources: ['webp'],
 		target: 'png',
 		quality: 1,
 		alpha: 'skip',
+		whenToConvert: 'save-space',
 	});
 	assert.deepEqual(normalizeImageConversionConfig(undefined, custom), custom);
 });

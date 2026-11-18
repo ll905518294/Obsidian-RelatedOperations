@@ -163,7 +163,13 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 				panel.app as unknown as ConversionApp,
 				panel.imageCodec(),
 				batch.map((file) => ({ path: file.path, size: file.stat.size, mtime: file.stat.mtime })),
-				{ target: config.target, quality: config.quality / 100, alpha: config.alpha, signal: controller.signal },
+				{
+					target: config.target,
+					quality: config.quality / 100,
+					alpha: config.alpha,
+					whenToConvert: config.whenToConvert,
+					signal: controller.signal,
+				},
 			);
 			if (panel.disposed) { result.aborted = true; break; }
 			if (partial.blockedReason) {
