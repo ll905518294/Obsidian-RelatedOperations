@@ -196,13 +196,14 @@ test('空字节与超大图按原样拒绝，且不读取像素', async (t) => {
 	const codec = new CanvasImageCodec();
 	assert.deepEqual(await codec.decode(new ArrayBuffer(0), { needAlpha: true }), { ok: false, reason: '图片内容为空' });
 	globalThis.Image = class {
-		naturalWidth = 10000;
-		naturalHeight = 5000;
+		naturalWidth = 13000;
+		naturalHeight = 10000;
 		async decode() {}
 	};
 	const big = await codec.decode(bytes(), { needAlpha: true });
 	assert.equal(big.ok, false);
-	assert.match(big.reason, /超过 4000 万像素上限/);
+	assert.equal(big.reasonId, 'pixel-limit');
+	assert.match(big.reason, /图片尺寸 13000×10000 超过 1\.2 亿像素上限/);
 	assert.deepEqual(dom.getImageDataCalls, [], '超大图在读像素前被拒绝');
 });
 
@@ -210,15 +211,27 @@ test('ImageBitmap 路径的超大图在拒绝前关闭 bitmap，不泄漏像素�
 	let closed = 0;
 	const previous = globalThis.createImageBitmap;
 	globalThis.createImageBitmap = async () => ({
-		width: 10000,
-		height: 5000,
+		width: 13000,
+		height: 10000,
 		close() { closed += 1; },
 	});
 	t.after(() => { globalThis.createImageBitmap = previous; });
 	const result = await new CanvasImageCodec().decode(bytes(), { needAlpha: true });
 	assert.equal(result.ok, false);
-	assert.match(result.reason, /超过 4000 万像素上限/);
+	assert.equal(result.reasonId, 'pixel-limit');
+	assert.match(result.reason, /超过 1\.2 亿像素上限/);
 	assert.equal(closed, 1, '提前返回前必须 close ImageBitmap');
+});
+
+test('6960 万像素的 CAD 长图不再因像素上限被跳过', async (t) => {
+	const dom = installDomStub({ dims: { width: 9921, height: 7016 } });
+	t.after(() => dom.restore());
+	const result = await new CanvasImageCodec().decode(bytes(), { needAlpha: false });
+	assert.equal(result.ok, true, '9921×7016≈6960 万像素应在上限内正常解码');
+	if (result.ok) {
+		assert.equal(result.image.width, 9921);
+		assert.equal(result.image.height, 7016);
+	}
 });
 
 test('decode 抛错时返回失败原因并撤销 object URL', async (t) => {

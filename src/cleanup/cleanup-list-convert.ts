@@ -11,6 +11,20 @@ const BLOCKED_REASON_LABELS: Record<string, string> = {
 	'code-block-reference': 'Excalidraw 代码块中的图片引用无法安全改写',
 	'css-url': 'CSS url() 中的图片引用无法安全改写',
 	'html-source': 'picture/source 中的图片引用无法安全改写',
+	'unsupported-codec': '格式不支持或解码失败',
+	'pixel-limit': '尺寸超过上限',
+	'larger-than-source': '转换后体积不减反增，已保留原图',
+	'file-changed': '原图已变化，请重新扫描',
+	'file-missing': '原图已不存在',
+	'target-exists': '目标文件已存在',
+	'target-collision': '多张图片会转换为同一目标',
+	'same-format': '源格式与目标格式相同',
+	'count-mismatch': '引用数量与元数据不一致',
+	'unsupported-source': '图片引用无法安全改写',
+	'busy': '已有转换任务在进行',
+	'write-failed': '改写引用失败',
+	'create-failed': '创建新文件失败',
+	'trash-failed': '移入回收站失败',
 	'residual-reference': '改写后仍有残留引用，已跳过',
 	'source-changed': '源文件在转换前已变化，已跳过',
 };
@@ -23,6 +37,18 @@ export function describeBlockedReason(reason?: string): string {
 	const value = reason?.trim();
 	if (!value) return '未提供原因';
 	return BLOCKED_REASON_LABELS[value] ?? value;
+}
+
+/**
+ * 结果汇总用的稳定分组标签：已知标识优先用中文类别（同类跳过才能合并计数），
+ * 未知标识回退到具体 reasonText，最后才是原始 reason，避免吞掉调用方新增的原因。
+ */
+export function skipGroupLabel(item: { reason?: string; reasonText?: string }): string {
+	const reason = item.reason?.trim();
+	if (reason && BLOCKED_REASON_LABELS[reason]) return BLOCKED_REASON_LABELS[reason];
+	const text = item.reasonText?.trim();
+	if (text) return text;
+	return reason || '未知原因';
 }
 
 const SOURCE_FORMATS: Array<{ value: (typeof CONVERTIBLE_SOURCE_EXTENSIONS)[number]; label: string }> = [
@@ -417,7 +443,7 @@ function renderCard(host: CleanupViewContext, card: HTMLElement, toolbar: HTMLEl
 	renderSummary(state, card);
 	card.createDiv({
 		cls: 'orphan-cleanup-convert-hint',
-		text: '预估仅供参考；转换成功后原图移入回收站，可恢复。',
+		text: '预估仅供参考：按经验压缩比推算，对高压缩比内容（如 CAD 线稿 PNG）可能明显偏高，实际转换后体积可能不减反增——这类图会自动保留原图并跳过；转换成功后原图移入回收站，可恢复。',
 	});
 }
 

@@ -15,6 +15,28 @@ export interface UpdateIntro {
 // Keep newest first and add an entry with each release.
 export const UPDATE_INTROS: UpdateIntro[] = [
 	{
+		version: '1.11.0',
+		theme: '图片压缩支持超大图与跳过原因可视化',
+		summary: '图片压缩像素上限提高到 1.2 亿，CAD 长图不再被跳过；跳过/失败明细按原因分类并默认展开，转换更稳定。',
+		sections: [
+			{
+				title: '新功能',
+				items: [
+					'像素上限从 4000 万提高到 1.2 亿：9921×7016 这类 CAD 长图不再被跳过，只有超过 1.2 亿像素才出于防内存崩溃跳过。',
+				],
+			},
+			{
+				title: '优化',
+				items: [
+					'超过 1.2 亿像素时跳过原因写明具体尺寸和上限，不再只说「超过 4000 万像素」。',
+					'结果摘要新增「跳过原因：xxx ×N」按类别聚合计数；「查看跳过与失败明细」存在跳过/失败时默认展开，每条带路径和具体原因。',
+					'转换串行阈值从 8MB 降到 4MB：高压缩 CAD 线稿（像素高但体积小）也走单并发，避免多张大位图同时解码叠加内存。',
+					'跳过原因新增稳定分类 pixel-limit（像素超限）等中文映射，未知原因原样透传不吞掉。',
+				],
+			},
+		],
+	},
+	{
 		version: '1.10.0',
 		theme: '图片压缩转换报错修复',
 		summary: '修复桌面端点击「开始转换」必现的报错（getFiles is not a function），恢复正常转换。',

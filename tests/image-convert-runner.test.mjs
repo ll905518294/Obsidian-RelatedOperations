@@ -204,6 +204,34 @@ test('preflights unsupported formats and decode failures before any write', asyn
 	assert.equal(pngApp.files.get('note.md').content, '![[img.png]]');
 });
 
+test('像素超限跳过记为 pixel-limit，其它解码失败记为 unsupported-codec', async () => {
+	const note = '![[img.png]]';
+	const makeApp = () => notesApp({
+		notes: { 'note.md': note },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache(note, 'img.png') },
+	});
+	const pixelCodec = {
+		decode: async () => ({ ok: false, reason: '图片尺寸 13000×10000 超过 1.2 亿像素上限', reasonId: 'pixel-limit' }),
+		encode: async () => ({ ok: true, bytes: bytesOf(40) }),
+	};
+	const pixelApp = makeApp();
+	const pixelResult = await runImageConversion(pixelApp, pixelCodec, [{ path: 'img.png', size: 100, mtime: 1 }], { target: 'webp' });
+	assert.equal(pixelResult.skipped[0].reason, 'pixel-limit');
+	assert.match(pixelResult.skipped[0].reasonText, /1\.2 亿像素上限/);
+	assert.equal(pixelApp.files.has('img.webp'), false);
+
+	const genericCodec = {
+		decode: async () => ({ ok: false, reason: '无法解码' }),
+		encode: async () => ({ ok: true, bytes: bytesOf(40) }),
+	};
+	const genericApp = makeApp();
+	const genericResult = await runImageConversion(genericApp, genericCodec, [{ path: 'img.png', size: 100, mtime: 1 }], { target: 'webp' });
+	assert.equal(genericResult.skipped[0].reason, 'unsupported-codec');
+	assert.match(genericResult.skipped[0].reasonText, /无法解码/);
+});
+
 test('preflights encode failures and other unsupported source formats', async () => {
 	const pngNote = '![[img.png]]';
 	const pngApp = notesApp({
@@ -584,6 +612,78 @@ test('[B3] treats a byte-identical target as the previous interrupted retry', as
 	assert.equal(app.files.get('a.webp').binary, targetBytes);
 });
 
+test('[B5] 编码结果大于原图时保留原图：不产出新文件、不改写引用', async () => {
+	const note = '![[img.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache(note, 'img.png') },
+	});
+	// 模拟 CAD 线稿 PNG 转 JPG：体积从 100 B 涨到 500 B。
+	const result = await runImageConversion(app, createCodec({ output: bytesOf(500) }), [
+		{ path: 'img.png', size: 100, mtime: 1 },
+	], { target: 'jpg' });
+
+	assert.equal(result.converted.length, 0, '体积变大不得计入转换成功');
+	assert.equal(result.failed.length, 0);
+	assert.equal(result.skipped.length, 1);
+	assert.equal(result.skipped[0].reason, 'larger-than-source');
+	assert.match(result.skipped[0].reasonText, /转换为 JPG 后体积不减反增/);
+	assert.match(result.skipped[0].reasonText, /原始 100 B/);
+	assert.match(result.skipped[0].reasonText, /转换后 500 B/);
+	assert.match(result.skipped[0].reasonText, /已保留原图未做转换/);
+	assert.equal(app.files.has('img.webp'), false, '不得留下新文件');
+	assert.equal(app.files.has('img.jpg'), false, '不得留下新文件');
+	assert.equal(app.files.get('note.md').content, note, '引用不得被改写');
+	assert.equal(app.files.has('img.png'), true, '原图必须保留');
+});
+
+test('[B6] 编码结果等于原图体积时同样保留原图', async () => {
+	const note = '![[img.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache(note, 'img.png') },
+	});
+	const result = await runImageConversion(app, createCodec({ output: bytesOf(100) }), [
+		{ path: 'img.png', size: 100, mtime: 1 },
+	], { target: 'jpg' });
+
+	assert.equal(result.converted.length, 0);
+	assert.equal(result.skipped[0].reason, 'larger-than-source');
+	assert.equal(app.files.has('img.jpg'), false);
+	assert.equal(app.files.get('note.md').content, note);
+	assert.equal(app.files.has('img.png'), true);
+});
+
+test('[B7] 目标文件已存在且转换后更大时，不移入回收站原图', async () => {
+	const note = '![[img.png]]';
+	const app = notesApp({
+		notes: { 'note.md': note },
+		images: { 'img.png': 100 },
+		resolvedLinks: { 'note.md': { 'img.png': 1 } },
+		caches: { 'note.md': wikiCache(note, 'img.png') },
+	});
+	const targetBytes = bytesOf(500);
+	app.files.set('img.webp', {
+		path: 'img.webp',
+		extension: 'webp',
+		stat: { size: targetBytes.byteLength, mtime: 1 },
+		content: '',
+		binary: targetBytes,
+	});
+	const result = await runImageConversion(app, createCodec({ output: bytesOf(500) }), [
+		{ path: 'img.png', size: 100, mtime: 1 },
+	], { target: 'webp' });
+
+	assert.equal(result.converted.length, 0);
+	assert.equal(result.skipped[0].reason, 'larger-than-source');
+	assert.equal(app.files.has('img.png'), true, '体积变大时不得把原图移入回收站');
+	assert.equal(app.files.get('note.md').content, note);
+});
+
 test('[B4] rollback preserves concurrent user edits and reports unrestored notes', async () => {
 	const note = '![[img.png]]';
 	const app = notesApp({
@@ -933,17 +1033,30 @@ test('互不引用的多图转换默认跑满 8 路并发，且每张只释放�
 	assert.equal(codec.state.releases, 8);
 });
 
-test('体积超过 8MB 的大图在转换阶段单并发执行', async () => {
-	const imageBytes = { 'large/a.png': 8 * 1024 * 1024, 'large/b.png': 8 * 1024 * 1024 };
-	const app = notesApp({ notes: {}, images: imageBytes });
-	const codec = pipelineCodec();
-	const items = Object.entries(imageBytes).map(([path, size]) => ({ path, size, mtime: 1 }));
+test('4MB 阈值分 lane：>=4MB 单并发，<4MB 仍并发', async () => {
+	const bigBytes = { 'large/a.png': 4 * 1024 * 1024, 'large/b.png': 4 * 1024 * 1024 };
+	const bigApp = notesApp({ notes: {}, images: bigBytes });
+	const bigCodec = pipelineCodec();
+	const bigItems = Object.entries(bigBytes).map(([path, size]) => ({ path, size, mtime: 1 }));
 
-	const result = await runImageConversion(app, codec, items, { target: 'webp' });
+	const bigResult = await runImageConversion(bigApp, bigCodec, bigItems, { target: 'webp' });
 
-	assert.equal(result.converted.length, 2);
-	assert.equal(codec.state.peak, 1);
-	assert.equal(codec.state.releases, 2);
+	assert.equal(bigResult.converted.length, 2);
+	assert.equal(bigCodec.state.peak, 1, '>=4MB 应进入单并发通道');
+	assert.equal(bigCodec.state.releases, 2);
+
+	const smallSize = 4 * 1024 * 1024 - 1;
+	const smallBytes = Object.fromEntries(
+		Array.from({ length: 4 }, (_, index) => [`small/${index}.png`, smallSize]),
+	);
+	const smallApp = notesApp({ notes: {}, images: smallBytes });
+	const smallCodec = pipelineCodec();
+	const smallItems = Object.entries(smallBytes).map(([path, size]) => ({ path, size, mtime: 1 }));
+
+	const smallResult = await runImageConversion(smallApp, smallCodec, smallItems, { target: 'webp' });
+
+	assert.equal(smallResult.converted.length, 4);
+	assert.equal(smallCodec.state.peak, 4, '<4MB 应留在并发通道');
 });
 
 test('并发可通过 options.concurrency 调整且不超过默认上限', async () => {

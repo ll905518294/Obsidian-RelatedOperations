@@ -372,7 +372,8 @@ async function convertOne(
 
 	const decoded = await codec.decode(bytes, { needAlpha: (options.alpha ?? 'flatten') === 'skip' });
 	if (!decoded.ok) {
-		return skip(sourceFile.path, 'unsupported-codec', decoded.reason);
+		const reason = decoded.reasonId === 'pixel-limit' ? 'pixel-limit' : 'unsupported-codec';
+		return skip(sourceFile.path, reason, decoded.reason);
 	}
 	const image = decoded.image;
 	let encodedBytes: ArrayBuffer;
@@ -389,6 +390,16 @@ async function convertOne(
 			return skip(sourceFile.path, 'unsupported-codec', encoded.reason);
 		}
 		encodedBytes = encoded.bytes;
+		// 护栏：转换目的是省空间。若目标格式重编码后体积不减反增（例如高压缩的
+		// CAD 线稿 PNG 转 JPG，有损重编码会抵消 PNG 的高压缩比），就保留原图。
+		// 判断放在 createBinary 之前：不写新文件、不改写引用、不动原图。
+		if (encodedBytes.byteLength >= sourceStat.size) {
+			return skip(
+				sourceFile.path,
+				'larger-than-source',
+				`转换为 ${options.target.toUpperCase()} 后体积不减反增（原始 ${formatByteSize(sourceStat.size)}，转换后 ${formatByteSize(encodedBytes.byteLength)}），已保留原图未做转换`,
+			);
+		}
 		if (targetFile) {
 			const existingBytes = await app.vault.readBinary(targetFile);
 			if (!(await sameBytes(existingBytes, encodedBytes))) {
@@ -808,6 +819,16 @@ function findFile(app: ConversionApp, path: string, caseSensitive: boolean): Con
 
 function skip(path: string, reason: string, reasonText: string): Outcome {
 	return { skipped: { path, reason, reasonText } };
+}
+
+const BYTES_PER_KILOBYTE = 1024;
+const BYTES_PER_MEGABYTE = 1024 * 1024;
+
+/** 与界面 formatBytes 同风格的字节格式化，避免 image-convert 层反向依赖 cleanup 层。 */
+function formatByteSize(bytes: number): string {
+	if (bytes < BYTES_PER_KILOBYTE) return `${bytes} B`;
+	if (bytes < BYTES_PER_MEGABYTE) return `${(bytes / BYTES_PER_KILOBYTE).toFixed(1)} KB`;
+	return `${(bytes / BYTES_PER_MEGABYTE).toFixed(1)} MB`;
 }
 
 function reasonOf(error: unknown): string {

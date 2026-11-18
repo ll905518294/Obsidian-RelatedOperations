@@ -1,7 +1,7 @@
 import type { CleanupViewContext, ImageConversionResult } from './cleanup-types';
 import { formatBytes } from './cleanup-actions';
 import { requireSecondClick } from './cleanup-confirm-button';
-import { describeBlockedReason, updateConversionSelectionSummary } from './cleanup-list-convert';
+import { describeBlockedReason, skipGroupLabel, updateConversionSelectionSummary } from './cleanup-list-convert';
 
 interface ConversionDetail {
 	path?: string;
@@ -29,6 +29,19 @@ function detailText(item: ConversionDetail): string {
 	const reason = item.reasonText ?? (item.reason ? describeBlockedReason(item.reason) : item.message);
 	if (item.path && reason) return `${item.path}（${reason}）`;
 	return item.path ?? reason ?? '未提供明细';
+}
+
+/** 按原因类别聚合跳过数量，便于用户不展开明细也知道主要跳过原因。 */
+function skipReasonBreakdown(skipped: ConversionDetail[]): string {
+	const counts = new Map<string, number>();
+	for (const item of skipped) {
+		const label = skipGroupLabel(item);
+		counts.set(label, (counts.get(label) ?? 0) + 1);
+	}
+	return [...counts.entries()]
+		.sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+		.map(([label, count]) => `${label} ×${count}`)
+		.join('、');
 }
 
 function skippedDetails(host: CleanupViewContext, result: DetailedConversionResult): ConversionDetail[] {
@@ -64,6 +77,12 @@ function renderResult(host: CleanupViewContext) {
 	summary.setAttribute('role', 'status');
 	summary.createEl('strong', { text: '最近一次转换：' });
 	summary.createSpan({ text: `成功 ${result.converted} · 跳过 ${result.skipped} · 失败 ${result.failed} · 实际节省 ${formatBytes(result.savedBytes)}` });
+	if (skipped.length) {
+		summary.createDiv({
+			cls: 'orphan-cleanup-convert-skip-reasons',
+			text: `跳过原因：${skipReasonBreakdown(skipped)}`,
+		});
+	}
 	if (result.aborted) {
 		summary.createDiv({
 			cls: 'orphan-cleanup-convert-aborted mod-warning',
@@ -94,7 +113,11 @@ function renderResult(host: CleanupViewContext) {
 	}
 	if (result.skipped === 0 && result.failed === 0) return;
 
-	const collapsible = summary.createEl('details', { cls: 'orphan-cleanup-convert-details' });
+	// 存在跳过/失败时默认展开，用户无需再点开就能看到每条路径与原因。
+	const collapsible = summary.createEl('details', {
+		cls: 'orphan-cleanup-convert-details',
+		attr: { open: '' },
+	});
 	collapsible.createEl('summary', { text: `查看跳过与失败明细（${result.skipped + result.failed}）` });
 	if (result.skipped) {
 		collapsible.createEl('h4', { text: `跳过（${result.skipped}）` });

@@ -334,7 +334,8 @@ test('blockedReason 使用中文映射，未知值原样展示', () => {
 		makeItem({ path: 'pics/excalidraw.png', blockedReason: 'code-block-reference' }),
 		makeItem({ path: 'pics/css.png', blockedReason: 'css-url' }),
 		makeItem({ path: 'pics/picture.png', blockedReason: 'html-source' }),
-		makeItem({ path: 'pics/unknown.png', blockedReason: 'target-exists' }),
+		makeItem({ path: 'pics/target.png', blockedReason: 'target-exists' }),
+		makeItem({ path: 'pics/unknown.png', blockedReason: 'weird-unknown' }),
 	]);
 	renderConversionList(host);
 
@@ -343,11 +344,13 @@ test('blockedReason 使用中文映射，未知值原样展示', () => {
 	assert.match(summary.textContent, /Excalidraw 代码块中的图片引用无法安全改写/);
 	assert.match(summary.textContent, /CSS url\(\) 中的图片引用无法安全改写/);
 	assert.match(summary.textContent, /picture\/source 中的图片引用无法安全改写/);
-	assert.match(summary.textContent, /target-exists/);
+	assert.match(summary.textContent, /目标文件已存在/);
+	assert.match(summary.textContent, /weird-unknown/);
 	assert.doesNotMatch(summary.textContent, /undefined/);
 	const statuses = byClass(host.contentEl, 'orphan-cleanup-convert-blocked-reason').map((item) => item.textContent);
 	assert.ok(statuses.includes('跳过：透明图按设置跳过'));
-	assert.ok(statuses.includes('跳过：target-exists'));
+	assert.ok(statuses.includes('跳过：目标文件已存在'));
+	assert.ok(statuses.includes('跳过：weird-unknown'));
 	assert.ok(statuses.every((text) => !text.includes('undefined')));
 
 	host.conversion.lastResult = {
@@ -368,6 +371,59 @@ test('blockedReason 使用中文映射，未知值原样展示', () => {
 	assert.match(details.textContent, /源文件在转换前已变化，已跳过/);
 	assert.match(details.textContent, /改写后仍有残留引用，已跳过/);
 	assert.doesNotMatch(details.textContent, /undefined/);
+	assert.equal(details.getAttribute('open'), '', '存在跳过/失败时明细默认展开');
+});
+
+test('结果汇总按原因分组计数跳过数量', () => {
+	const host = makeHost([]);
+	host.conversion.lastResult = {
+		converted: 1,
+		skipped: 5,
+		failed: 0,
+		savedBytes: 0,
+		convertedItems: [],
+		skippedItems: [
+			{ path: 'pics/a.png', reason: 'pixel-limit', reasonText: '图片尺寸 13000×10000 超过 1.2 亿像素上限' },
+			{ path: 'pics/b.png', reason: 'pixel-limit', reasonText: '图片尺寸 14000×10000 超过 1.2 亿像素上限' },
+			{ path: 'pics/c.png', reason: 'pixel-limit', reasonText: '图片尺寸 15000×10000 超过 1.2 亿像素上限' },
+			{ path: 'pics/d.png', reason: 'alpha-skip' },
+			{ path: 'pics/e.png', reason: 'alpha-skip' },
+		],
+		failedItems: [],
+	};
+	renderConversionActions(host);
+
+	const breakdown = byClass(host.contentEl, 'orphan-cleanup-convert-skip-reasons')[0];
+	assert.ok(breakdown, '应渲染跳过原因分组汇总');
+	assert.match(breakdown.textContent, /跳过原因：/);
+	assert.match(breakdown.textContent, /尺寸超过上限 ×3/);
+	assert.match(breakdown.textContent, /透明图按设置跳过 ×2/);
+	assert.doesNotMatch(breakdown.textContent, /undefined/);
+});
+
+test('体积不减反增的跳过原因在汇总与明细中显示为中文', () => {
+	const host = makeHost([]);
+	host.conversion.lastResult = {
+		converted: 0,
+		skipped: 1,
+		failed: 0,
+		savedBytes: 0,
+		convertedItems: [],
+		skippedItems: [{
+			path: 'pics/cad.png',
+			reason: 'larger-than-source',
+			reasonText: '转换为 JPG 后体积不减反增（原始 5.6 MB，转换后 31.3 MB），已保留原图未做转换',
+		}],
+		failedItems: [],
+	};
+	renderConversionActions(host);
+
+	const breakdown = byClass(host.contentEl, 'orphan-cleanup-convert-skip-reasons')[0];
+	assert.ok(breakdown);
+	assert.match(breakdown.textContent, /转换后体积不减反增，已保留原图 ×1/);
+	const details = byClass(host.contentEl, 'orphan-cleanup-convert-details')[0];
+	assert.match(details.textContent, /转换为 JPG 后体积不减反增（原始 5\.6 MB，转换后 31\.3 MB），已保留原图未做转换/);
+	assert.doesNotMatch(details.textContent, /larger-than-source/);
 });
 
 test('blocked 行不展示 0 × 0 与 −100%，改显示 — 与 跳过', () => {
@@ -673,6 +729,7 @@ test('单一顶部卡片承载操作栏、源格式、控制项与汇总', () =>
 	assert.equal(byClass(card, 'orphan-cleanup-convert-summary').length, 1);
 	assert.equal(byClass(card, 'orphan-cleanup-convert-hint').length, 1);
 	assert.match(byClass(card, 'orphan-cleanup-convert-hint')[0].textContent, /原图移入回收站，可恢复/);
+	assert.match(byClass(card, 'orphan-cleanup-convert-hint')[0].textContent, /高压缩比内容.*可能不减反增/s);
 	// 长说明段落已移除，只保留源格式为空时的警告（默认已选 PNG，因此隐藏）。
 	assert.equal(byClass(card, 'orphan-cleanup-convert-note').length, 1);
 	assert.doesNotMatch(host.contentEl.textContent, /体积为按源格式与质量推算的预估值/);

@@ -1,16 +1,23 @@
 import type { ImageConvertTarget } from './image-convert-plan.ts';
 
-export const MAX_IMAGE_PIXELS = 40_000_000;
+/**
+ * 解码/编码的硬像素上限：宽×高超过该值直接跳过，防止单张图把画布与位图堆到
+ * 数 GB 触发 Obsidian 内存崩溃。1.2 亿像素可覆盖 9921×7016（约 6960 万像素）
+ * 这类 CAD 长图，同时仍保留防止 OOM 的硬闸。
+ */
+export const MAX_IMAGE_PIXELS = 120_000_000;
 /**
  * 超过该像素数视为大图：解码/编码各占 宽×高×4 字节，大图进入单独的
- * 低并发通道，避免多张 40MP 图同时把画布堆到 GB 级。
+ * 低并发通道，避免多张大图同时把画布堆到 GB 级。
  */
 export const LARGE_IMAGE_PIXELS = 10_000_000;
 /**
- * 解码前拿不到像素数，只能用文件体积预判：约 0.8 字节/像素时，8MB
- * 大致对应 10MP，常见照片达到该体积基本已进入大图区间。
+ * 解码前拿不到像素数，只能用文件体积预判。高压缩的 CAD 线稿可能像素极高
+ * （如 5500 万像素）却只有约 7MB，若沿用 8MB 阈值会落进并发通道，多张大
+ * 位图叠加到 GB 级。降到 4MB 让这类图也走单并发；普通截图多为 100KB–2MB，
+ * 仍走并发通道，不受影响。
  */
-export const LARGE_IMAGE_BYTES = 8 * 1024 * 1024;
+export const LARGE_IMAGE_BYTES = 4 * 1024 * 1024;
 
 export function isLargeImage(width: number, height: number): boolean {
 	return width > 0 && height > 0 && width * height > LARGE_IMAGE_PIXELS;
@@ -44,7 +51,9 @@ export interface DecodedImage {
 	source: CanvasImageSource;
 }
 
-export type DecodeImageResult = { ok: true; image: DecodedImage } | { ok: false; reason: string };
+export type DecodeImageResult =
+	| { ok: true; image: DecodedImage }
+	| { ok: false; reason: string; reasonId?: 'pixel-limit' };
 
 export type EncodeImageResult = { ok: true; bytes: ArrayBuffer } | { ok: false; reason: string };
 
@@ -104,7 +113,11 @@ export class CanvasImageCodec implements ImageCodec {
 			}
 			if (!width || !height) return { ok: false, reason: '无法读取图片尺寸' };
 			if (!isWithinPixelLimit(width, height)) {
-				return { ok: false, reason: `图片尺寸 ${width}×${height} 超过 4000 万像素上限` };
+				return {
+					ok: false,
+					reason: `图片尺寸 ${width}×${height} 超过 1.2 亿像素上限，为避免 Obsidian 内存崩溃已跳过`,
+					reasonId: 'pixel-limit',
+				};
 			}
 			// needAlpha=false（flatten 模式）完全跳过像素读取，直接用解码结果作 source。
 			// 默认（不传）仍检测，保证未传参的调用方拿到正确的 hasAlpha。
