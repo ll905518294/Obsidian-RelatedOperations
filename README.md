@@ -12,7 +12,7 @@ Vault Doctor brings three tools into one workspace panel:
 - **Image compression** — batch-convert PNG, JPG, WebP, BMP and AVIF to JPG, WebP or PNG. Before converting, it shows an **estimated** output size and savings based on source format, target format and quality; the real size is determined during conversion. Transparency, oversized images and reference rewritability are checked precisely at conversion time. References in Wiki embeds, Markdown links, HTML `img`, frontmatter and Canvas are rewritten safely, and the source image is moved to trash only after verification.
 - **Related-note organizer** — find outgoing, incoming and bidirectional links for the current note, then batch-move notes to a target folder. The latest move can be undone.
 
-Everything runs locally: no network requests and no telemetry. Scans never modify files; deletions require two-step confirmation and go through Obsidian's trash, while link edits rely on Obsidian's undo history.
+Everything runs locally: no network requests and no telemetry. Scans never modify files; deletions require two-step confirmation and go through Obsidian's trash, while link edits rely on Obsidian's undo history. After a cleanup (unused files, duplicates, missing-note creation, broken-link fixes, or image conversion), folders that the operation emptied are automatically moved to Obsidian's trash (including nested empty subfolders), and a full re-scan refreshes every category count so the UI matches the disk — no second manual scan needed. Only truly empty folders are removed; hidden (`.obsidian`/`.trash`/`.git`) and ignored folders and the vault root are never touched, and trashed folders can be restored. The completion notice appends "自动清理了 X 个空文件夹".
 
 ## Feature highlights
 
@@ -20,6 +20,7 @@ Everything runs locally: no network requests and no telemetry. Scans never modif
 - Image compression with a per-image transaction: revalidate, rewrite references, verify, then trash the source.
 - Estimated size preview marked as approximate; quality scaling is applied for lossy targets and transparency is checked during conversion.
 - Related-note moves with confirmation, skip-existing behavior and undo of the latest batch.
+- Chained cleanup after each operation: newly emptied folders (including nested empty subfolders) are moved to trash automatically and a full re-scan refreshes all category counts.
 - Keyboard and screen-reader support, plus respect for reduced motion.
 - Markdown scan reports that contain paths and links only, never note body text.
 
@@ -134,8 +135,8 @@ Chinese documentation follows below. / 中文说明见下方。
 - **删除按钮两段式确认**：第一次点击「移入回收站 / 删除选中文件 / 删除」只会把按钮变为「确认删除」警示状态并提示「再次点击确认删除」；第二次点击才执行。3 秒无操作、焦点移出按钮或勾选变化都会自动复位，不再弹出二次确认弹窗。失效链接移除、缺失笔记创建、原生链接与 Wiki 链接转换和关联笔记移动仍使用各自的确认弹窗。误触说明：第一次点击只是**武装**按钮，不会删除任何文件；若误点了，不做任何操作等 3 秒即自动复位，或点击其它按钮 / 取消勾选也能立即复位。
 - 重复文件支持整组全选删除：执行前会按内容哈希逐文件复核（引用清理失败、内容已变化或读取失败的单个文件会被跳过并说明原因），不会因为「每组必须保留一个副本」而拒绝整组操作。
 - 执行清理前会对每个条目**重新复核**引用状态：扫描后被引用、被修改或已被移除的资源自动跳过。
-- 图片清理后如需清理因此变空的文件夹，请先**重新扫描**再操作。
-- Vault 内容发生变化后，旧扫描结果会标记**结果待复核，请重新扫描**，未扫描的分类显示**尚未扫描**。
+- **清理后的连锁收尾**：清理未引用图片/附件/空文件、重复文件、创建缺失笔记、移除/转换失效链接，以及图片压缩转换完成后，系统会自动把「本次操作导致变空」的文件夹（含嵌套空子目录）移入 Obsidian 回收站，并自动做一次全关联重扫、刷新所有体检类别计数，界面状态与磁盘保持一致，无需二次手动扫描。边界：只删除真正变空的文件夹；隐藏目录（`.obsidian`/`.trash`/`.git`）、设置里忽略的目录和根目录都不会被删除；被移入回收站的文件夹可恢复。清理完成提示中会追加「自动清理了 X 个空文件夹」。
+- Vault 内容发生变化后，旧扫描结果会标记**结果待复核，请重新扫描**，未扫描的分类显示**尚未扫描**；清理操作完成后会自动重扫刷新。
 
 ## 图片压缩
 

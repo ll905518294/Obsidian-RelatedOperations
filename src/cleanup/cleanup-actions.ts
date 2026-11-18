@@ -1,5 +1,6 @@
 import { App, FileSystemAdapter, Notice, Platform, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { COMMON_IMAGE_EXTENSIONS, type CleanupResult } from './cleanup-types';
+import { hasHiddenPathSegment, isIgnoredPath } from '../core-utils';
 
 const BYTES_PER_KILOBYTE = 1024;
 const BYTES_PER_MEGABYTE = BYTES_PER_KILOBYTE * 1024;
@@ -18,6 +19,43 @@ export async function trashSelected(app: App, images: TFile[], folders: TFolder[
 		}
 	}
 	return result;
+}
+
+/*
+ * 收集删除一批文件后“变空”的文件夹。判定口径与 findRecursivelyEmptyFolders
+ * 一致：该目录及其子目录均不含文件、不含隐藏段、不在忽略目录、非根目录。
+ * 只沿被删路径的父级向上检查受影响目录，避免删除后做一次全库遍历。
+ */
+export async function collectAutoEmptyFolders(app: App, deletedPaths: string[], ignoredFolders: string[]): Promise<TFolder[]> {
+	const candidates = new Map<string, TFolder>();
+	for (const path of deletedPaths) {
+		let directory = parentFolder(path);
+		while (directory) {
+			const node = app.vault.getAbstractFileByPath(directory);
+			if (node instanceof TFolder) candidates.set(directory, node);
+			directory = parentFolder(directory);
+		}
+	}
+	const empty: TFolder[] = [];
+	for (const folder of candidates.values()) {
+		if (isRecursivelyEmptyLike(folder, ignoredFolders)) empty.push(folder);
+	}
+	// 深度降序：先删子目录再删父目录，避免父目录被占用导致删除失败。
+	return empty.sort((a, b) => b.path.length - a.path.length || byPath(a, b));
+}
+
+function isRecursivelyEmptyLike(folder: TFolder, ignoredFolders: string[]): boolean {
+	if (!folder.path) return false;
+	if (hasHiddenPathSegment(folder.path)) return false;
+	if (isIgnoredPath(folder.path, ignoredFolders)) return false;
+	for (const child of folder.children) {
+		if (child instanceof TFolder) {
+			if (!isRecursivelyEmptyLike(child, ignoredFolders)) return false;
+		} else {
+			return false;
+		}
+	}
+	return true;
 }
 
 export function byPath(a: TAbstractFile, b: TAbstractFile): number {

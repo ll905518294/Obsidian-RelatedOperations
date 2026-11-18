@@ -4,6 +4,7 @@ import { runImageConversion, type ConversionApp, type ConversionResult } from '.
 import { collectConvertibleImages, estimateConversions as estimateConversionCosts } from './cleanup-scan';
 import { clearConversionSelections } from './cleanup-list-convert';
 import { formatBytes, reasonFor } from './cleanup-actions';
+import { finalizeCleanup } from './cleanup-finalize';
 import {
 	cloneImageConversionConfig,
 	normalizeImageConversionConfig,
@@ -232,7 +233,10 @@ export async function convertSelected(panel: CleanupConversionHost): Promise<voi
 		const convertedPaths = new Set(result.converted.map((item) => item.path));
 		for (const path of convertedPaths) panel.convertSelections.delete(path);
 		const prefix = result.aborted ? '转换已中止' : '转换完成';
-		new Notice(`${prefix}：成功 ${panel.conversion.lastResult.converted}，跳过 ${panel.conversion.lastResult.skipped}，失败 ${failed}，实际节省 ${formatBytes(panel.conversion.lastResult.savedBytes)}。`);
+		const { removedFolders } = await finalizeCleanup(panel, result.converted.map((item) => item.path));
+		let noticeText = `${prefix}：成功 ${panel.conversion.lastResult.converted}，跳过 ${panel.conversion.lastResult.skipped}，失败 ${failed}，实际节省 ${formatBytes(panel.conversion.lastResult.savedBytes)}。`;
+		if (removedFolders > 0) noticeText += `\n自动清理了 ${removedFolders} 个空文件夹`;
+		new Notice(noticeText);
 		panel.saveCacheToSettings();
 		await panel.scanTab('image-convert');
 		await panel.scanTab('images');

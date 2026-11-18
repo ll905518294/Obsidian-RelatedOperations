@@ -11,6 +11,7 @@ import { renderActions, renderList, updateSelectionSummary } from './cleanup-lis
 import { clearConversionSelections, isConversionTab, renderConversionList } from './cleanup-list-convert';
 import { renderConversionActions } from './cleanup-list-convert-actions';
 import { revalidateCleanupSelection } from './cleanup-flows';
+import { finalizeCleanup } from './cleanup-finalize';
 import { reportCleanupInvariants } from './cleanup-invariants';
 import { captureViewSnapshot, restoreViewSnapshot } from './cleanup-focus';
 import { createCanvasImageCodec, type ImageCodec } from '../image-convert/image-codec';
@@ -339,7 +340,10 @@ export class OrphanCleanupPanel extends Component {
 			}
 			await this.app.fileManager.trashFile(files[0]!);
 			this.removeImage(file);
-			new Notice(`已移入回收站：${file.name}`);
+			const { removedFolders } = await finalizeCleanup(this, [file.path]);
+			let message = `已移入回收站：${file.name}`;
+			if (removedFolders > 0) message += `\n自动清理了 ${removedFolders} 个空文件夹`;
+			new Notice(message);
 		} catch (error) {
 			new Notice(`删除失败：${reasonFor(error)}`);
 		}

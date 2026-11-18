@@ -10,7 +10,9 @@ import { replaceWikiNoteLinks, revalidateWikiNoteLink, wikiNoteLinkKey, type Wik
 import { planDuplicateDeletion, removeFileReferencesForFiles, revalidateDuplicateDeletion } from '../duplicate-files';
 import { findCleanupCandidates } from './cleanup-scan';
 import { reasonFor, trashSelected } from './cleanup-actions';
+import { finalizeCleanup } from './cleanup-finalize';
 import { ConvertNativeLinksConfirmationModal, ConvertWikiLinksConfirmationModal, CreateNotesConfirmationModal, RemoveBrokenLinksConfirmationModal } from './cleanup-modals';
+export { finalizeCleanup } from './cleanup-finalize';
 export function addReportControls(host: CleanupViewContext, container: HTMLElement): void {
 		let details = container.querySelector<HTMLDetailsElement>('.orphan-cleanup-more');
 		if (!details) {
@@ -93,14 +95,14 @@ export async function confirmCleanup(host: CleanupViewContext): Promise<void> {
 		const result = await trashSelected(host.app, verified.files, verified.folders);
 		result.skipped.unshift(...verified.skipped);
 		host.processed = { success: result.deleted.length, skipped: result.skipped.length, failed: result.failed };
+		const { removedFolders } = await finalizeCleanup(host, result.deleted);
 		const message = [`已移入回收站：${result.deleted.length}`, `跳过：${result.skipped.length}`, `失败：${result.failed.length}`];
 		if (result.skipped.length) message.push(`跳过文件：${result.skipped.join('、')}`);
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
+		if (removedFolders > 0) message.push(`自动清理了 ${removedFolders} 个空文件夹`);
 		new Notice(message.join('\n'));
 		pruneDeletedCandidates(host);
-		await host.scanTab('folders');
 		host.saveCacheToSettings();
-		host.renderContents();
 	}
 
 export async function confirmCleanupDuplicates(host: CleanupViewContext): Promise<void> {
@@ -137,18 +139,18 @@ export async function confirmCleanupDuplicates(host: CleanupViewContext): Promis
 		}
 	}
 	host.processed = { success: result.deleted.length, skipped: result.skipped.length, failed: result.failed };
+	const { removedFolders } = await finalizeCleanup(host, result.deleted);
 	const message = [`已删除：${result.deleted.length}`, `跳过：${result.skipped.length}`, `失败：${result.failed.length}`];
 	if (result.skipped.length) message.push(`跳过文件：${result.skipped.map((path) => skippedReasons.has(path) ? `${path}（${skippedReasons.get(path)}）` : path).join('、')}`);
 	if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
+	if (removedFolders > 0) message.push(`自动清理了 ${removedFolders} 个空文件夹`);
 	new Notice(message.join('\n'));
 	if (result.deleted.length > 0 || result.failed.length > 0) {
 		host.candidates.duplicates = host.candidates.duplicates.map((group) => ({ ...group, files: group.files.filter((f) => !result.deleted.includes(f.path)) })).filter((group) => group.files.length > 1);
 	}
 	host.duplicateSelections.clear();
 	pruneDeletedCandidates(host);
-	await host.scanTab('folders');
 	host.saveCacheToSettings();
-	host.renderContents();
 }
 
 export async function revalidateCleanupSelection(
@@ -171,11 +173,12 @@ export async function confirmRemoveLinks(host: CleanupViewContext): Promise<void
 		if (!confirmed) return;
 		const result = await removeSelectedBrokenLinks(host.app, selectedLinks);
 		host.processed = { success: result.removed, skipped: result.skipped, failed: result.failed };
+		const { removedFolders } = await finalizeCleanup(host, [...new Set(selectedLinks.map((item) => item.sourcePath))]);
 		const message = [`已移除链接：${result.removed}`, `跳过：${result.skipped}`, `失败：${result.failed.length}`];
 		if (result.failed.length) message.push(result.failed.map((item) => `${item.path}（${item.reason}）`).join('、'));
+		if (removedFolders > 0) message.push(`自动清理了 ${removedFolders} 个空文件夹`);
 		new Notice(message.join('\n'));
 		host.linkSelections.clear();
-		host.renderContents();
 	}
 
 export async function confirmRemoveNoteLinks(host: CleanupViewContext): Promise<void> {
@@ -185,9 +188,11 @@ export async function confirmRemoveNoteLinks(host: CleanupViewContext): Promise<
 		if (!await new RemoveBrokenLinksConfirmationModal(host.app, selected.length, sourceCount).waitForConfirmation()) return;
 		const result = await removeSelectedBrokenNoteLinks(host.app, selected);
 		host.processed = { success: result.removed, skipped: result.skipped, failed: result.failed };
-		new Notice(`已移除链接：${result.removed}，跳过：${result.skipped}，失败：${result.failed.length}`);
+		const { removedFolders } = await finalizeCleanup(host, [...new Set(selected.map((item) => item.sourcePath))]);
+		const message = [`已移除链接：${result.removed}，跳过：${result.skipped}，失败：${result.failed.length}`];
+		if (removedFolders > 0) message.push(`自动清理了 ${removedFolders} 个空文件夹`);
+		new Notice(message.join('\n'));
 		host.noteLinkSelections.clear();
-		host.renderContents();
 	}
 
 export async function confirmCreateNotes(host: CleanupViewContext): Promise<void> {
@@ -195,13 +200,12 @@ export async function confirmCreateNotes(host: CleanupViewContext): Promise<void
 		if (!selected.length || !await new CreateNotesConfirmationModal(host.app, selected.length).waitForConfirmation()) return;
 		const result = await createMissingNotes(host.app, selected);
 		host.processed = { success: result.created.length, skipped: result.skipped.length, failed: result.failed };
-		new Notice(`已创建：${result.created.length}，跳过：${result.skipped.length}，失败：${result.failed.length}`);
-		await host.scanTab('broken-note-links');
-		await host.scanTab('empty-files');
-		await host.scanTab('folders');
+		const { removedFolders } = await finalizeCleanup(host, result.created);
+		const message = [`已创建：${result.created.length}，跳过：${result.skipped.length}，失败：${result.failed.length}`];
+		if (removedFolders > 0) message.push(`自动清理了 ${removedFolders} 个空文件夹`);
+		new Notice(message.join('\n'));
 		host.noteLinkSelections.clear();
 		host.saveCacheToSettings();
-		host.renderContents();
 	}
 
 export async function confirmConvertLinks(host: CleanupViewContext): Promise<void> {
@@ -250,11 +254,11 @@ export async function confirmConvertLinks(host: CleanupViewContext): Promise<voi
 			for (const key of handledKeys) host.nativeSelections.delete(key);
 		}
 		host.processed = { success: converted, skipped, failed: failures };
-		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
-		if (handledKeys.size > 0) {
-			host.saveCacheToSettings();
-			host.renderContents();
-		}
+		const { removedFolders } = await finalizeCleanup(host, [...processedSources]);
+		const message = [`已转换：${converted}，跳过：${skipped}，失败：${failed}`];
+		if (removedFolders > 0) message.push(`自动清理了 ${removedFolders} 个空文件夹`);
+		new Notice(message.join('\n'));
+		if (handledKeys.size > 0) host.saveCacheToSettings();
 	}
 
 export async function confirmConvertWikiLinks(host: CleanupViewContext): Promise<void> {
@@ -302,11 +306,11 @@ export async function confirmConvertWikiLinks(host: CleanupViewContext): Promise
 			for (const key of handledKeys) host.wikiSelections.delete(key);
 		}
 		host.processed = { success: converted, skipped, failed: failures };
-		new Notice(`已转换：${converted}，跳过：${skipped}，失败：${failed}`);
+		const { removedFolders } = await finalizeCleanup(host, [...processedSources]);
+		const message = [`已转换：${converted}，跳过：${skipped}，失败：${failed}`];
+		if (removedFolders > 0) message.push(`自动清理了 ${removedFolders} 个空文件夹`);
+		new Notice(message.join('\n'));
 		// Refreshing after every successful file, even when all of its links were
 		// skipped, removes stale rows without dropping unrelated selections.
-		if (handledKeys.size > 0) {
-			host.saveCacheToSettings();
-			host.renderContents();
-		}
+		if (handledKeys.size > 0) host.saveCacheToSettings();
 	}

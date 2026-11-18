@@ -210,16 +210,28 @@ test('1.11.0 内置说明存在，且覆盖超大图与跳过原因可视化', (
 	assert.match(text, /4MB|4 MB/);
 });
 
-test('1.13.0 内置说明存在、位于最前，且覆盖转换策略', () => {
+test('1.13.0 内置说明存在，且覆盖转换策略', () => {
 	const intro = currentUpdateIntro('1.13.0');
 	assert.ok(intro, '1.13.0 必须有更新说明条目');
 	assert.equal(intro.theme, '图片压缩支持转换策略');
-	assert.equal(UPDATE_INTROS[0].version, '1.13.0', '最新版本必须排在最前');
+	assert.notEqual(UPDATE_INTROS[0].version, '1.13.0', '1.13.0 不应再排在最前');
 	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
 	assert.match(text, /转换策略/);
 	assert.match(text, /能省空间/);
 	assert.match(text, /总是转换/);
 	assert.match(text, /4 亿/);
+});
+
+test('1.14.0 内置说明存在、位于最前，且覆盖清理后状态回收', () => {
+	const intro = currentUpdateIntro('1.14.0');
+	assert.ok(intro, '1.14.0 必须有更新说明条目');
+	assert.equal(intro.theme, '清理后自动回收空文件夹');
+	assert.equal(UPDATE_INTROS[0].version, '1.14.0', '最新版本必须排在最前');
+	const text = [intro.summary, ...intro.sections.map((section) => section.title + section.items.join('\n'))].join('\n');
+	assert.match(text, /空文件夹/);
+	assert.match(text, /回收站/);
+	assert.match(text, /全关联重扫/);
+	assert.match(text, /自动清理了 X 个空文件夹/);
 });
 
 test('1.9.9 内置说明存在，且覆盖转换提速与安全复核', () => {
