@@ -1,38 +1,36 @@
 # Vault Doctor
 
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Vault Doctor：Obsidian Vault 体检与清理，左侧项目名与价值，右侧九宫格体征清单">
+</p>
+
+**扫描 9 类 Vault 问题，安全清理，顺带压缩图片。**
+
+Scan nine kinds of vault health problems, clean them safely, and compress images along the way.
+
+![体检首页：9 类检查 + 图片压缩](docs/images/01-dashboard.png)
+
+> 截图取自演示库 `vault-doctor-demo`，仅含示例内容。
+
+**版本** [1.14.0](https://github.com/ll905518294/obsidian-vault-doctor/releases) · **平台** 桌面端（Windows / macOS / Linux） · **许可证** [0-BSD](LICENSE) · **社区市场** [Vault Doctor](https://community.obsidian.md/plugins/vault-doctor)
+
+---
+
+## What it is
+
 **Vault Doctor** is an Obsidian plugin that scans a vault for nine kinds of health problems, compresses images and organizes related notes — then helps you fix them safely, not just list them. It runs fully offline and only changes files after you confirm. Cleanup goes through Obsidian's trash, moves support undo, and image compression rewrites references with a per-image safety check.
 
-Vault Doctor is available in the [Obsidian community directory](https://community.obsidian.md/plugins/vault-doctor).
+## Install
 
-## What it does
+In Obsidian, open **Settings → Community plugins → Browse** and search for **Vault Doctor**, then install and enable it. To install manually, download `main.js`, `manifest.json` and (if present) `styles.css` from the [latest release](https://github.com/ll905518294/obsidian-vault-doctor/releases), place them in `<Vault>/.obsidian/plugins/vault-doctor/`, and enable the plugin in **Settings → Community plugins**.
 
-Vault Doctor brings three tools into one workspace panel:
-
-- **Vault health check** — scans 9 categories: unused images, unused attachments, empty files, empty folders, broken image links, broken note links, native image links, wiki note links and byte-identical duplicate files.
-- **Image compression** — batch-convert PNG, JPG, WebP, BMP and AVIF to JPG, WebP or PNG. Before converting, it shows an **estimated** output size and savings based on source format, target format and quality; the real size is determined during conversion. Transparency, oversized images and reference rewritability are checked precisely at conversion time. References in Wiki embeds, Markdown links, HTML `img`, frontmatter and Canvas are rewritten safely, and the source image is moved to trash only after verification.
-- **Related-note organizer** — find outgoing, incoming and bidirectional links for the current note, then batch-move notes to a target folder. The latest move can be undone.
-
-Everything runs locally: no network requests and no telemetry. Scans never modify files; deletions require two-step confirmation and go through Obsidian's trash, while link edits rely on Obsidian's undo history. After a cleanup (unused files, duplicates, missing-note creation, broken-link fixes, or image conversion), folders that the operation emptied are automatically moved to Obsidian's trash (including nested empty subfolders), and a full re-scan refreshes every category count so the UI matches the disk — no second manual scan needed. Only truly empty folders are removed; hidden (`.obsidian`/`.trash`/`.git`) and ignored folders and the vault root are never touched, and trashed folders can be restored. The completion notice appends "自动清理了 X 个空文件夹".
-
-## Feature highlights
+## Key features
 
 - 9-category vault health scan with progress, abort and cached "last scan" results.
-- Image compression with a per-image transaction: revalidate, rewrite references, verify, then trash the source.
-- Estimated size preview marked as approximate; quality scaling is applied for lossy targets and transparency is checked during conversion.
+- Image compression (PNG/JPG/WebP/BMP/AVIF → JPG/WebP/PNG) with a per-image transaction and an "only convert when it saves space / always convert" strategy.
 - Related-note moves with confirmation, skip-existing behavior and undo of the latest batch.
-- Chained cleanup after each operation: newly emptied folders (including nested empty subfolders) are moved to trash automatically and a full re-scan refreshes all category counts.
-- Keyboard and screen-reader support, plus respect for reduced motion.
-- Markdown scan reports that contain paths and links only, never note body text.
-
-## Quick start
-
-1. In Obsidian, open **Settings → Community plugins → Browse** and search for **Vault Doctor**.
-2. Install and enable the plugin.
-3. Open the **Vault 体检与清理** panel from the ribbon icon or the command palette.
-
-To install manually, download `main.js`, `manifest.json` and (if present) `styles.css` from the [latest release](https://github.com/ll905518294/obsidian-vault-doctor/releases), put them in `<Vault>/.obsidian/plugins/vault-doctor/`, then enable the plugin in **Settings → Community plugins**.
-
-A ZIP with the same three files is also attached to each release. The ZIP is a convenience bundle, not a Windows installer.
+- Chained cleanup after each operation: newly emptied folders are moved to trash automatically and a full re-scan refreshes all category counts.
+- Fully local: no network requests, no telemetry.
 
 ## Requirements
 
@@ -43,7 +41,9 @@ A ZIP with the same three files is also attached to each release. The ZIP is a c
 
 0-BSD.
 
-Chinese documentation follows below. / 中文说明见下方。
+---
+
+中文说明见下方。
 
 一个为 Obsidian 做的「Vault 体检 + 问题处理」插件：一次性扫描 9 类健康问题（失效链接、未引用资源、重复文件等），并提供图片压缩优化工具，安全地完成整理，而不是只列清单。
 
@@ -53,53 +53,52 @@ Chinese documentation follows below. / 中文说明见下方。
 - 系统要求：Obsidian 1.13.0 及以上，仅支持桌面端（Windows / macOS / Linux）
 - 许可证：0-BSD
 
-![Vault 体检首页](docs/images/01-dashboard.png)
+## 它能做什么
 
-> 截图取自演示库 `vault-doctor-demo`，仅含示例内容。
->
-> 截图仍为 1.8.0 界面，待按 1.9.9 新界面重拍后更新；「图片压缩」页签见[图片压缩](#图片压缩)。
+**Vault Doctor** 把三块能力放进同一个工作区面板：
 
-## 功能总览
+- **Vault 体检**：扫描 9 类问题——未引用图片、未引用附件、空文件、空文件夹、失效图片链接、失效笔记链接、原生图片链接、Wiki 笔记链接、字节级重复文件。
+- **图片压缩**：批量把 PNG/JPG/WebP/BMP/AVIF 转为 JPG/WebP/PNG。转换前按格式与质量给出**预估**体积与节省，真实大小以转换时的编码结果为准；透明、超大像素、引用可改写等风险在转换时逐张精确判定。Wiki 嵌入、Markdown 链接、HTML `img`、frontmatter 与 Canvas 中的引用都会被安全改写，源图仅在校验通过后移入回收站。
+- **关联笔记整理**：找出当前笔记的出链、入链、双向链接，批量移动到目标文件夹，最近一次移动可撤销。
 
-| 模块 | 能做什么 |
-| --- | --- |
-| Vault 体检 | 一键扫描未引用图片、未引用附件、空文件、空文件夹、失效图片链接、失效笔记链接、原生图片链接、Wiki 笔记链接、重复文件；扫描可随时中止，已完成的分类结果保留；结果缓存在插件设置里，重开面板显示「上次扫描」时间，设置变化时自动失效 |
-| 清理处理 | 勾选后通过删除按钮两段式确认移入 Obsidian 回收站；失效链接可移除；缺失笔记可创建；`![[图片]]` 可转换为标准 Markdown 语法 |
-| 图片压缩 | 首页与标签条末尾都有入口：进入页签先轻量枚举候选，点「扫描并估算」按格式与质量快速预估空间并显示进度（不逐张解码）；批量把 PNG/JPG/WebP/BMP/AVIF 转为 JPG/WebP/PNG，安全改写引用，估算与转换都可以中止 |
-| 关联笔记整理 | 找出当前笔记的出链、入链、双向链接笔记，批量移动到指定文件夹 |
-| 扫描报告 | 支持复制到剪贴板或导出 Markdown 报告，只包含路径与链接信息，不含笔记正文 |
-| 性能 | 全部在本地完成：图片压缩估算改为纯数学预估，只读文件体积与 Obsidian 引用索引，本机 5615 张约 5.4 秒（不再逐张解码）；执行阶段先建立引用内容快照、不再逐张全库读取笔记，并按需检测透明度，大库更快；重复文件在大小预筛后最多 8 路并发计算 SHA-256（按文件体积预算自动下调，约 8 倍），正文引用匹配只比对文件名尾段 |
-| 键盘与读屏 | 同组图片预览只占一个 Tab 停靠点，方向键切换、Enter 或空格打开；弹窗关闭后焦点回到触发元素，并声明 `role="dialog"` 与可访问名称；表头带 `scope="col"`；跟随系统「减少动态效果」 |
+全部在本地完成：无网络请求、无遥测。扫描从不修改文件；删除需要两段式确认并走 Obsidian 回收站，链接改写依赖 Obsidian 编辑历史。每次清理后，因操作变空的文件夹（含嵌套空子目录）会被自动移入回收站，并自动做一次全关联重扫、刷新所有体检类别计数，无需二次手动扫描。
 
 ## 快速上手
 
-三步用起来：
-
-1. **安装并启用**：在 **设置 → 第三方插件 → 浏览** 中搜索 **Vault Doctor** 安装并启用；也可按下方[安装说明](#安装与卸载)手动放置文件。
-2. **打开体检**：点击左侧栏唯一的 <kbd>+</kbd> 方框图标「Vault 体检与清理」，或运行命令「打开 vault 体检与清理」。
-3. **扫描并处理**：点击右上角**开始扫描**，在体检首页按问题数量优先处理；进入分类标签页勾选条目后执行清理。**扫描不会修改任何文件，只有你确认的操作才会执行。**
+1. **安装并启用**：在 **设置 → 第三方插件 → 浏览** 中搜索 **Vault Doctor** 安装并启用。
+2. **打开体检**：点击左侧栏唯一的「Vault 体检与清理」图标，或运行命令「打开 vault 体检与清理」。
+3. **扫描并处理**：点右上角**开始扫描**，在体检首页按问题数量优先处理；进入分类标签页勾选条目后执行清理。**扫描不会修改任何文件，只有你确认的操作才会执行。**
 
 **首次使用引导**：第一次安装并加载插件时会自动弹出三步引导（它能做什么、安全说明、怎么开始，含界面截图），点「开始使用」可直接打开体检面板。之后可在命令面板搜索「打开使用引导」重看；设置里的「首次显示使用引导」关闭后不再自动弹出。
 
 **查看更新说明**：安装或升级到新版本后，首次打开会自动弹出一次该版本的中文更新说明（按新功能、改进、修复分类，含「开始使用」按钮）；同一版本不会重复弹出。之后可随时在命令面板搜索「查看更新说明」再次打开。
 
-## Vault 体检与清理
+## 截图证明
 
-点击左侧栏唯一的**打开 vault 体检与清理**图标，或运行同名命令打开体检工具。工具以工作区标签页打开。点击**开始扫描**后，**体检首页**与各分类标签页并列展示，可随时切回总览。
-
-扫描默认不勾选任何条目；确认无误后自行勾选并执行清理。
-
-### 体检首页
-
-首页把所有检查项汇总成一张总览：顶部是**当前待处理**总数和扫描进度（`9/9 分类已扫描`），下方按**优先处理**（按问题数量排序）与**已检查（未发现问题）**分区。每个卡片都能直接**重新扫描**或**查看**明细，不必逐个标签页翻找。扫描期间标题栏会出现**中止扫描**，点它会在当前分类结束后停下，已完成的分类结果全部保留，首页标注「扫描已中止」。
-
-扫描结果会缓存在插件设置中：重新打开面板直接显示上次结果，并标注「上次扫描：日期 时间」，点**重新扫描全部**才会更新；修改图片格式或忽略目录后，缓存中保存的设置快照与当前设置不一致时即被丢弃，不再继续显示与当前设置不符的扫描结果，需要重新扫描。
-
-首页同时提供**图片压缩**卡片：它不属于 9 类扫描，**开始扫描**只更新 9 类结果，不会为压缩候选解码或估算体积；卡片显示「尚未估算 / 正在估算 / N 张图片可转换」等状态，有可转换图片时计入顶部「当前待处理」总数，点卡片或**查看**即可进入图片压缩页签。
+以下截图均取自演示库 `vault-doctor-demo`，仅含示例内容，不含任何真实项目信息。
 
 ![体检首页扫描结果](docs/images/02-scan-result.png)
 
-### 检查项说明
+![未引用图片列表](docs/images/03-unused-images.png)
+
+![失效笔记链接列表](docs/images/04-broken-links.png)
+
+![空文件列表](docs/images/05-empty-files.png)
+
+![重复文件分组](docs/images/06-duplicate-files.png)
+
+## 功能细节
+
+### Vault 体检与清理
+
+点击左侧栏唯一的**打开 vault 体检与清理**图标，或运行同名命令打开体检工具。工具以工作区标签页打开。点击**开始扫描**后，**体检首页**与各分类标签页并列展示，可随时切回总览。扫描默认不勾选任何条目，确认无误后自行勾选并执行清理。
+
+**体检首页**把所有检查项汇总成一张总览：顶部是**当前待处理**总数和扫描进度（`9/9 分类已扫描`），下方按**优先处理**（按问题数量排序）与**已检查（未发现问题）**分区。每个卡片都能直接**重新扫描**或**查看**明细。扫描期间标题栏会出现**中止扫描**，点它会在当前分类结束后停下，已完成的分类结果全部保留。
+
+扫描结果缓存在插件设置中：重开面板直接显示上次结果并标注「上次扫描：日期 时间」；修改图片格式或忽略目录后，缓存中保存的设置快照与当前设置不一致时即被丢弃，需重新扫描。首页同时提供**图片压缩**卡片，它不属于 9 类扫描，**开始扫描**只更新 9 类结果；有可转换图片时计入顶部「当前待处理」总数，点卡片或**查看**进入图片压缩页签。
+
+<details>
+<summary>展开：9 条检查项说明</summary>
 
 - **未引用图片**：按设置中的可清理图片格式（默认 PNG、JPG/JPEG、GIF、WEBP、SVG、BMP、AVIF、ICO）扫描未被 Markdown 链接或 Canvas 文件节点引用的图片。采用保守策略：正文中以任何形式提到图片文件名或路径（HTML 标签、frontmatter 纯文本、代码块）都视为已引用，避免误报。
 - **未引用附件**：扫描隐藏目录与忽略目录之外、不属于可清理图片格式的非 Markdown、非 Canvas 文件；被链接、Canvas 节点或文字提及的文件会被排除。若把某种扩展名从「可清理图片格式」里去掉，这类文件会改按附件参与扫描。
@@ -107,34 +106,28 @@ Chinese documentation follows below. / 中文说明见下方。
 - **空文件夹**：包括只包含空子文件夹的父级文件夹。`.obsidian`、`.trash`、`.git` 等隐藏目录永远不会被扫描。
 - **失效图片链接**：本地目标无法解析的图片嵌入与图片链接单独成表，可勾选移除完整链接语法。外部 URL、HTML 图片、frontmatter 与代码块不参与扫描。
 - **失效笔记链接**：指向不存在 Markdown 笔记的 Wiki 链接与 Markdown 链接单独成表，支持定位、本次忽略、移除或创建缺失目标；缺失的父文件夹会自动创建，已存在的文件与无效目标会跳过并报告。
-- **原生图片链接**：全库查找 `![[图片.png]]` 形式的嵌入，可转换为 `![](路径)` 标准语法。尺寸标注、未解析目标、代码块与 frontmatter 一律跳过；按笔记分组执行，可用 Obsidian 编辑历史撤销。
-- **Wiki 笔记链接**：查找 `[[笔记]]`、`[[笔记|别名]]`、`[[笔记#标题]]`、`[[笔记^块id]]` 等指向 Markdown 笔记的 Wiki 链接，可转换为 `[显示文本](<路径.md>)` 标准尖括号 Markdown 链接；别名保留，标题与块引用转为 `#标题` / `#^块id` 锚点。图片等嵌入语法、外部 URL、非 Markdown 目标、无法解析的目标、代码块与 frontmatter 一律跳过；按笔记分组执行，可用 Obsidian 编辑历史撤销。操作：进入 **Wiki 笔记链接** 页签，勾选要转换的链接（无法解析或无需转换的会自动置灰），点击 **转换选中链接**，在弹出确认框点 **确认转换**；完成后底部状态栏更新，并弹出 `已转换：N，跳过：M，失败：K` 的提示。
+- **原生图片链接**：全库查找 `![[图片.png]]` 形式的嵌入，可转换为标准 Markdown 图片链接。尺寸标注、未解析目标、代码块与 frontmatter 一律跳过；按笔记分组执行，可用 Obsidian 编辑历史撤销。
+- **Wiki 笔记链接**：查找 `[[笔记]]`、`[[笔记|别名]]`、`[[笔记#标题]]`、`[[笔记^块id]]` 等指向 Markdown 笔记的 Wiki 链接，可转换为 `[显示文本](<路径.md>)` 标准尖括号 Markdown 链接；别名保留，标题与块引用转为 `#标题` / `#^块id` 锚点。图片等嵌入语法、外部 URL、非 Markdown 目标、无法解析的目标、代码块与 frontmatter 一律跳过；按笔记分组执行，可用 Obsidian 编辑历史撤销。
 - **重复文件**：先按文件大小预筛，再按 SHA-256 内容哈希精确分组，只把字节级相同的文件视为重复（不含相似内容）。删除选中的重复文件前会同步移除笔记中的对应链接；笔记编辑失败则阻止删除，避免产生新失效链接。
+
+</details>
 
 ### 分类明细界面
 
 **未引用图片**以缩略图卡片展示，可勾选、预览或删除；顶部可按**按路径**或**按格式**分组（也可不分组），底部显示已选数量，右侧为**移入回收站**。
 
-![未引用图片列表](docs/images/03-unused-images.png)
-
 **失效笔记链接**以表格展示源笔记、失效链接原文、未解析目标与链接类型；每行可**定位**或本次**忽略**，底部可**创建选中笔记**或**移除选中链接**。
-
-![失效笔记链接列表](docs/images/04-broken-links.png)
 
 **空文件**与**空文件夹**列表会标注文件大小，勾选后统一移入回收站。
 
-![空文件列表](docs/images/05-empty-files.png)
-
 **重复文件**按内容哈希分组，逐行列出每个副本被哪些笔记引用、位于哪个文件夹、当前状态（已引用 / 未发现引用），便于判断该保留哪一份。
 
-![重复文件分组](docs/images/06-duplicate-files.png)
+> 安全执行、回收站、两段式确认、清理后连锁收尾的统一约定见下方[安全设计](#安全设计)。
 
 ### 安全设计
 
 - 清理按你在 Obsidian 设置中选择的回收站选项移入 `.trash/` 或系统回收站，不直接删除文件；失效链接移除、原生图片链接与 Wiki 笔记链接转换直接编辑 Markdown，可用编辑历史撤销。
-- **删除按钮两段式确认**：第一次点击「移入回收站 / 删除选中文件 / 删除」只会把按钮变为「确认删除」警示状态并提示「再次点击确认删除」；第二次点击才执行。3 秒无操作、焦点移出按钮或勾选变化都会自动复位，不再弹出二次确认弹窗。失效链接移除、缺失笔记创建、原生链接与 Wiki 链接转换和关联笔记移动仍使用各自的确认弹窗。误触说明：第一次点击只是**武装**按钮，不会删除任何文件；若误点了，不做任何操作等 3 秒即自动复位，或点击其它按钮 / 取消勾选也能立即复位。
-- 重复文件支持整组全选删除：执行前会按内容哈希逐文件复核（引用清理失败、内容已变化或读取失败的单个文件会被跳过并说明原因），不会因为「每组必须保留一个副本」而拒绝整组操作。
-- 执行清理前会对每个条目**重新复核**引用状态：扫描后被引用、被修改或已被移除的资源自动跳过。
+- **删除按钮两段式确认**：第一次点击「移入回收站 / 删除选中文件 / 删除」只会把按钮变为「确认删除」警示状态并提示「再次点击确认删除」；第二次点击才执行。3 秒无操作、焦点移出按钮或勾选变化都会自动复位，不再弹出二次确认弹窗。失效链接移除、缺失笔记创建、原生链接与 Wiki 链接转换和关联笔记移动仍使用各自的确认弹窗。
 - **清理后的连锁收尾**：清理未引用图片/附件/空文件、重复文件、创建缺失笔记、移除/转换失效链接，以及图片压缩转换完成后，系统会自动把「本次操作导致变空」的文件夹（含嵌套空子目录）移入 Obsidian 回收站，并自动做一次全关联重扫、刷新所有体检类别计数，界面状态与磁盘保持一致，无需二次手动扫描。边界：只删除真正变空的文件夹；隐藏目录（`.obsidian`/`.trash`/`.git`）、设置里忽略的目录和根目录都不会被删除；被移入回收站的文件夹可恢复。清理完成提示中会追加「自动清理了 X 个空文件夹」。
 - Vault 内容发生变化后，旧扫描结果会标记**结果待复核，请重新扫描**，未扫描的分类显示**尚未扫描**；清理操作完成后会自动重扫刷新。
 
@@ -144,9 +137,11 @@ Chinese documentation follows below. / 中文说明见下方。
 
 ![图片压缩页签的候选列表与汇总条](docs/images/09-image-convert.png)
 
-首次进入页签时会先做一次轻量枚举：只按源格式、忽略目录与目标格式筛出候选，不读文件、不估算体积；之后切换源格式或目标格式也会重新枚举。点**扫描并估算**后按源格式、目标格式与质量推算每张图的预估体积，同时显示「正在估算 x / y · 当前文件」与进度条；估算不读取图片内容，也不解码。完成后列表列出每张候选图的当前大小、转换后**约**多大与变化幅度；尺寸列在快速预估下显示 `—`，引用列按 Obsidian 引用索引统计「引用 N 处」。汇总条只累计可转换项，会跳过的图片单独计数并写明原因。工具栏提供**全选可节省项**、**全部选择**与**取消选择**：**全选可节省项**只选已估算且确实省体积的条目，**全部选择**选中所有未跳过项（包括体积可能变大的），**取消选择**清空当前选择。引用列可点击：1 篇来源笔记直接打开，多篇在列内弹出菜单选择，0 篇或笔记已移动时给出中文提示。选好条目后点**开始转换**（需连点两次确认）；转换开始前先建立引用内容快照，之后逐张真实解码与编码并显示同样的进度信息，结束后表格下方的结果摘要与右上角提示会给出成功、跳过、失败数量与实际节省的空间。
+首次进入页签时会先做一次轻量枚举：只按源格式、忽略目录与目标格式筛出候选，不读文件、不估算体积；切换源格式或目标格式会重新枚举。点**扫描并估算**后按源格式、目标格式与质量推算每张图的预估体积，同时显示「正在估算 x / y · 当前文件」与进度条；估算不读取图片内容，也不解码。完成后列表列出每张候选图的当前大小、转换后**约**多大与变化幅度；尺寸列在快速预估下显示 `—`，引用列按 Obsidian 引用索引统计「引用 N 处」。
 
-![转换完成后的结果状态](docs/images/10-image-convert-result.png)
+工具栏提供**全选可节省项**、**全部选择**与**取消选择**：**全选可节省项**只选已估算且确实省体积的条目，**全部选择**选中所有未跳过项（包括体积可能变大的），**取消选择**清空当前选择。引用列可点击：1 篇来源笔记直接打开，多篇在列内弹出菜单选择，0 篇或笔记已移动时给出中文提示。选好条目后点**开始转换**（需连点两次确认）。
+
+![转换完成后的结果摘要](docs/images/10-image-convert-result.png)
 
 ### 可选项
 
@@ -158,20 +153,22 @@ Chinese documentation follows below. / 中文说明见下方。
 | 透明图处理 | 白底、跳过 | 白底 |
 | 转换策略 | 能省空间才转换（默认）、总是转换（即使变大） | 能省空间才转换 |
 
- 质量旁的 ⓘ 图标在悬停或键盘聚焦时显示说明：100 为最高质量，JPG/WebP 仍会重新编码（有损），仅 PNG 无损；目标格式为 PNG 时质量输入框不可用，提示会追加「PNG 输出为无损，质量设置不适用」。**转换策略**：默认「能省空间才转换」保持原行为，转换后体积不减反增就保留原图并跳过；「总是转换（即使变大）」则照常执行、仅换格式，原图仍移入回收站可恢复。像素上限按两级规则：默认档超过 1.2 亿像素强制跳过（快速预估不解码，因此估算列表不再预标记）；「总是转换」档可放开 1.2 亿像素、超大像素图放行并仅提示，超过 4 亿像素绝对硬上限仍跳过以防内存崩溃。
+质量旁的 ⓘ 图标在悬停或键盘聚焦时显示说明：100 为最高质量，JPG/WebP 仍会重新编码（有损），仅 PNG 无损；目标格式为 PNG 时质量输入框不可用。**转换策略**：默认「能省空间才转换」保持原行为，转换后体积不减反增就保留原图并跳过；「总是转换（即使变大）」则照常执行、仅换格式，原图仍移入回收站可恢复。像素上限按两级规则：默认档超过 1.2 亿像素强制跳过；「总是转换」档可放开 1.2 亿像素、超大像素图放行并仅提示，超过 4 亿像素绝对硬上限仍跳过以防内存崩溃。
 
-设置页可预先配置**目标格式**、**默认质量**与**透明图处理**；在页面内调整这三项时会同步保存为下一次的默认值。源格式只在页面内勾选，默认勾选 PNG。
+设置页可预先配置**目标格式**、**默认质量**与**透明图处理**；在页面内调整这三项时会同步保存为下一次的默认值。源格式只在页面内勾选，默认勾选 PNG。只处理上述源格式；GIF（转换会丢失动画）、SVG、TIFF、HEIC/HEIF、ICO 不处理；`.obsidian`、隐藏目录和设置中的「忽略目录」会被排除。
 
-只处理上述源格式。GIF（转换会丢失动画）、SVG、TIFF、HEIC/HEIF、ICO 不处理；`.obsidian`、隐藏目录和设置中的「忽略目录」会被排除。
-
-### 透明图
+<details>
+<summary>展开：透明图处理</summary>
 
 - **估算不检测透明**：快速预估不解码，因此估算列表不显示「透明」标记；是否含透明通道在转换时按实际像素判断。
 - **白底**：把透明区域铺成白色再编码，适合 JPG 等不支持透明的目标。
 - **跳过**：选「跳过」时，含透明通道的图片在转换时一律跳过，与目标格式无关；JPG 目标下同样先跳过。估算阶段不会因此提前阻断，转为在转换时精确判定。
 - **JPG 始终铺白底**：目标为 JPG 时编码强制把透明区域铺成白色（JPG 不支持透明通道）；这条只作用于真正被转换的图片，选「跳过」的透明图不会走到编码这一步。
 
-### 会跳过的情况
+</details>
+
+<details>
+<summary>展开：会跳过的情况</summary>
 
 估算阶段只会提前标出**目标同名文件已存在**与**多张图片会转换为同一目标文件**；其余风险在转换时逐张精确检查，跳过的条目会在结果里写明原因：
 
@@ -183,23 +180,28 @@ Chinese documentation follows below. / 中文说明见下方。
 - 选择「跳过」时，含透明通道的图片（与目标格式无关）。
 - 无扩展名引用存在同名文件或解码/编码失败；像素上限按**转换策略**判断：默认档超过 1.2 亿像素即跳过，「总是转换」档超过 4 亿像素绝对硬上限仍跳过。
 
-### 空间预估
+</details>
+
+<details>
+<summary>展开：空间预估</summary>
 
 候选列表显示**候选数**、**当前体积**、**转换后约多少**与**预计节省**。汇总条只累计可转换项，估算阶段已能确定的跳过项单独显示数量。
 
-预估是**经验值**：按「源格式 → 目标格式」的经验压缩比乘以当前文件体积，再按质量线性缩放（PNG 为无损目标，质量不参与）。它只用于判断量级与挑选候选项，**不会逐张解码或重编码**，因此 5000+ 张也能在秒级完成；最终体积以转换时的真实编码结果为准。
+预估是**经验值**：按「源格式 → 目标格式」的经验压缩比乘以当前文件体积，再按质量线性缩放（PNG 为无损目标，质量不参与）。它只用于判断量级与挑选候选项，**不会逐张解码或重编码**，因此 5000+ 张也能在秒级完成；最终体积以转换时的真实编码结果为准。如果预估转换后反而更大，汇总显示**预计增加**，单行显示 `+x%`；这类图片可以不勾选。
 
-如果预估转换后反而更大，汇总显示**预计增加**，单行显示 `+x%`；这类图片可以不勾选。
+</details>
 
-### 耗时与中止
+<details>
+<summary>展开：耗时与中止</summary>
 
 - 估算只遍历文件列表与内存中的引用索引，不解码、不读图片，耗时基本只随候选数量线性增长；执行阶段开始前一次性建立引用内容快照，之后批量引用扫描共享快照，全库笔记读取从每张图一次降为整个转换批次一次；按需检测透明度、使用原生位图解码，在内存预算内并发编解码，引用改写仍按单文件串行，大库处理更快。
 - 估算与转换期间都会显示「正在估算 / 转换 x / y · 当前文件」和进度条；大批量图片时进度文字最多约每 150 ms 刷新一次，避免界面卡顿。
 - 估算与转换都支持中止；中止在文件之间生效，已完成部分保留。转换单张大图编码时界面可能短暂停顿。
 
-### 安全执行
+</details>
 
-每张图独立执行一次事务：
+<details>
+<summary>展开：安全执行（每张图独立事务）</summary>
 
 1. 重新校验文件仍存在、仍在候选范围内，并记录大小与 mtime。
 2. 校验引用位置可定位，避免改写错位置。
@@ -212,13 +214,16 @@ Chinese documentation follows below. / 中文说明见下方。
 
 - Wiki 嵌入，保留别名；含尺寸参数的嵌入会跳过。
 - 标准 Markdown 图片链接，兼容尖括号目标、标题与 URL 编码。
-- HTML `<img src>`；`<picture><source>`、`srcset` 会跳过。
+- HTML 的 img 标签（含 src 属性）；picture/source 标签、srcset 会跳过。
 - frontmatter 中的 Wiki 链接；裸路径会跳过。
 - Canvas 节点的 `file` 字段；Canvas 文本节点里的引用会跳过。
 
 转换会修改文件内容与文件本身，和首页「扫描只读」不同；预估为经验值，请确认量级后再执行，实际大小以转换结果为准。整个过程在本地完成，不引入依赖、不发起网络请求。
 
-### 失败与恢复
+</details>
+
+<details>
+<summary>展开：失败与恢复</summary>
 
 - 改写引用失败：尝试恢复原文并删除本次新建文件，原图保留。
 - 回滚时发现笔记被用户改过：保留用户内容，不覆盖，只把该笔记列为「未能回滚」，并保留新文件。
@@ -226,13 +231,7 @@ Chinese documentation follows below. / 中文说明见下方。
 - 引用已改好但原图移入回收站失败：保留新文件与现状，原图也保留；再次执行只重试移入回收站，不重新编码。
 - 恢复原图：按 Obsidian 回收站设置从 `.trash/` 或系统回收站还原；引用仍指向新文件，完全回退需手动改回并删除新文件。
 
-### 已知限制
-
-- 转换会丢弃 EXIF/GPS/ICC 与色彩配置文件。
-- 照片方向由浏览器自动扶正，不额外写入方向信息。
-- 不缩放、不裁剪，只改变编码格式与质量。
-- 原图恢复依赖 Obsidian 回收站；清空回收站后无法从插件内恢复。
-- 不处理 GIF、SVG、TIFF、HEIC/HEIF、ICO。
+</details>
 
 ## 关联笔记整理
 
